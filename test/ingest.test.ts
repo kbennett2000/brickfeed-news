@@ -4,7 +4,7 @@ import { storyId } from "../src/id.js";
 import { ingest } from "../src/ingest.js";
 import { emptyManifest } from "../src/manifest.js";
 import type { IngestDeps, Manifest } from "../src/types.js";
-import { fixedNow, makeFetch } from "./helpers.js";
+import { fixedNow, makeConfig, makeFetch } from "./helpers.js";
 import { FEED_A, FEED_B, RESOLVED } from "./fixtures.js";
 
 const NOW = "2025-07-07T18:00:00.000Z";
@@ -20,10 +20,7 @@ function deps(over: Partial<IngestDeps> = {}): IngestDeps {
   };
 }
 
-const config: Config = {
-  feedUrls: ["feed://a", "feed://b"],
-  manifestPath: "unused-in-these-tests.json",
-};
+const config: Config = makeConfig({ feedUrls: ["feed://a", "feed://b"] });
 
 describe("ingest", () => {
   it("classifies all fresh stories as NEW and records resolved URL + identity", async () => {
