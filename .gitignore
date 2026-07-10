@@ -9,3 +9,12 @@
 /.factory/
 /cycle.log
 PAUSE
+
+# node / app
+/node_modules/
+
+# local app config (secrets/URLs) — commit config.example.json instead
+/config.json
+
+# runtime manifest + artifacts (git-as-database is a later slice's job)
+/data/
