@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_DEPLOY_COMMAND,
   DEFAULT_GROK_BASE_URL,
@@ -314,6 +314,63 @@ describe("validateConfig", () => {
   it("rejects a blank deploy.command and a non-boolean deploy.enabled", () => {
     expect(() => validateConfig({ ...base, deploy: { command: "" } })).toThrow();
     expect(() => validateConfig({ ...base, deploy: { enabled: "yes" } })).toThrow();
+  });
+
+  describe("legacy provider back-compat + actionable enum errors", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("maps legacy generator.provider \"subscription\" to \"claude\" with a stderr warning", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const cfg = validateConfig(
+        { ...base, generator: { provider: "subscription", model: "claude-sonnet-5" } },
+        "config.json",
+      );
+      expect(cfg.generator.provider).toBe("claude");
+      expect(cfg.generator.model).toBe("claude-sonnet-5");
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0][0] as string;
+      expect(msg).toContain("config.json");
+      expect(msg).toContain("subscription");
+      expect(msg).toContain("claude");
+    });
+
+    it("does not warn for a valid, current provider value", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      validateConfig({ ...base, generator: { provider: "claude" } });
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("still rejects a truly unknown provider — with an actionable message", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(() =>
+        validateConfig({ ...base, generator: { provider: "openai" } }, "config.json"),
+      ).toThrow(/config\.json.*generator\.provider.*"openai".*Allowed values.*"grok".*"claude".*"apikey".*"grok-terminal"/s);
+      // The rename hint is present for the generator provider (it has an alias).
+      expect(() =>
+        validateConfig({ ...base, generator: { provider: "openai" } }),
+      ).toThrow(/"subscription" → "claude"/);
+      // An unknown provider is an error, never a silent warning.
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("gives actionable image + storage enum errors (no rename hint — never renamed)", () => {
+      expect(() =>
+        validateConfig({ ...base, image: { provider: "midjourney" } }, "config.json"),
+      ).toThrow(/config\.json.*image\.provider.*"midjourney".*Allowed values.*"grok".*"local".*"grok-terminal"/s);
+      expect(() =>
+        validateConfig({ ...base, storage: { provider: "s3" } }, "config.json"),
+      ).toThrow(/config\.json.*storage\.provider.*"s3".*Allowed values.*"blob".*"local"/s);
+      // These blocks have no renamed values, so no misleading rename hint.
+      expect(() => validateConfig({ ...base, image: { provider: "midjourney" } })).toThrow(
+        /^(?!.*renamed).*$/s,
+      );
+    });
+
+    it("describes a non-string bad provider value in the error", () => {
+      expect(() =>
+        validateConfig({ ...base, generator: { provider: 42 } }, "config.json"),
+      ).toThrow(/generator\.provider is 42/);
+    });
   });
 
   it("rejects a missing or blank brickStyle.styleLanguage", () => {

@@ -133,6 +133,22 @@ export interface LocalStorageConfig {
   publicBaseUrl: string;
 }
 
+/** Allowed provider values per block, single source of truth for validation + error text. */
+const GENERATOR_PROVIDERS = ["grok", "claude", "apikey", "grok-terminal"] as const;
+const IMAGE_PROVIDERS = ["grok", "local", "grok-terminal"] as const;
+const STORAGE_PROVIDERS = ["blob", "local"] as const;
+
+/**
+ * Back-compat aliases for renamed enum values, keyed by block+field. A config predating a
+ * rename maps to the canonical value with a one-time deprecation warning (rather than a hard
+ * failure). Currently only the subscription-CLI text provider was renamed
+ * "subscription" → "claude" (Slice 2c). Image + storage providers were never renamed, so
+ * they have none. Add an entry here whenever an enum value is renamed.
+ */
+const GENERATOR_PROVIDER_ALIASES: Record<string, GeneratorConfig["provider"]> = {
+  subscription: "claude",
+};
+
 /** Defaults when the config omits the `generator` block (default = grok). */
 export const DEFAULT_PROVIDER: GeneratorConfig["provider"] = "grok";
 export const DEFAULT_MODEL = "claude-sonnet-5";
@@ -263,17 +279,13 @@ function validateGenerator(raw: unknown, path: string): GeneratorConfig {
   }
   const g = raw as Record<string, unknown>;
 
-  const provider = g.provider ?? DEFAULT_PROVIDER;
-  if (
-    provider !== "grok" &&
-    provider !== "claude" &&
-    provider !== "apikey" &&
-    provider !== "grok-terminal"
-  ) {
-    throw new Error(
-      `Config at ${path}: generator.provider must be "grok", "claude", "apikey", or "grok-terminal".`,
-    );
-  }
+  const provider = validateEnum(
+    g.provider ?? DEFAULT_PROVIDER,
+    GENERATOR_PROVIDERS,
+    GENERATOR_PROVIDER_ALIASES,
+    path,
+    "generator.provider",
+  );
 
   const model = g.model ?? DEFAULT_MODEL;
   if (typeof model !== "string" || model.length === 0) {
@@ -370,12 +382,13 @@ function validateImage(raw: unknown, path: string): ImageConfig {
   }
   const i = raw as Record<string, unknown>;
 
-  const provider = i.provider ?? DEFAULT_IMAGE_PROVIDER;
-  if (provider !== "grok" && provider !== "local" && provider !== "grok-terminal") {
-    throw new Error(
-      `Config at ${path}: image.provider must be "grok", "local", or "grok-terminal".`,
-    );
-  }
+  const provider = validateEnum(
+    i.provider ?? DEFAULT_IMAGE_PROVIDER,
+    IMAGE_PROVIDERS,
+    {},
+    path,
+    "image.provider",
+  );
 
   const grok = validateImageGrok(i.grok, path);
   const local = validateImageLocal(i.local, path);
@@ -453,10 +466,13 @@ function validateStorage(raw: unknown, path: string): StorageConfig {
   }
   const s = raw as Record<string, unknown>;
 
-  const provider = s.provider ?? DEFAULT_STORAGE_PROVIDER;
-  if (provider !== "blob" && provider !== "local") {
-    throw new Error(`Config at ${path}: storage.provider must be "blob" or "local".`);
-  }
+  const provider = validateEnum(
+    s.provider ?? DEFAULT_STORAGE_PROVIDER,
+    STORAGE_PROVIDERS,
+    {},
+    path,
+    "storage.provider",
+  );
 
   const blob = validateStorageBlob(s.blob, path);
   const local = validateStorageLocal(s.local, path);
@@ -600,6 +616,71 @@ function validateMaxAgeHours(raw: unknown, path: string): number {
     throw new Error(`Config at ${path}: maxAgeHours must be a positive number.`);
   }
   return raw;
+}
+
+/**
+ * Validate a config enum field with back-compat aliasing. A value matching a legacy
+ * `aliases` key is mapped to its canonical replacement and a one-time deprecation warning
+ * is emitted to stderr (NOT a hard failure), so configs predating a rename keep loading. An
+ * allowed value passes through. Anything else throws an ACTIONABLE error (see `enumError`):
+ * the offending file, the bad value, the allowed values, and — when a rename is the likely
+ * cause — the fix. Callers pass the already-defaulted value, so an omitted field never lands
+ * here.
+ */
+function validateEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  aliases: Record<string, T>,
+  path: string,
+  field: string,
+): T {
+  if (typeof value === "string" && Object.prototype.hasOwnProperty.call(aliases, value)) {
+    const canonical = aliases[value];
+    warnDeprecated(
+      `Config at ${path}: ${field} "${value}" is a legacy value renamed to "${canonical}"; ` +
+        `loading it as "${canonical}". Update ${path} to "${canonical}" to silence this warning.`,
+    );
+    return canonical;
+  }
+  if (typeof value === "string" && (allowed as readonly string[]).includes(value)) {
+    return value as T;
+  }
+  throw new Error(enumError(value, allowed, aliases, path, field));
+}
+
+/**
+ * Build an actionable enum error: names the file, the bad value, the allowed set, and — when
+ * renamed aliases exist for this field — the likely fix (e.g. `"subscription" → "claude"`).
+ */
+function enumError(
+  value: unknown,
+  allowed: readonly string[],
+  aliases: Record<string, string>,
+  path: string,
+  field: string,
+): string {
+  const allowedList = allowed.map((v) => `"${v}"`).join(", ");
+  let msg =
+    `Config at ${path}: ${field} is ${describeValue(value)}, which is not a valid choice. ` +
+    `Allowed values: ${allowedList}.`;
+  const renames = Object.keys(aliases);
+  if (renames.length > 0) {
+    const hints = renames.map((k) => `"${k}" → "${aliases[k]}"`).join(", ");
+    msg += ` If you see an old value here, it was renamed — change ${hints}.`;
+  }
+  return msg;
+}
+
+/** Render a value for an error message: strings quoted, everything else JSON-ish. */
+function describeValue(value: unknown): string {
+  if (typeof value === "string") return `"${value}"`;
+  if (value === undefined) return "undefined";
+  return JSON.stringify(value);
+}
+
+/** Emit a deprecation warning to stderr. Kept in one place so the channel is consistent. */
+function warnDeprecated(message: string): void {
+  console.warn(message);
 }
 
 /** Coerce an optional config field to a non-empty string, defaulting when omitted. */
