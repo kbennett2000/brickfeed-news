@@ -3,6 +3,52 @@
 ## Current state
 Slice 1 (RSS ingestion) is merged to `master`. **Slice 2 (Claude generation layer)**
 is built on branch `slice-2-claude-generation` with an open PR (see issue #3).
+**Slice 2c (Grok generator + default provider)** is built on branch
+`slice-2c-grok-generator` with an open PR (see issue #5).
+
+Generation layer (Slice 2c — Grok, new default provider):
+- `src/generator/grok.ts` — `GrokGenerator` behind the same `Generator` interface. Raw
+  `fetch` to xAI's OpenAI-compatible `POST {baseUrl}/chat/completions` (no SDK), model from
+  config (default `grok-4.5`), `Authorization: Bearer XAI_API_KEY`. Parses the chat envelope
+  (`choices[0].message.content`) → inner JSON via the shared defensive parser. NEVER throws →
+  `null` on any failure (missing key, transport error, non-2xx, bad envelope/JSON) → story
+  stays pending. HTTP boundary injected as `GrokChatRunner` for hermetic tests.
+- `src/generator/parse.ts` — the shared defensive inner-JSON parser (`extractJsonObject`,
+  `parseGeneratorOutput`), extracted from `subscription.ts` so both providers share it;
+  still re-exported from `subscription.ts` for existing importers.
+- `src/generator/index.ts` — factory now selects `"grok"` (DEFAULT) / `"claude"` (subscription,
+  **renamed** from `"subscription"`) / `"apikey"` (stub). Advisory preflight warns on missing
+  key/token; never blocks.
+- `src/secrets.ts` — added `getXaiApiKey()` (`XAI_API_KEY`). Still the ONLY env reader.
+- `src/prompt.ts` — instructions refined (provider-agnostic, shared): punchy neutral headline;
+  one-paragraph description; SHORT (~15–30 words) playful/cartoonish, purely-visual imagePrompt
+  with hard rules — no text/letters/written words in the scene, no brand/trademark names, and
+  **no brick/toy/lego language** (that styling is applied downstream by `wrapBrickStyle`, and the
+  instruction text itself now names none of those terms — a regression anchor).
+- Config: `generator.provider` now `"grok"|"claude"|"apikey"` (default `"grok"`);
+  added nested `generator.grok.{baseUrl (default https://api.x.ai/v1), model (default grok-4.5)}`.
+  Top-level `generator.model` still feeds the claude path.
+- Tests: **99 passing** (vitest), HTTP/subprocess boundaries mocked, no network/token/key.
+  Both gates clean: `grep -rn process.env src/` → only `secrets.ts`; `grep -rin lego src/
+  config.example.json` → empty.
+
+**Local-config migration (action for whoever runs the orchestrator):** the provider value
+`"subscription"` was renamed to `"claude"`. Any local `config.json` must update
+`generator.provider` accordingly (and may add the `generator.grok` block; it defaults if
+omitted). The example was updated and the dev-box `config.json` was migrated to `"claude"`.
+
+Verified end-to-end (Slice 2c):
+- All three routes driven through the real orchestrator + CLI (`npm run generate`): `grok`
+  (default), `claude`, and `apikey` each route correctly and never crash — with no key/token
+  every attempted story is left **pending** (retry next run), same proof standard as Slice 2.
+- Grok success path proven through the real `generateAll` with an injected HTTP boundary
+  returning a real-shaped, ```json-fenced chat-completions envelope: normalized
+  headline/description/imagePrompt written together, brick style wrapped, and a second run over
+  the generated manifest regenerated nothing (HTTP runner never called → idempotent).
+- Live model call still needs a real `XAI_API_KEY` (this headless env has none); not a code defect.
+
+---
+
 
 Ingestion backbone (Slice 1, merged):
 - `src/config.ts` — file-based config (`config.json`, git-ignored; `config.example.json` committed).

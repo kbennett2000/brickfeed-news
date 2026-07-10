@@ -1,34 +1,43 @@
 import type { GenerationInput } from "./types.js";
 
 /**
- * The generation instructions handed to Claude. These encode the ADR-0001 legal
- * guardrails, stated GENERICALLY — no trademarked brand is ever named here (per
- * CLAUDE.md, forbidden marks appear nowhere in code, prompts, or output). The
- * toy-brick styling is applied downstream by wrapBrickStyle(), NOT by Claude, so
- * the image prompt Claude returns must stay a neutral, real-world scene.
+ * The generation instructions shared by every text provider (Grok and the Claude
+ * subscription path). These encode the ADR-0001 legal guardrails, stated
+ * GENERICALLY — no trademarked mark is ever named here (per CLAUDE.md, forbidden
+ * marks appear nowhere in code, prompts, or output). The downstream styling is
+ * applied by wrapBrickStyle(), NOT by the model, so the image prompt the model
+ * returns must stay a plain, real-world scene with no pre-applied styling and no
+ * written words in it.
  *
- * Exported so a regression test can anchor on the guardrail wording.
+ * Exported so a regression test can anchor on the guardrail wording — including
+ * that this text itself never names the forbidden styling terms.
  */
 export const GENERATION_INSTRUCTIONS = `You rewrite a news story into original cover-page content for a static news site.
 
 Given the story below, produce THREE things:
 
-1. "headline": an ORIGINAL, rewritten headline. It must NOT reuse the source
-   article's title verbatim or near-verbatim — rephrase it in your own words.
-   Keep it punchy and factual, at most ~12 words.
+1. "headline": ONE punchy, neutral, factual sentence. It is an ORIGINAL rewrite —
+   it must NOT reuse the source article's title verbatim or near-verbatim. Rephrase
+   it in your own words.
 
-2. "description": one or two ORIGINAL sentences summarizing the story in your own
-   words. Never copy verbatim text from the source. Neutral, informative tone.
+2. "description": ONE concise ORIGINAL paragraph in your own words — what happened,
+   who is involved, the immediate outcome, and any notable context. Never copy
+   verbatim text from the source. Neutral, informative tone.
 
-3. "imagePrompt": a vivid but NEUTRAL description of a single real-world scene that
-   evokes the story, suitable for an image generator. Hard rules for this field:
-   - NO brand names, trademarks, logos, company names, or real people's names.
-   - NO toy, brick, plastic-figure, miniature, diorama, or construction-set
-     language of any kind. Describe a realistic scene as if photographed.
-   - Describe setting, subjects, action, lighting, and mood. One or two sentences.
+3. "imagePrompt": a SHORT scene — roughly 15 to 30 words — that is playful,
+   exaggerated, and cartoonish, and PURELY VISUAL. Hard rules for this field:
+   - NO text, letters, numbers, signs, logos, speech bubbles, or written words of
+     any kind anywhere in the scene.
+   - NO brand names, trademarks, company names, or product names.
+   - Describe it as a real, physical scene as if photographed. Do NOT stylize it as
+     a miniature model, a plastic figurine, a sculpture, or an assembled-block
+     build — that styling is added later, downstream, not by you.
+   - A caricature of a well-known public figure is fine, but never state or imply a
+     fabricated factual claim about anyone.
 
 Legal guardrails (must obey): the headline and description are ORIGINAL rewrites,
-never verbatim source text; the imagePrompt names no brands or trademarks.
+never verbatim source text; the imagePrompt names no brands or trademarks and
+contains no written words.
 
 Output STRICT JSON and nothing else — no prose, no markdown fences — an object with
 EXACTLY these keys: "headline", "description", "imagePrompt". Do not add other keys.`;

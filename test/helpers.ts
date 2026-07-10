@@ -4,6 +4,7 @@ import type {
   GenerationInput,
   Generator,
   GeneratorOutput,
+  GrokChatRunner,
 } from "../src/types.js";
 import type { FetchLike } from "../src/types.js";
 
@@ -61,8 +62,12 @@ export function makeConfig(over: Partial<Config> = {}): Config {
   return {
     feedUrls: ["feed://a"],
     manifestPath: "unused-in-these-tests.json",
-    generator: { provider: "subscription", model: "test-model" },
-    brickStyle: { styleLanguage: "TEST-STYLE toy-brick diorama" },
+    generator: {
+      provider: "grok",
+      model: "test-model",
+      grok: { baseUrl: "https://grok.test/v1", model: "grok-test" },
+    },
+    brickStyle: { styleLanguage: "TEST-STYLE plastic building-block diorama" },
     ...over,
   };
 }
@@ -108,5 +113,22 @@ export function fakeRunner(opts: {
   return async () => {
     if (opts.throws) throw new Error("simulated spawn failure");
     return { stdout: opts.stdout ?? "", code: opts.code ?? 0 };
+  };
+}
+
+/** A fake GrokChatRunner returning a canned HTTP response body, for grok-impl tests. */
+export function fakeGrokRunner(opts: {
+  body?: string;
+  ok?: boolean;
+  status?: number;
+  throws?: boolean;
+}): GrokChatRunner {
+  return async () => {
+    if (opts.throws) throw new Error("simulated transport failure");
+    return {
+      ok: opts.ok ?? true,
+      status: opts.status ?? 200,
+      body: opts.body ?? "",
+    };
   };
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MODEL, validateConfig } from "../src/config.js";
+import {
+  DEFAULT_GROK_BASE_URL,
+  DEFAULT_GROK_MODEL,
+  DEFAULT_MODEL,
+  validateConfig,
+} from "../src/config.js";
 
 const base = {
   feedUrls: ["https://news.google.com/rss"],
@@ -11,12 +16,29 @@ describe("validateConfig", () => {
   it("accepts a well-formed config", () => {
     const cfg = validateConfig({
       ...base,
-      generator: { provider: "subscription", model: "claude-sonnet-5" },
+      generator: {
+        provider: "grok",
+        model: "claude-sonnet-5",
+        grok: { baseUrl: "https://api.x.ai/v1", model: "grok-4.5" },
+      },
     });
     expect(cfg.feedUrls).toEqual(["https://news.google.com/rss"]);
     expect(cfg.manifestPath).toBe("data/manifest.json");
-    expect(cfg.generator).toEqual({ provider: "subscription", model: "claude-sonnet-5" });
+    expect(cfg.generator).toEqual({
+      provider: "grok",
+      model: "claude-sonnet-5",
+      grok: { baseUrl: "https://api.x.ai/v1", model: "grok-4.5" },
+    });
     expect(cfg.brickStyle.styleLanguage).toBe("generic toy-brick diorama");
+  });
+
+  it("accepts the 'claude' (subscription) provider", () => {
+    const cfg = validateConfig({
+      ...base,
+      generator: { provider: "claude", model: "claude-sonnet-5" },
+    });
+    expect(cfg.generator.provider).toBe("claude");
+    expect(cfg.generator.model).toBe("claude-sonnet-5");
   });
 
   it("rejects an empty feedUrls array", () => {
@@ -38,16 +60,29 @@ describe("validateConfig", () => {
     expect(() => validateConfig("nope")).toThrow();
   });
 
-  it("defaults the generator block to subscription + default model when absent", () => {
+  it("defaults the generator block to grok + default model + grok defaults when absent", () => {
     const cfg = validateConfig(base);
-    expect(cfg.generator.provider).toBe("subscription");
+    expect(cfg.generator.provider).toBe("grok");
     expect(cfg.generator.model).toBe(DEFAULT_MODEL);
+    expect(cfg.generator.grok).toEqual({
+      baseUrl: DEFAULT_GROK_BASE_URL,
+      model: DEFAULT_GROK_MODEL,
+    });
   });
 
   it("defaults model but keeps an explicit provider", () => {
     const cfg = validateConfig({ ...base, generator: { provider: "apikey" } });
     expect(cfg.generator.provider).toBe("apikey");
     expect(cfg.generator.model).toBe(DEFAULT_MODEL);
+  });
+
+  it("defaults the nested grok block per-field when partially specified", () => {
+    const cfg = validateConfig({
+      ...base,
+      generator: { provider: "grok", grok: { model: "grok-mini" } },
+    });
+    expect(cfg.generator.grok.baseUrl).toBe(DEFAULT_GROK_BASE_URL);
+    expect(cfg.generator.grok.model).toBe("grok-mini");
   });
 
   it("rejects an unknown generator.provider", () => {
@@ -58,7 +93,13 @@ describe("validateConfig", () => {
 
   it("rejects a non-string generator.model", () => {
     expect(() =>
-      validateConfig({ ...base, generator: { provider: "subscription", model: 42 } }),
+      validateConfig({ ...base, generator: { provider: "claude", model: 42 } }),
+    ).toThrow();
+  });
+
+  it("rejects a blank generator.grok.baseUrl", () => {
+    expect(() =>
+      validateConfig({ ...base, generator: { provider: "grok", grok: { baseUrl: "" } } }),
     ).toThrow();
   });
 

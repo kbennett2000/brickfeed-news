@@ -78,6 +78,19 @@ export type ClaudeRunner = (args: {
   prompt: string;
 }) => Promise<{ stdout: string; code: number }>;
 
+/**
+ * The HTTP boundary for the Grok generator, injected so tests can feed a canned
+ * chat-completions response body without a real network call or an API key.
+ * Resolves with whether the request was OK, the status, and the raw response body
+ * (the JSON envelope, parsed by the generator). A transport error is surfaced as
+ * ok:false rather than a rejection so generate() degrades to null.
+ */
+export type GrokChatRunner = (args: {
+  baseUrl: string;
+  model: string;
+  prompt: string;
+}) => Promise<{ ok: boolean; status: number; body: string }>;
+
 /** Injectable side-effects for the generation orchestrator (same DI pattern as IngestDeps). */
 export interface GenerateDeps {
   generator: Generator;

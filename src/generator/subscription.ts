@@ -6,6 +6,11 @@ import type {
   Generator,
   GeneratorOutput,
 } from "../types.js";
+import { parseGeneratorOutput } from "./parse.js";
+
+// Re-exported so existing importers (and tests) keep resolving the defensive parser
+// through this module even though it now lives in ./parse.js and is shared with Grok.
+export { extractJsonObject, parseGeneratorOutput } from "./parse.js";
 
 /**
  * Subscription generator (ADR decision #6): shells out to the Claude CLI with
@@ -67,54 +72,6 @@ export function extractResultText(stdout: string): string | null {
     // Not JSON at all — treat the raw output as the inner text.
     return trimmed;
   }
-}
-
-/**
- * Defensively parse the inner text Claude returned into a normalized
- * GeneratorOutput. Tolerates ```json fences, leading/trailing prose, and
- * whitespace by extracting the outermost {...} block before JSON.parse. Returns
- * null on any failure or if a required non-empty string key is missing.
- */
-export function parseGeneratorOutput(text: string): GeneratorOutput | null {
-  const jsonSlice = extractJsonObject(text);
-  if (jsonSlice == null) return null;
-
-  let obj: Record<string, unknown>;
-  try {
-    const parsed = JSON.parse(jsonSlice);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return null;
-    }
-    obj = parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-
-  const headline = cleanString(obj.headline);
-  const description = cleanString(obj.description);
-  const imagePrompt = cleanString(obj.imagePrompt);
-  if (!headline || !description || !imagePrompt) return null;
-
-  return { headline, description, imagePrompt };
-}
-
-/** Non-empty trimmed string, or "" if the value isn't a usable string. */
-function cleanString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-/**
- * Extract the outermost JSON object from arbitrary text: strip code fences, then
- * take the substring from the first "{" to the last "}". Good enough for the
- * fenced / prose-wrapped / whitespace variants a chat model emits.
- */
-export function extractJsonObject(text: string): string | null {
-  // Drop the ```json ... ``` fence wrapper if present.
-  const defenced = text.replace(/```(?:json)?/gi, "");
-  const start = defenced.indexOf("{");
-  const end = defenced.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) return null;
-  return defenced.slice(start, end + 1);
 }
 
 /**

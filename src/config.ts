@@ -16,20 +16,31 @@ export interface Config {
   brickStyle: BrickStyleConfig;
 }
 
-/** Which Claude generator to use, and the model it runs. */
+/** Which text generator to use, plus provider-specific settings. */
 export interface GeneratorConfig {
-  provider: "subscription" | "apikey";
+  provider: "grok" | "claude" | "apikey";
+  /** Model for the "claude" (subscription) path. */
+  model: string;
+  /** Settings for the "grok" (xAI) path. */
+  grok: GrokConfig;
+}
+
+/** xAI/Grok endpoint + model. The API key is a secret (env), never config. */
+export interface GrokConfig {
+  baseUrl: string;
   model: string;
 }
 
-/** Configurable, generic toy-brick style language wrapped around Claude's prompt. */
+/** Configurable, generic toy-brick style language wrapped around the image prompt. */
 export interface BrickStyleConfig {
   styleLanguage: string;
 }
 
-/** Defaults when the config omits the `generator` block (default = subscription). */
-export const DEFAULT_PROVIDER: GeneratorConfig["provider"] = "subscription";
+/** Defaults when the config omits the `generator` block (default = grok). */
+export const DEFAULT_PROVIDER: GeneratorConfig["provider"] = "grok";
 export const DEFAULT_MODEL = "claude-sonnet-5";
+export const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
+export const DEFAULT_GROK_MODEL = "grok-4.5";
 
 /** Load and validate config.json (path defaults to ./config.json). */
 export async function loadConfig(path = "config.json"): Promise<Config> {
@@ -80,13 +91,13 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
 }
 
 /**
- * Validate the `generator` block. Absent → defaults (provider "subscription",
- * DEFAULT_MODEL). Present provider, if any, must be one of the two known values;
- * model defaults when omitted.
+ * Validate the `generator` block. Absent → defaults (provider "grok", DEFAULT_MODEL,
+ * default grok endpoint/model). Present provider, if any, must be one of the three
+ * known values; model and the nested grok block default when omitted.
  */
 function validateGenerator(raw: unknown, path: string): GeneratorConfig {
   if (raw == null) {
-    return { provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL };
+    return { provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL, grok: defaultGrok() };
   }
   if (typeof raw !== "object") {
     throw new Error(`Config at ${path}: generator must be an object.`);
@@ -94,9 +105,9 @@ function validateGenerator(raw: unknown, path: string): GeneratorConfig {
   const g = raw as Record<string, unknown>;
 
   const provider = g.provider ?? DEFAULT_PROVIDER;
-  if (provider !== "subscription" && provider !== "apikey") {
+  if (provider !== "grok" && provider !== "claude" && provider !== "apikey") {
     throw new Error(
-      `Config at ${path}: generator.provider must be "subscription" or "apikey".`,
+      `Config at ${path}: generator.provider must be "grok", "claude", or "apikey".`,
     );
   }
 
@@ -105,7 +116,38 @@ function validateGenerator(raw: unknown, path: string): GeneratorConfig {
     throw new Error(`Config at ${path}: generator.model must be a non-empty string.`);
   }
 
-  return { provider, model };
+  const grok = validateGrok(g.grok, path);
+
+  return { provider, model, grok };
+}
+
+/** Default grok endpoint/model, used when the block or a field is omitted. */
+function defaultGrok(): GrokConfig {
+  return { baseUrl: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL };
+}
+
+/**
+ * Validate the nested `generator.grok` block. Absent → defaults; any present field
+ * must be a non-empty string. The API key is never here — it's a secret (env).
+ */
+function validateGrok(raw: unknown, path: string): GrokConfig {
+  if (raw == null) return defaultGrok();
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: generator.grok must be an object.`);
+  }
+  const g = raw as Record<string, unknown>;
+
+  const baseUrl = g.baseUrl ?? DEFAULT_GROK_BASE_URL;
+  if (typeof baseUrl !== "string" || baseUrl.length === 0) {
+    throw new Error(`Config at ${path}: generator.grok.baseUrl must be a non-empty string.`);
+  }
+
+  const model = g.model ?? DEFAULT_GROK_MODEL;
+  if (typeof model !== "string" || model.length === 0) {
+    throw new Error(`Config at ${path}: generator.grok.model must be a non-empty string.`);
+  }
+
+  return { baseUrl, model };
 }
 
 /**
