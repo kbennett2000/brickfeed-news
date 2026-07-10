@@ -100,6 +100,30 @@ export type ClaudeRunner = (args: {
 }) => Promise<{ stdout: string; code: number }>;
 
 /**
+ * The subprocess boundary for the keyless "grok-terminal" TEXT generator (Slice 8),
+ * injected so tests feed canned CLI output without spawning a real process. Runs the
+ * configured `command` + `args`, writes the prompt on stdin, resolves stdout + exit code;
+ * a spawn error surfaces as a non-zero code (never a rejection).
+ */
+export type TerminalTextRunner = (args: {
+  command: string;
+  args: string[];
+  prompt: string;
+}) => Promise<{ stdout: string; code: number }>;
+
+/**
+ * The subprocess boundary for the keyless "grok-terminal" IMAGE provider (Slice 8),
+ * injected so tests feed canned image bytes without spawning a real process. Runs the
+ * configured `command` + `args`, writes the wrapped prompt on stdin, resolves the raw
+ * image bytes (from stdout) + exit code; a spawn error surfaces as a non-zero code.
+ */
+export type TerminalImageRunner = (args: {
+  command: string;
+  args: string[];
+  prompt: string;
+}) => Promise<{ bytes: Uint8Array; code: number }>;
+
+/**
  * The HTTP boundary for the Grok generator, injected so tests can feed a canned
  * chat-completions response body without a real network call or an API key.
  * Resolves with whether the request was OK, the status, and the raw response body
@@ -215,4 +239,44 @@ export interface IngestDeps {
   now: () => Date;
   /** Redirect-resolution timeout in ms. */
   resolveTimeoutMs?: number;
+}
+
+/**
+ * The subprocess boundary for the deploy step (Slice 8), injected so tests assert the
+ * command + cwd without spawning a real `vercel`. Runs `command` in `cwd`, resolves the
+ * exit code + captured output; a spawn error surfaces as a non-zero code (never a
+ * rejection) so deploy stays never-throw.
+ */
+export type DeployRunner = (args: {
+  command: string;
+  cwd: string;
+}) => Promise<{ code: number; stdout: string; stderr: string }>;
+
+/**
+ * The filesystem boundary for the cycle orchestrator (Slice 8), injected so the whole run
+ * is testable without touching disk (and so `--dry-run` provably writes nothing). The
+ * default impl delegates to manifest.ts / publish.ts and writes the rendered files.
+ */
+export interface CycleIo {
+  readManifest(path: string): Promise<Manifest>;
+  writeManifest(path: string, manifest: Manifest): Promise<void>;
+  writePublished(path: string, manifest: Manifest): Promise<void>;
+  writeSite(outputDir: string, files: Record<string, string>): Promise<void>;
+}
+
+/**
+ * Injectable side-effects for the cycle orchestrator (Slice 8): the clock, the four stage
+ * boundaries (fetch + the three configured providers), the deploy subprocess, the IO
+ * boundary, and an optional logger. cycle-cli.ts wires the real ones; tests pass fakes.
+ */
+export interface CycleDeps {
+  now: () => Date;
+  fetch: FetchLike;
+  generator: Generator;
+  imageProvider: ImageProvider;
+  storage: StorageProvider;
+  deployRun: DeployRunner;
+  io: CycleIo;
+  /** Optional progress logger (defaults to a no-op in the orchestrator). */
+  log?: (message: string) => void;
 }

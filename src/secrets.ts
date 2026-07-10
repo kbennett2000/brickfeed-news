@@ -25,3 +25,12 @@ export function getXaiApiKey(): string | undefined {
 export function getBlobReadWriteToken(): string | undefined {
   return process.env.BLOB_READ_WRITE_TOKEN;
 }
+
+/**
+ * Vercel deploy token for CI-like/headless contexts, appended as `--token` by the deploy
+ * runner (Slice 8). The LAN box normally authenticates via a one-time `vercel login`, so
+ * this is usually unset; it exists so the deploy step never reads env outside secrets.ts.
+ */
+export function getVercelToken(): string | undefined {
+  return process.env.VERCEL_TOKEN;
+}

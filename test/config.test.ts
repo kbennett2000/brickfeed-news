@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_DEPLOY_COMMAND,
   DEFAULT_GROK_BASE_URL,
   DEFAULT_GROK_MODEL,
+  DEFAULT_GROK_TERMINAL_COMMAND,
   DEFAULT_IMAGE_ASPECT_RATIO,
   DEFAULT_IMAGE_GROK_BASE_URL,
   DEFAULT_IMAGE_GROK_MODEL,
@@ -41,6 +43,7 @@ describe("validateConfig", () => {
       provider: "grok",
       model: "claude-sonnet-5",
       grok: { baseUrl: "https://api.x.ai/v1", model: "grok-4.5" },
+      grokTerminal: { command: DEFAULT_GROK_TERMINAL_COMMAND, args: [] },
     });
     expect(cfg.brickStyle.styleLanguage).toBe("generic toy-brick diorama");
   });
@@ -253,6 +256,64 @@ describe("validateConfig", () => {
     expect(() =>
       validateConfig({ ...base, render: { secondaryStoryCount: 2.5 } }),
     ).toThrow();
+  });
+
+  it("accepts the 'grok-terminal' generator + image providers and defaults grokTerminal", () => {
+    const cfg = validateConfig({
+      ...base,
+      generator: { provider: "grok-terminal" },
+      image: { provider: "grok-terminal" },
+    });
+    expect(cfg.generator.provider).toBe("grok-terminal");
+    expect(cfg.image.provider).toBe("grok-terminal");
+    expect(cfg.generator.grokTerminal).toEqual({
+      command: DEFAULT_GROK_TERMINAL_COMMAND,
+      args: [],
+    });
+    expect(cfg.image.grokTerminal).toEqual({ command: DEFAULT_GROK_TERMINAL_COMMAND, args: [] });
+  });
+
+  it("accepts an explicit grokTerminal command + args and rejects non-string args", () => {
+    const cfg = validateConfig({
+      ...base,
+      generator: { provider: "grok-terminal", grokTerminal: { command: "xai", args: ["chat"] } },
+    });
+    expect(cfg.generator.grokTerminal).toEqual({ command: "xai", args: ["chat"] });
+    expect(() =>
+      validateConfig({ ...base, generator: { grokTerminal: { args: [1, 2] } } }),
+    ).toThrow();
+    expect(() =>
+      validateConfig({ ...base, generator: { grokTerminal: { command: "" } } }),
+    ).toThrow();
+  });
+
+  it("defaults the deploy block when absent (cwd = render.outputDir)", () => {
+    const cfg = validateConfig(base);
+    expect(cfg.deploy).toEqual({
+      command: DEFAULT_DEPLOY_COMMAND,
+      cwd: DEFAULT_RENDER_OUTPUT_DIR,
+      enabled: true,
+    });
+  });
+
+  it("defaults deploy.cwd to a custom render.outputDir", () => {
+    const cfg = validateConfig({ ...base, render: { outputDir: "public" } });
+    expect(cfg.deploy.cwd).toBe("public");
+  });
+
+  it("accepts an explicit deploy block and defaults per-field", () => {
+    const cfg = validateConfig({
+      ...base,
+      deploy: { command: "netlify deploy --prod", enabled: false },
+    });
+    expect(cfg.deploy.command).toBe("netlify deploy --prod");
+    expect(cfg.deploy.enabled).toBe(false);
+    expect(cfg.deploy.cwd).toBe(DEFAULT_RENDER_OUTPUT_DIR);
+  });
+
+  it("rejects a blank deploy.command and a non-boolean deploy.enabled", () => {
+    expect(() => validateConfig({ ...base, deploy: { command: "" } })).toThrow();
+    expect(() => validateConfig({ ...base, deploy: { enabled: "yes" } })).toThrow();
   });
 
   it("rejects a missing or blank brickStyle.styleLanguage", () => {

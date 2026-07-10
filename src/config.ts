@@ -24,6 +24,8 @@ export interface Config {
   publishedPath: string;
   /** Static cover-page render settings (Slice 7). */
   render: RenderConfig;
+  /** Deploy-step settings (Slice 8): how the rendered site is published to Vercel. */
+  deploy: DeployConfig;
 }
 
 /** Where the static site is written + how many secondary (rail) stories the cover shows. */
@@ -34,13 +36,39 @@ export interface RenderConfig {
   secondaryStoryCount: number;
 }
 
+/**
+ * Deploy step (Slice 8). The orchestrator shells out to `command` with cwd = `cwd` to
+ * publish the rendered site. `enabled: false` skips deploy entirely (same as `--no-deploy`).
+ * Any secret (a Vercel token for CI-like contexts) is env-only, never here.
+ */
+export interface DeployConfig {
+  /** Shell command run to deploy (default `vercel --prod --yes`). */
+  command: string;
+  /** Working directory the command runs in (default = render.outputDir). */
+  cwd: string;
+  /** When false, deploy is skipped (same effect as `--no-deploy`). */
+  enabled: boolean;
+}
+
 /** Which text generator to use, plus provider-specific settings. */
 export interface GeneratorConfig {
-  provider: "grok" | "claude" | "apikey";
+  provider: "grok" | "claude" | "apikey" | "grok-terminal";
   /** Model for the "claude" (subscription) path. */
   model: string;
   /** Settings for the "grok" (xAI) path. */
   grok: GrokConfig;
+  /** Settings for the "grok-terminal" (subscription CLI, no API key) path (Slice 8). */
+  grokTerminal: GrokTerminalConfig;
+}
+
+/**
+ * A subscription CLI invocation (Slice 8): the base `command` and its `args`. Used by the
+ * keyless "grok-terminal" text generator and image provider. No API key — the CLI is logged
+ * in via subscription on the box, exactly like the `claude -p` subscription path.
+ */
+export interface GrokTerminalConfig {
+  command: string;
+  args: string[];
 }
 
 /** xAI/Grok endpoint + model. The API key is a secret (env), never config. */
@@ -56,11 +84,13 @@ export interface BrickStyleConfig {
 
 /** Which image provider to use, plus provider-specific settings (Slice 3). */
 export interface ImageConfig {
-  provider: "grok" | "local";
+  provider: "grok" | "local" | "grok-terminal";
   /** Settings for the "grok" (Grok Imagine, xAI) path. */
   grok: GrokImageConfig;
   /** Settings for the "local" (LAN imagegen microservice) path. */
   local: LocalImageConfig;
+  /** Settings for the "grok-terminal" (subscription CLI, no API key) path (Slice 8). */
+  grokTerminal: GrokTerminalConfig;
 }
 
 /** Grok Imagine (xAI) endpoint + generation params. The API key is a secret (env). */
@@ -109,6 +139,13 @@ export const DEFAULT_MODEL = "claude-sonnet-5";
 export const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
 export const DEFAULT_GROK_MODEL = "grok-4.5";
 
+/**
+ * Defaults for the keyless "grok-terminal" subscription CLI path (Slice 8), shared by the
+ * text generator and the image provider. The exact binary/flags are tuned on the box.
+ */
+export const DEFAULT_GROK_TERMINAL_COMMAND = "grok";
+export const DEFAULT_GROK_TERMINAL_ARGS: string[] = [];
+
 /** Defaults when the config omits the `image` block (default = grok Imagine). */
 export const DEFAULT_IMAGE_PROVIDER: ImageConfig["provider"] = "grok";
 export const DEFAULT_IMAGE_GROK_BASE_URL = "https://api.x.ai/v1";
@@ -132,6 +169,10 @@ export const DEFAULT_PUBLISHED_PATH = "data/published.json";
 /** Defaults when the config omits the `render` block (Slice 7). */
 export const DEFAULT_RENDER_OUTPUT_DIR = "site";
 export const DEFAULT_RENDER_SECONDARY_STORY_COUNT = 4;
+
+/** Defaults when the config omits the `deploy` block (Slice 8). `cwd` defaults to outputDir. */
+export const DEFAULT_DEPLOY_COMMAND = "vercel --prod --yes";
+export const DEFAULT_DEPLOY_ENABLED = true;
 
 /** Load and validate config.json (path defaults to ./config.json). */
 export async function loadConfig(path = "config.json"): Promise<Config> {
@@ -187,6 +228,7 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
     "publishedPath",
   );
   const render = validateRender(obj.render, path);
+  const deploy = validateDeploy(obj.deploy, render.outputDir, path);
 
   return {
     feedUrls: feedUrls as string[],
@@ -198,6 +240,7 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
     maxAgeHours,
     publishedPath,
     render,
+    deploy,
   };
 }
 
@@ -208,7 +251,12 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
  */
 function validateGenerator(raw: unknown, path: string): GeneratorConfig {
   if (raw == null) {
-    return { provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL, grok: defaultGrok() };
+    return {
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      grok: defaultGrok(),
+      grokTerminal: defaultGrokTerminal(),
+    };
   }
   if (typeof raw !== "object") {
     throw new Error(`Config at ${path}: generator must be an object.`);
@@ -216,9 +264,14 @@ function validateGenerator(raw: unknown, path: string): GeneratorConfig {
   const g = raw as Record<string, unknown>;
 
   const provider = g.provider ?? DEFAULT_PROVIDER;
-  if (provider !== "grok" && provider !== "claude" && provider !== "apikey") {
+  if (
+    provider !== "grok" &&
+    provider !== "claude" &&
+    provider !== "apikey" &&
+    provider !== "grok-terminal"
+  ) {
     throw new Error(
-      `Config at ${path}: generator.provider must be "grok", "claude", or "apikey".`,
+      `Config at ${path}: generator.provider must be "grok", "claude", "apikey", or "grok-terminal".`,
     );
   }
 
@@ -228,8 +281,45 @@ function validateGenerator(raw: unknown, path: string): GeneratorConfig {
   }
 
   const grok = validateGrok(g.grok, path);
+  const grokTerminal = validateGrokTerminal(g.grokTerminal, path, "generator.grokTerminal");
 
-  return { provider, model, grok };
+  return { provider, model, grok, grokTerminal };
+}
+
+/** Default grok-terminal CLI settings, used when the block or a field is omitted. */
+function defaultGrokTerminal(): GrokTerminalConfig {
+  return { command: DEFAULT_GROK_TERMINAL_COMMAND, args: [...DEFAULT_GROK_TERMINAL_ARGS] };
+}
+
+/**
+ * Validate a nested `grokTerminal` block (shared by generator + image, Slice 8). Absent →
+ * defaults; a present `command` must be a non-empty string; a present `args` must be an
+ * array of strings. No secret is ever here — the CLI is subscription-authed.
+ */
+function validateGrokTerminal(
+  raw: unknown,
+  path: string,
+  field: string,
+): GrokTerminalConfig {
+  if (raw == null) return defaultGrokTerminal();
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: ${field} must be an object.`);
+  }
+  const t = raw as Record<string, unknown>;
+
+  const command = requireStringField(
+    t.command,
+    DEFAULT_GROK_TERMINAL_COMMAND,
+    path,
+    `${field}.command`,
+  );
+
+  const args = t.args ?? [...DEFAULT_GROK_TERMINAL_ARGS];
+  if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) {
+    throw new Error(`Config at ${path}: ${field}.args must be an array of strings.`);
+  }
+
+  return { command, args: args as string[] };
 }
 
 /** Default grok endpoint/model, used when the block or a field is omitted. */
@@ -272,6 +362,7 @@ function validateImage(raw: unknown, path: string): ImageConfig {
       provider: DEFAULT_IMAGE_PROVIDER,
       grok: defaultImageGrok(),
       local: defaultImageLocal(),
+      grokTerminal: defaultGrokTerminal(),
     };
   }
   if (typeof raw !== "object") {
@@ -280,14 +371,17 @@ function validateImage(raw: unknown, path: string): ImageConfig {
   const i = raw as Record<string, unknown>;
 
   const provider = i.provider ?? DEFAULT_IMAGE_PROVIDER;
-  if (provider !== "grok" && provider !== "local") {
-    throw new Error(`Config at ${path}: image.provider must be "grok" or "local".`);
+  if (provider !== "grok" && provider !== "local" && provider !== "grok-terminal") {
+    throw new Error(
+      `Config at ${path}: image.provider must be "grok", "local", or "grok-terminal".`,
+    );
   }
 
   const grok = validateImageGrok(i.grok, path);
   const local = validateImageLocal(i.local, path);
+  const grokTerminal = validateGrokTerminal(i.grokTerminal, path, "image.grokTerminal");
 
-  return { provider, grok, local };
+  return { provider, grok, local, grokTerminal };
 }
 
 /** Default Grok Imagine endpoint/model/params, used when the block or a field is omitted. */
@@ -468,6 +562,35 @@ function validateRender(raw: unknown, path: string): RenderConfig {
   }
 
   return { outputDir, secondaryStoryCount };
+}
+
+/**
+ * Validate the `deploy` block (Slice 8). Absent → defaults (`vercel --prod --yes`, cwd =
+ * the render outputDir, enabled). A present `command`/`cwd` must be a non-empty string
+ * (cwd defaults to the render outputDir); a present `enabled` must be a boolean.
+ */
+function validateDeploy(raw: unknown, renderOutputDir: string, path: string): DeployConfig {
+  if (raw == null) {
+    return {
+      command: DEFAULT_DEPLOY_COMMAND,
+      cwd: renderOutputDir,
+      enabled: DEFAULT_DEPLOY_ENABLED,
+    };
+  }
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: deploy must be an object.`);
+  }
+  const d = raw as Record<string, unknown>;
+
+  const command = requireStringField(d.command, DEFAULT_DEPLOY_COMMAND, path, "deploy.command");
+  const cwd = requireStringField(d.cwd, renderOutputDir, path, "deploy.cwd");
+
+  const enabled = d.enabled ?? DEFAULT_DEPLOY_ENABLED;
+  if (typeof enabled !== "boolean") {
+    throw new Error(`Config at ${path}: deploy.enabled must be a boolean.`);
+  }
+
+  return { command, cwd, enabled };
 }
 
 /** Validate `maxAgeHours`. Absent → default; present must be a positive finite number. */
