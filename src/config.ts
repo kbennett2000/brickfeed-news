@@ -14,6 +14,8 @@ export interface Config {
   generator: GeneratorConfig;
   /** Toy-brick style wrapping (ADR decision #7). Style text lives here, not in code. */
   brickStyle: BrickStyleConfig;
+  /** Image provider settings (Slice 3). Selects Grok Imagine (default) or local imagegen. */
+  image: ImageConfig;
 }
 
 /** Which text generator to use, plus provider-specific settings. */
@@ -36,11 +38,43 @@ export interface BrickStyleConfig {
   styleLanguage: string;
 }
 
+/** Which image provider to use, plus provider-specific settings (Slice 3). */
+export interface ImageConfig {
+  provider: "grok" | "local";
+  /** Settings for the "grok" (Grok Imagine, xAI) path. */
+  grok: GrokImageConfig;
+  /** Settings for the "local" (LAN imagegen microservice) path. */
+  local: LocalImageConfig;
+}
+
+/** Grok Imagine (xAI) endpoint + generation params. The API key is a secret (env). */
+export interface GrokImageConfig {
+  baseUrl: string;
+  model: string;
+  aspectRatio: string;
+  resolution: string;
+}
+
+/** Local imagegen microservice endpoint + base (no-LoRA) style name. */
+export interface LocalImageConfig {
+  url: string;
+  style: string;
+}
+
 /** Defaults when the config omits the `generator` block (default = grok). */
 export const DEFAULT_PROVIDER: GeneratorConfig["provider"] = "grok";
 export const DEFAULT_MODEL = "claude-sonnet-5";
 export const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
 export const DEFAULT_GROK_MODEL = "grok-4.5";
+
+/** Defaults when the config omits the `image` block (default = grok Imagine). */
+export const DEFAULT_IMAGE_PROVIDER: ImageConfig["provider"] = "grok";
+export const DEFAULT_IMAGE_GROK_BASE_URL = "https://api.x.ai/v1";
+export const DEFAULT_IMAGE_GROK_MODEL = "grok-imagine-image-quality";
+export const DEFAULT_IMAGE_ASPECT_RATIO = "1:1";
+export const DEFAULT_IMAGE_RESOLUTION = "1k";
+export const DEFAULT_IMAGE_LOCAL_URL = "http://localhost:8189";
+export const DEFAULT_IMAGE_LOCAL_STYLE = "base";
 
 /** Load and validate config.json (path defaults to ./config.json). */
 export async function loadConfig(path = "config.json"): Promise<Config> {
@@ -86,8 +120,9 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
 
   const generator = validateGenerator(obj.generator, path);
   const brickStyle = validateBrickStyle(obj.brickStyle, path);
+  const image = validateImage(obj.image, path);
 
-  return { feedUrls: feedUrls as string[], manifestPath, generator, brickStyle };
+  return { feedUrls: feedUrls as string[], manifestPath, generator, brickStyle, image };
 }
 
 /**
@@ -148,6 +183,100 @@ function validateGrok(raw: unknown, path: string): GrokConfig {
   }
 
   return { baseUrl, model };
+}
+
+/**
+ * Validate the `image` block. Absent → defaults (provider "grok", default Grok
+ * Imagine endpoint/model/params, default local endpoint/style). A present provider,
+ * if any, must be "grok" or "local"; the nested grok/local blocks default per-field.
+ */
+function validateImage(raw: unknown, path: string): ImageConfig {
+  if (raw == null) {
+    return {
+      provider: DEFAULT_IMAGE_PROVIDER,
+      grok: defaultImageGrok(),
+      local: defaultImageLocal(),
+    };
+  }
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: image must be an object.`);
+  }
+  const i = raw as Record<string, unknown>;
+
+  const provider = i.provider ?? DEFAULT_IMAGE_PROVIDER;
+  if (provider !== "grok" && provider !== "local") {
+    throw new Error(`Config at ${path}: image.provider must be "grok" or "local".`);
+  }
+
+  const grok = validateImageGrok(i.grok, path);
+  const local = validateImageLocal(i.local, path);
+
+  return { provider, grok, local };
+}
+
+/** Default Grok Imagine endpoint/model/params, used when the block or a field is omitted. */
+function defaultImageGrok(): GrokImageConfig {
+  return {
+    baseUrl: DEFAULT_IMAGE_GROK_BASE_URL,
+    model: DEFAULT_IMAGE_GROK_MODEL,
+    aspectRatio: DEFAULT_IMAGE_ASPECT_RATIO,
+    resolution: DEFAULT_IMAGE_RESOLUTION,
+  };
+}
+
+/** Default local imagegen endpoint/style, used when the block or a field is omitted. */
+function defaultImageLocal(): LocalImageConfig {
+  return { url: DEFAULT_IMAGE_LOCAL_URL, style: DEFAULT_IMAGE_LOCAL_STYLE };
+}
+
+/**
+ * Validate the nested `image.grok` block. Absent → defaults; any present field must
+ * be a non-empty string. The API key is never here — it's a secret (env).
+ */
+function validateImageGrok(raw: unknown, path: string): GrokImageConfig {
+  if (raw == null) return defaultImageGrok();
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: image.grok must be an object.`);
+  }
+  const g = raw as Record<string, unknown>;
+
+  const baseUrl = requireStringField(g.baseUrl, DEFAULT_IMAGE_GROK_BASE_URL, path, "image.grok.baseUrl");
+  const model = requireStringField(g.model, DEFAULT_IMAGE_GROK_MODEL, path, "image.grok.model");
+  const aspectRatio = requireStringField(g.aspectRatio, DEFAULT_IMAGE_ASPECT_RATIO, path, "image.grok.aspectRatio");
+  const resolution = requireStringField(g.resolution, DEFAULT_IMAGE_RESOLUTION, path, "image.grok.resolution");
+
+  return { baseUrl, model, aspectRatio, resolution };
+}
+
+/**
+ * Validate the nested `image.local` block. Absent → defaults; any present field must
+ * be a non-empty string.
+ */
+function validateImageLocal(raw: unknown, path: string): LocalImageConfig {
+  if (raw == null) return defaultImageLocal();
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: image.local must be an object.`);
+  }
+  const l = raw as Record<string, unknown>;
+
+  const url = requireStringField(l.url, DEFAULT_IMAGE_LOCAL_URL, path, "image.local.url");
+  const style = requireStringField(l.style, DEFAULT_IMAGE_LOCAL_STYLE, path, "image.local.style");
+
+  return { url, style };
+}
+
+/** Coerce an optional config field to a non-empty string, defaulting when omitted. */
+function requireStringField(
+  value: unknown,
+  fallback: string,
+  path: string,
+  field: string,
+): string {
+  const v = value ?? fallback;
+  if (typeof v !== "string" || v.length === 0) {
+    throw new Error(`Config at ${path}: ${field} must be a non-empty string.`);
+  }
+  return v;
 }
 
 /**

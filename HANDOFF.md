@@ -5,6 +5,63 @@ Slice 1 (RSS ingestion) is merged to `master`. **Slice 2 (Claude generation laye
 is built on branch `slice-2-claude-generation` with an open PR (see issue #3).
 **Slice 2c (Grok generator + default provider)** is built on branch
 `slice-2c-grok-generator` with an open PR (see issue #5).
+**Slice 3 (ImageProvider layer)** is built on branch `slice-3-image-provider`
+(off `slice-2c-grok-generator`) with an open PR (see issue #7).
+
+Image layer (Slice 3 — Grok Imagine default, local imagegen alternative):
+- `src/image/grok.ts` — `GrokImageProvider` (DEFAULT) behind the new `ImageProvider`
+  interface. Raw `fetch` to xAI's OpenAI-compatible `POST {baseUrl}/images/generations`
+  (no SDK), `Authorization: Bearer XAI_API_KEY`, model/aspectRatio/resolution from config.
+  The response carries an EPHEMERAL image URL, so it downloads the bytes in the same call
+  (two-step: POST for the url → GET the bytes) and returns them; the xAI URL is never
+  passed downstream. NEVER throws → `null` on any failure (missing key, non-2xx, bad
+  envelope, missing url, failed download). Exports `extractImageUrl` + a shared
+  `defaultRunner` (raw-fetch → bytes). HTTP boundary injected as `ImageHttpRunner`.
+- `src/image/local.ts` — `LocalImageProvider` (ALT). Raw `fetch` to `POST {url}/generate`
+  with `{ prompt: wrappedPrompt, style }`; returns the raw PNG bytes. `style` is the
+  BASE/no-LoRA style from config so brick styling isn't double-applied (the prompt already
+  carries it). Unreachable/non-2xx/throw → `null`.
+- `src/image/index.ts` — `createImageProvider(config, { runner? })`: default `"grok"`,
+  switchable `"local"`. Advisory `console.warn` on missing `XAI_API_KEY`; never blocks.
+- `src/image.ts` — pure `generateImages(config, manifest, deps, { limit? })`. For each
+  record WITH a `wrappedPrompt`, calls the provider and hands bytes to the injected
+  `writeImage` sink; records without a `wrappedPrompt` are skipped; a `null`/throw (or a
+  failed write) leaves that record imageless and the run continues (resilient). `opts.limit`
+  caps attempts. NOTE: no per-record "already has image" signal yet (that's Slice 4), so
+  every `wrappedPrompt` record is (re)rendered each run.
+- `src/image-cli.ts` — CLI (`npm run images`, `-- --limit N`). Writes bytes atomically to
+  `out/<id>.png` (temp + rename), a gitignored TEMPORARY inspection sink. No manifest
+  write-back. Slice 4 replaces `out/` with a StorageProvider + manifest persistence.
+- `src/types.ts` — added `ImageProvider`, `ImageHttpRunner`, `ImageDeps`.
+- Config: added `image.provider` (`"grok"|"local"`, default `"grok"`),
+  `image.grok.{baseUrl (https://api.x.ai/v1), model (grok-imagine-image-quality),
+  aspectRatio (1:1), resolution (1k)}`, `image.local.{url (http://localhost:8189),
+  style (base)}`; all default per-field when omitted. `config.example.json` updated.
+  `secrets.ts` unchanged — `getXaiApiKey()` reused.
+- `.gitignore` — added `/out/`. `docs/adr/0003-image-provider.md` records the decisions
+  (Grok Imagine default, ephemeral-URL download-in-call, `out/` temporary sink,
+  `wrapBrickStyle` single-chokepoint invariant).
+- Tests: **130 passing** (vitest), both HTTP boundaries mocked, no network/key required.
+  Both gates clean: `grep -rn process.env src/` → only `secrets.ts`; `grep -rin lego src/
+  config.example.json` → empty.
+
+Verified end-to-end (Slice 3):
+- **Live local-provider smoke test passed.** The imagegen service at `localhost:8189` was
+  reachable, so the real `createImageProvider` → `LocalImageProvider` → real `fetch` was
+  driven against it (scratch manifest, one `wrappedPrompt` record, style `base`). Result:
+  `written:["smoke1"]`, a valid 1024×1024 PNG (1.4 MB) — a convincingly brick-styled,
+  text-free, on-topic diorama. Crucially the brick look came from our GENERIC prompt
+  wrapping (style `base` = prompt-only), NOT the service's `lego-style` LoRA — the legal
+  guardrail holds end-to-end. (Service `/styles` does expose a `lego-style` LoRA; our
+  default `base` deliberately avoids it.)
+- Grok (default) live call still needs a real `XAI_API_KEY` (absent in this env). With no
+  key the never-throw contract skips every story (no crash) — same proof standard as
+  Slice 2/2c; the two-step POST→download logic and request shape are proven via the
+  injected `ImageHttpRunner` in `test/image.grok.test.ts`.
+
+**Branch stacking note:** `slice-3-image-provider` is based on `slice-2c-grok-generator`
+(NOT `slice-2-claude-generation`), because Slice 3 reuses Slice 2c's `getXaiApiKey` and the
+xAI infrastructure. Merge order: Slice 2 → Slice 2c → Slice 3.
 
 Generation layer (Slice 2c — Grok, new default provider):
 - `src/generator/grok.ts` — `GrokGenerator` behind the same `Generator` interface. Raw

@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GROK_BASE_URL,
   DEFAULT_GROK_MODEL,
+  DEFAULT_IMAGE_ASPECT_RATIO,
+  DEFAULT_IMAGE_GROK_BASE_URL,
+  DEFAULT_IMAGE_GROK_MODEL,
+  DEFAULT_IMAGE_LOCAL_STYLE,
+  DEFAULT_IMAGE_LOCAL_URL,
+  DEFAULT_IMAGE_RESOLUTION,
   DEFAULT_MODEL,
   validateConfig,
 } from "../src/config.js";
@@ -100,6 +106,54 @@ describe("validateConfig", () => {
   it("rejects a blank generator.grok.baseUrl", () => {
     expect(() =>
       validateConfig({ ...base, generator: { provider: "grok", grok: { baseUrl: "" } } }),
+    ).toThrow();
+  });
+
+  it("defaults the image block to grok + nested defaults when absent", () => {
+    const cfg = validateConfig(base);
+    expect(cfg.image.provider).toBe("grok");
+    expect(cfg.image.grok).toEqual({
+      baseUrl: DEFAULT_IMAGE_GROK_BASE_URL,
+      model: DEFAULT_IMAGE_GROK_MODEL,
+      aspectRatio: DEFAULT_IMAGE_ASPECT_RATIO,
+      resolution: DEFAULT_IMAGE_RESOLUTION,
+    });
+    expect(cfg.image.local).toEqual({
+      url: DEFAULT_IMAGE_LOCAL_URL,
+      style: DEFAULT_IMAGE_LOCAL_STYLE,
+    });
+  });
+
+  it("accepts the 'local' image provider", () => {
+    const cfg = validateConfig({ ...base, image: { provider: "local" } });
+    expect(cfg.image.provider).toBe("local");
+  });
+
+  it("defaults the nested image.grok block per-field when partially specified", () => {
+    const cfg = validateConfig({
+      ...base,
+      image: { provider: "grok", grok: { model: "grok-imagine-fast" } },
+    });
+    expect(cfg.image.grok.model).toBe("grok-imagine-fast");
+    expect(cfg.image.grok.baseUrl).toBe(DEFAULT_IMAGE_GROK_BASE_URL);
+    expect(cfg.image.grok.aspectRatio).toBe(DEFAULT_IMAGE_ASPECT_RATIO);
+  });
+
+  it("rejects an unknown image.provider", () => {
+    expect(() =>
+      validateConfig({ ...base, image: { provider: "midjourney" } }),
+    ).toThrow();
+  });
+
+  it("rejects a blank image.grok.baseUrl", () => {
+    expect(() =>
+      validateConfig({ ...base, image: { provider: "grok", grok: { baseUrl: "" } } }),
+    ).toThrow();
+  });
+
+  it("rejects a blank image.local.url", () => {
+    expect(() =>
+      validateConfig({ ...base, image: { provider: "local", local: { url: "" } } }),
     ).toThrow();
   });
 

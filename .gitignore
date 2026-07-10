@@ -18,3 +18,7 @@ PAUSE
 
 # runtime manifest + artifacts (git-as-database is a later slice's job)
 /data/
+
+# generated image bytes for local visual inspection (Slice 3 temporary sink) — never
+# committed; images live in storage referenced by URL, never in git (ADR-0001 #5)
+/out/

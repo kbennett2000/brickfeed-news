@@ -98,6 +98,42 @@ export interface GenerateDeps {
   now: () => Date;
 }
 
+/**
+ * One image provider behind a normalized interface (Slice 3). Consumes the stored
+ * `wrappedPrompt` (already brick-styled by wrapBrickStyle — the single styling
+ * chokepoint) and returns the raw image bytes, or null on ANY failure. Like
+ * Generator, it NEVER throws: a bad story just gets skipped and retried next run.
+ */
+export interface ImageProvider {
+  generate(wrappedPrompt: string): Promise<Uint8Array | null>;
+}
+
+/**
+ * The low-level HTTP boundary for the image providers, injected so tests can feed
+ * canned responses without a real network call, a running imagegen service, or a
+ * key. Returns whether the request was OK, the status, and the raw response bytes
+ * (JSON envelope or binary image, decoded by the provider). A transport error is
+ * surfaced as ok:false rather than a rejection so generate() degrades to null.
+ */
+export type ImageHttpRunner = (args: {
+  url: string;
+  method: "GET" | "POST";
+  headers?: Record<string, string>;
+  body?: string;
+}) => Promise<{ ok: boolean; status: number; bytes: Uint8Array }>;
+
+/**
+ * Injectable side-effects for the image orchestrator (mirrors GenerateDeps).
+ * `writeImage` is a TEMPORARY out/ sink for visual inspection this slice; Slice 4
+ * replaces it with a StorageProvider + manifest persistence.
+ */
+export interface ImageDeps {
+  provider: ImageProvider;
+  writeImage: (id: string, bytes: Uint8Array) => Promise<void>;
+  /** Returns "now"; injected so tests can pin timestamps / logs. */
+  now: () => Date;
+}
+
 /** The text-only JSON manifest: the source of truth for known stories. */
 export interface Manifest {
   version: number;

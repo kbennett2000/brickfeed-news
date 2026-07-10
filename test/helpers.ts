@@ -5,6 +5,8 @@ import type {
   Generator,
   GeneratorOutput,
   GrokChatRunner,
+  ImageHttpRunner,
+  ImageProvider,
 } from "../src/types.js";
 import type { FetchLike } from "../src/types.js";
 
@@ -68,8 +70,89 @@ export function makeConfig(over: Partial<Config> = {}): Config {
       grok: { baseUrl: "https://grok.test/v1", model: "grok-test" },
     },
     brickStyle: { styleLanguage: "TEST-STYLE plastic building-block diorama" },
+    image: {
+      provider: "grok",
+      grok: {
+        baseUrl: "https://img.test/v1",
+        model: "img-test",
+        aspectRatio: "1:1",
+        resolution: "1k",
+      },
+      local: { url: "http://imagegen.test", style: "test-base" },
+    },
     ...over,
   };
+}
+
+/** Encode a string to bytes — canned response bodies / image payloads for image tests. */
+export function bytes(s: string): Uint8Array {
+  return new TextEncoder().encode(s);
+}
+
+/**
+ * A fake ImageProvider for orchestrator tests. `impl` maps a wrappedPrompt to bytes;
+ * return null to simulate a never-throw failure, or set `throwOn` to a wrappedPrompt
+ * to make generate() throw. Records every prompt it was called with.
+ */
+export function fakeImageProvider(opts: {
+  impl?: (wrappedPrompt: string) => Uint8Array | null;
+  throwOn?: Set<string>;
+}): ImageProvider & { calls: string[] } {
+  const calls: string[] = [];
+  const impl = opts.impl ?? ((wrappedPrompt) => bytes(`img:${wrappedPrompt}`));
+  const throwOn = opts.throwOn ?? new Set<string>();
+
+  return {
+    calls,
+    async generate(wrappedPrompt: string): Promise<Uint8Array | null> {
+      calls.push(wrappedPrompt);
+      if (throwOn.has(wrappedPrompt)) {
+        throw new Error(`simulated image failure for ${wrappedPrompt}`);
+      }
+      return impl(wrappedPrompt);
+    },
+  };
+}
+
+/** A single recorded outbound request from a fakeImageRunner. */
+export interface RecordedImageCall {
+  url: string;
+  method: "GET" | "POST";
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+/**
+ * A fake ImageHttpRunner routing `${method} ${url}` to a canned {ok,status,bytes},
+ * for image-provider tests. Records every call for request-shape assertions. An
+ * unmatched route resolves to a 404 with empty bytes; set `throws` to simulate a
+ * transport failure on every call.
+ */
+export function fakeImageRunner(opts: {
+  routes?: Record<string, { ok?: boolean; status?: number; bytes?: Uint8Array }>;
+  throws?: boolean;
+}): ImageHttpRunner & { calls: RecordedImageCall[] } {
+  const routes = opts.routes ?? {};
+  const calls: RecordedImageCall[] = [];
+
+  const runner = async (args: {
+    url: string;
+    method: "GET" | "POST";
+    headers?: Record<string, string>;
+    body?: string;
+  }): Promise<{ ok: boolean; status: number; bytes: Uint8Array }> => {
+    calls.push({ url: args.url, method: args.method, headers: args.headers, body: args.body });
+    if (opts.throws) throw new Error("simulated transport failure");
+    const route = routes[`${args.method} ${args.url}`];
+    if (!route) return { ok: false, status: 404, bytes: new Uint8Array(0) };
+    return {
+      ok: route.ok ?? true,
+      status: route.status ?? 200,
+      bytes: route.bytes ?? new Uint8Array(0),
+    };
+  };
+
+  return Object.assign(runner, { calls });
 }
 
 /**

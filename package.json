@@ -7,6 +7,7 @@
   "scripts": {
     "ingest": "tsx src/index.ts",
     "generate": "tsx src/generate-cli.ts",
+    "images": "tsx src/image-cli.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

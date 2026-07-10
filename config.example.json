@@ -13,5 +13,18 @@
   },
   "brickStyle": {
     "styleLanguage": "Rendered as a diorama built from generic plastic toy building bricks: glossy studded pieces, blocky minifigure characters with cylindrical grip hands, arranged on a studded baseplate under soft studio lighting."
+  },
+  "image": {
+    "provider": "grok",
+    "grok": {
+      "baseUrl": "https://api.x.ai/v1",
+      "model": "grok-imagine-image-quality",
+      "aspectRatio": "1:1",
+      "resolution": "1k"
+    },
+    "local": {
+      "url": "http://localhost:8189",
+      "style": "base"
+    }
   }
 }
