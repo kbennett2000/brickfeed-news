@@ -2,5 +2,12 @@
   "feedUrls": [
     "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
   ],
-  "manifestPath": "data/manifest.json"
+  "manifestPath": "data/manifest.json",
+  "generator": {
+    "provider": "subscription",
+    "model": "claude-sonnet-5"
+  },
+  "brickStyle": {
+    "styleLanguage": "Rendered as a diorama built from generic plastic toy building bricks: glossy studded pieces, blocky minifigure characters with cylindrical grip hands, arranged on a studded baseplate under soft studio lighting."
+  }
 }

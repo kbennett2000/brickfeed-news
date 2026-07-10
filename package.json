@@ -6,6 +6,7 @@
   "description": "Pulls stories from a news RSS feed and renders a static toy-brick cover page.",
   "scripts": {
     "ingest": "tsx src/index.ts",
+    "generate": "tsx src/generate-cli.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
