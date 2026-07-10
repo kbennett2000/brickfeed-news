@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CATEGORIES } from "../src/category.js";
 import { GENERATION_INSTRUCTIONS, buildGenerationPrompt } from "../src/prompt.js";
 
 describe("GENERATION_INSTRUCTIONS (legal guardrail regression anchor)", () => {
@@ -9,25 +10,51 @@ describe("GENERATION_INSTRUCTIONS (legal guardrail regression anchor)", () => {
     expect(text).toContain("verbatim");
   });
 
-  it("forbids brands/trademarks and demands a neutral image prompt", () => {
+  it("forbids brands/trademarks and demands a neutral headline", () => {
     expect(text).toContain("neutral");
     expect(text).toContain("brand");
     expect(text).toContain("trademark");
   });
 
-  it("forbids toy/brick language in the image prompt (styling is downstream)", () => {
-    expect(text).toContain("toy");
-    expect(text).toContain("brick");
+  it("forbids any written words/text inside the image scene", () => {
+    expect(text).toContain("no text");
+    expect(text).toContain("letters");
+    expect(text).toContain("written words");
   });
 
-  it("demands strict JSON with exactly the three keys", () => {
+  it("asks for a short, humorous, cartoonish image prompt", () => {
+    expect(text).toContain("playful");
+    expect(text).toContain("cartoonish");
+    expect(text).toContain("short");
+  });
+
+  it("demands strict JSON with exactly the five keys", () => {
     expect(text).toContain("strict json");
     expect(GENERATION_INSTRUCTIONS).toContain("headline");
     expect(GENERATION_INSTRUCTIONS).toContain("description");
     expect(GENERATION_INSTRUCTIONS).toContain("imagePrompt");
+    expect(GENERATION_INSTRUCTIONS).toContain("category");
+    expect(GENERATION_INSTRUCTIONS).toContain("caption");
   });
 
-  it("never names the forbidden trademark (no 'lego' anywhere)", () => {
+  it("lists every valid category value for the model to choose from", () => {
+    for (const c of CATEGORIES) {
+      expect(GENERATION_INSTRUCTIONS).toContain(c);
+    }
+  });
+
+  it("requires the caption to be neutral and free of brands/written words", () => {
+    expect(text).toContain("caption");
+    // caption inherits the imagePrompt guardrails: no brands/trademarks, no written words.
+    expect(text).toContain("brand");
+    expect(text).toContain("trademark");
+    // and carries no credit/byline (the studio credit is appended downstream).
+    expect(text).toContain("credit");
+  });
+
+  it("never names the downstream styling terms (no brick/toy/lego in instructions)", () => {
+    expect(text).not.toContain("brick");
+    expect(text).not.toContain("toy");
     expect(text).not.toContain("lego");
   });
 });

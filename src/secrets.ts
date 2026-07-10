@@ -15,3 +15,13 @@ export function getSubscriptionToken(): string | undefined {
 export function getApiKey(): string | undefined {
   return process.env.ANTHROPIC_API_KEY;
 }
+
+/** xAI (Grok) API key, sent as a Bearer token by the Grok generator. */
+export function getXaiApiKey(): string | undefined {
+  return process.env.XAI_API_KEY;
+}
+
+/** Vercel Blob read/write token, sent as a Bearer token by the Blob storage provider. */
+export function getBlobReadWriteToken(): string | undefined {
+  return process.env.BLOB_READ_WRITE_TOKEN;
+}

@@ -18,6 +18,8 @@ const INNER = {
   headline: "City reveals ambitious transit overhaul",
   description: "The mayor outlined a plan to expand bus routes. Funding details follow.",
   imagePrompt: "A mayor speaks at a podium beside a city bus under bright daylight.",
+  category: "POLITICS",
+  caption: "An official speaks at a podium beside a bus in bright daylight.",
 };
 
 /** Wrap inner text in the `--output-format json` envelope the CLI emits. */
@@ -107,6 +109,25 @@ describe("SubscriptionGenerator.generate — never-throw failure modes", () => {
     expect(await gen.generate(INPUT)).toBeNull();
   });
 
+  it("returns null when caption is missing (caption is required)", async () => {
+    const { caption, ...noCaption } = INNER;
+    const gen = new SubscriptionGenerator({
+      model: "test-model",
+      runner: fakeRunner({ stdout: envelope(JSON.stringify(noCaption)) }),
+    });
+    expect(await gen.generate(INPUT)).toBeNull();
+  });
+
+  it("normalizes an invalid/missing category to WORLD (Slice 6)", async () => {
+    const gen = new SubscriptionGenerator({
+      model: "test-model",
+      runner: fakeRunner({
+        stdout: envelope(JSON.stringify({ ...INNER, category: "TABLOID" })),
+      }),
+    });
+    expect(await gen.generate(INPUT)).toEqual({ ...INNER, category: "WORLD" });
+  });
+
   it("returns null on empty stdout", async () => {
     const gen = new SubscriptionGenerator({
       model: "test-model",
@@ -140,12 +161,30 @@ describe("parsing helpers", () => {
   it("parseGeneratorOutput trims strings and rejects blanks", () => {
     expect(
       parseGeneratorOutput(
-        JSON.stringify({ headline: "  h  ", description: "d", imagePrompt: "p" }),
+        JSON.stringify({
+          headline: "  h  ",
+          description: "d",
+          imagePrompt: "p",
+          category: "science",
+          caption: "  a caption  ",
+        }),
       ),
-    ).toEqual({ headline: "h", description: "d", imagePrompt: "p" });
+    ).toEqual({
+      headline: "h",
+      description: "d",
+      imagePrompt: "p",
+      category: "SCIENCE",
+      caption: "a caption",
+    });
     expect(
       parseGeneratorOutput(
-        JSON.stringify({ headline: "  ", description: "d", imagePrompt: "p" }),
+        JSON.stringify({
+          headline: "  ",
+          description: "d",
+          imagePrompt: "p",
+          category: "SCIENCE",
+          caption: "c",
+        }),
       ),
     ).toBeNull();
   });
