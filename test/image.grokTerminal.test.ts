@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { GrokTerminalImageProvider } from "../src/image/grokTerminal.js";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  findGrokImagePath,
+  GrokTerminalImageProvider,
+  newestImageUnder,
+} from "../src/image/grokTerminal.js";
 import { bytes, fakeTerminalImageRunner } from "./helpers.js";
 
 function provider(runner: ReturnType<typeof fakeTerminalImageRunner>) {
@@ -36,5 +43,66 @@ describe("GrokTerminalImageProvider.generate — never-throw failure modes", () 
   it("returns null when the runner throws (spawn failure)", async () => {
     const runner = fakeTerminalImageRunner({ throws: true });
     expect(await provider(runner).generate("p")).toBeNull();
+  });
+});
+
+// Image location: grok writes the file to disk (never stdout) and records its path in the
+// session's chat_history.jsonl. These exercise the two location strategies against a fake
+// ~/.grok/sessions/<enc(cwd)> tree — no real grok, no subprocess.
+describe("findGrokImagePath / newestImageUnder", () => {
+  let base: string; // stands in for ~/.grok/sessions/<enc(cwd)>
+  const SESSION = "019f-session";
+
+  beforeEach(() => {
+    base = mkdtempSync(join(tmpdir(), "bf-sessions-"));
+  });
+  afterEach(() => {
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  function writeSessionImage(sessionId: string, name: string, mtimeMs?: number): string {
+    const imagesDir = join(base, sessionId, "images");
+    mkdirSync(imagesDir, { recursive: true });
+    const full = join(imagesDir, name);
+    writeFileSync(full, bytes("JPEGDATA"));
+    if (mtimeMs !== undefined) utimesSync(full, mtimeMs / 1000, mtimeMs / 1000);
+    return full;
+  }
+
+  function writeChatHistory(sessionId: string, imagePath: string): void {
+    const dir = join(base, sessionId);
+    mkdirSync(dir, { recursive: true });
+    const lines = [
+      JSON.stringify({ type: "assistant", content: "thinking" }),
+      // The GenerateImage tool_result: content is a JSON STRING carrying the path.
+      JSON.stringify({ type: "tool_result", content: JSON.stringify({ path: imagePath, filename: "1.jpg" }) }),
+    ];
+    writeFileSync(join(dir, "chat_history.jsonl"), lines.join("\n") + "\n");
+  }
+
+  it("finds the path recorded in the session chat history", () => {
+    const img = writeSessionImage(SESSION, "1.jpg");
+    writeChatHistory(SESSION, img);
+    expect(findGrokImagePath(base, SESSION)).toBe(img);
+  });
+
+  it("returns undefined when there is no chat history for the session", () => {
+    expect(findGrokImagePath(base, "missing-session")).toBeUndefined();
+  });
+
+  it("ignores a recorded path that no longer exists on disk", () => {
+    writeChatHistory(SESSION, join(base, SESSION, "images", "gone.jpg"));
+    expect(findGrokImagePath(base, SESSION)).toBeUndefined();
+  });
+
+  it("salvages the newest image written at/after the run start", () => {
+    const now = 2_000_000_000_000;
+    writeSessionImage(SESSION, "old.jpg", now - 60_000); // before the run — excluded
+    const fresh = writeSessionImage(SESSION, "new.jpg", now + 5_000);
+    expect(newestImageUnder(base, now)).toBe(fresh);
+  });
+
+  it("returns undefined from the salvage scan when the sessions base is absent", () => {
+    expect(newestImageUnder(join(base, "does-not-exist"), 0)).toBeUndefined();
   });
 });

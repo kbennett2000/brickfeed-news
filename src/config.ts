@@ -149,8 +149,12 @@ const GENERATOR_PROVIDER_ALIASES: Record<string, GeneratorConfig["provider"]> = 
   subscription: "claude",
 };
 
-/** Defaults when the config omits the `generator` block (default = grok). */
-export const DEFAULT_PROVIDER: GeneratorConfig["provider"] = "grok";
+/**
+ * Defaults when the config omits the `generator` block. Prod is KEYLESS: the default is
+ * the subscription-CLI "grok-terminal" path (no API key), NOT the xAI API-key "grok" path.
+ * A fresh or legacy config must resolve to the keyless path, never demand XAI_API_KEY.
+ */
+export const DEFAULT_PROVIDER: GeneratorConfig["provider"] = "grok-terminal";
 export const DEFAULT_MODEL = "claude-sonnet-5";
 export const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
 export const DEFAULT_GROK_MODEL = "grok-4.5";
@@ -162,8 +166,12 @@ export const DEFAULT_GROK_MODEL = "grok-4.5";
 export const DEFAULT_GROK_TERMINAL_COMMAND = "grok";
 export const DEFAULT_GROK_TERMINAL_ARGS: string[] = [];
 
-/** Defaults when the config omits the `image` block (default = grok Imagine). */
-export const DEFAULT_IMAGE_PROVIDER: ImageConfig["provider"] = "grok";
+/**
+ * Defaults when the config omits the `image` block. Prod is KEYLESS: the default is the
+ * subscription-CLI "grok-terminal" path (no API key), NOT the xAI API-key "grok" Imagine
+ * path. A fresh or legacy config must resolve to the keyless path, never demand XAI_API_KEY.
+ */
+export const DEFAULT_IMAGE_PROVIDER: ImageConfig["provider"] = "grok-terminal";
 export const DEFAULT_IMAGE_GROK_BASE_URL = "https://api.x.ai/v1";
 export const DEFAULT_IMAGE_GROK_MODEL = "grok-imagine-image-quality";
 export const DEFAULT_IMAGE_ASPECT_RATIO = "1:1";
@@ -261,9 +269,10 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
 }
 
 /**
- * Validate the `generator` block. Absent → defaults (provider "grok", DEFAULT_MODEL,
- * default grok endpoint/model). Present provider, if any, must be one of the three
- * known values; model and the nested grok block default when omitted.
+ * Validate the `generator` block. Absent → defaults (keyless provider "grok-terminal",
+ * DEFAULT_MODEL, default grok endpoint/model, default grok-terminal command/args). A
+ * present provider, if any, must be one of the known values; model and the nested blocks
+ * default when omitted.
  */
 function validateGenerator(raw: unknown, path: string): GeneratorConfig {
   if (raw == null) {
@@ -364,9 +373,10 @@ function validateGrok(raw: unknown, path: string): GrokConfig {
 }
 
 /**
- * Validate the `image` block. Absent → defaults (provider "grok", default Grok
- * Imagine endpoint/model/params, default local endpoint/style). A present provider,
- * if any, must be "grok" or "local"; the nested grok/local blocks default per-field.
+ * Validate the `image` block. Absent → defaults (keyless provider "grok-terminal", default
+ * Grok Imagine endpoint/model/params, default local endpoint/style, default grok-terminal
+ * command/args). A present provider, if any, must be one of the known values; the nested
+ * blocks default per-field.
  */
 function validateImage(raw: unknown, path: string): ImageConfig {
   if (raw == null) {

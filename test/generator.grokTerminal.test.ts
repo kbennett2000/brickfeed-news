@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GrokTerminalGenerator } from "../src/generator/grokTerminal.js";
+import { extractGrokText, GrokTerminalGenerator } from "../src/generator/grokTerminal.js";
 import type { GenerationInput } from "../src/types.js";
 import { fakeTerminalTextRunner } from "./helpers.js";
 
@@ -24,6 +24,19 @@ function gen(runner: ReturnType<typeof fakeTerminalTextRunner>) {
 describe("GrokTerminalGenerator.generate — happy path", () => {
   it("parses bare JSON stdout into normalized output", async () => {
     const runner = fakeTerminalTextRunner({ stdout: JSON.stringify(INNER) });
+    expect(await gen(runner).generate(INPUT)).toEqual(INNER);
+  });
+
+  it("unwraps grok's headless JSON envelope ({text, sessionId}) and parses the reply", async () => {
+    // What `grok -p ... --output-format json` actually prints: the model reply is nested
+    // in `.text`, alongside sessionId/stopReason. The reply itself may be fenced.
+    const runner = fakeTerminalTextRunner({
+      stdout: JSON.stringify({
+        text: "```json\n" + JSON.stringify(INNER) + "\n```",
+        stopReason: "EndTurn",
+        sessionId: "019f-abc",
+      }),
+    });
     expect(await gen(runner).generate(INPUT)).toEqual(INNER);
   });
 
@@ -71,5 +84,26 @@ describe("GrokTerminalGenerator.generate — never-throw failure modes", () => {
     const { caption, ...noCaption } = INNER;
     const runner = fakeTerminalTextRunner({ stdout: JSON.stringify(noCaption) });
     expect(await gen(runner).generate(INPUT)).toBeNull();
+  });
+});
+
+describe("extractGrokText", () => {
+  it("returns the .text field of a grok envelope", () => {
+    expect(extractGrokText(JSON.stringify({ text: "hello", sessionId: "x" }))).toBe("hello");
+  });
+
+  it("returns bare JSON unchanged (no envelope wrapper)", () => {
+    const bare = JSON.stringify({ headline: "H" });
+    expect(extractGrokText(bare)).toBe(bare);
+  });
+
+  it("returns fenced / prose text unchanged (unparseable as an envelope)", () => {
+    const fenced = "Sure!\n```json\n{}\n```";
+    expect(extractGrokText(fenced)).toBe(fenced);
+  });
+
+  it("returns the raw string when the envelope has no string .text", () => {
+    const noText = JSON.stringify({ sessionId: "x", stopReason: "EndTurn" });
+    expect(extractGrokText(noText)).toBe(noText);
   });
 });

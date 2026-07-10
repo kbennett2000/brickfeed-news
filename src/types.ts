@@ -102,7 +102,8 @@ export type ClaudeRunner = (args: {
 /**
  * The subprocess boundary for the keyless "grok-terminal" TEXT generator (Slice 8),
  * injected so tests feed canned CLI output without spawning a real process. Runs the
- * configured `command` + `args`, writes the prompt on stdin, resolves stdout + exit code;
+ * configured `command` + `args`, passes the prompt to the CLI (the default runner invokes it
+ * headlessly as `-p <prompt> --output-format json`), and resolves the raw stdout + exit code;
  * a spawn error surfaces as a non-zero code (never a rejection).
  */
 export type TerminalTextRunner = (args: {
@@ -114,8 +115,10 @@ export type TerminalTextRunner = (args: {
 /**
  * The subprocess boundary for the keyless "grok-terminal" IMAGE provider (Slice 8),
  * injected so tests feed canned image bytes without spawning a real process. Runs the
- * configured `command` + `args`, writes the wrapped prompt on stdin, resolves the raw
- * image bytes (from stdout) + exit code; a spawn error surfaces as a non-zero code.
+ * configured `command` + `args` with the wrapped prompt and resolves the generated image
+ * bytes + exit code. Grok writes the image to disk (not stdout), so the default runner drives
+ * `/imagine`, locates the written file, and reads its bytes; a spawn error or no locatable
+ * image surfaces as a non-zero code (never a rejection).
  */
 export type TerminalImageRunner = (args: {
   command: string;

@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildGenerationPrompt } from "../prompt.js";
 import type {
   GenerationInput,
@@ -11,9 +14,15 @@ import { parseGeneratorOutput } from "./parse.js";
 /**
  * Grok-terminal generator (Slice 8): the keyless subscription path for TEXT. Shells out to
  * a configured CLI (`command` + `args`, e.g. `grok`) that is logged in via subscription on
- * the box — no API key, mirroring the `claude -p` SubscriptionGenerator. The prompt goes in
- * on stdin; the model's JSON reply comes back on stdout and is fed to the shared, defensive
- * parseGeneratorOutput (tolerates fences / prose / whitespace).
+ * the box — no API key, mirroring the `claude -p` SubscriptionGenerator.
+ *
+ * The real `grok` is an agentic *coding* CLI (like `claude`), so — matching the Chronicle
+ * reference — the prompt is passed HEADLESSLY as the `-p` value with `--output-format json`
+ * (NOT on stdin), and the reply comes back wrapped in a `{ "text": "...", "sessionId": ... }`
+ * envelope on stdout. `extractGrokText` unwraps `.text`; the shared, defensive
+ * parseGeneratorOutput then tolerates fences / prose / whitespace inside it. The default
+ * runner (below) also cages grok in a throwaway temp dir with mutating tools denied so a
+ * stray reply can never explore or edit this repo.
  *
  * NEVER THROWS: any failure (spawn error, non-zero exit, unparseable output, missing keys)
  * returns null so the story stays pending and retries next run. The subprocess is injected
@@ -43,29 +52,106 @@ export class GrokTerminalGenerator implements Generator {
 
     if (result.code !== 0) return null;
 
-    return parseGeneratorOutput(result.stdout);
+    return parseGeneratorOutput(extractGrokText(result.stdout));
   }
 }
 
 /**
- * Default runner: spawn the configured CLI, write the prompt on stdin, collect stdout.
- * No `env` option is passed, so the child inherits our environment (subscription login),
- * without this module touching the environment directly (secrets.ts is the only env
- * reader). A spawn error resolves as a non-zero code so generate() degrades to null.
+ * Unwrap grok's headless JSON envelope. `grok -p ... --output-format json` prints
+ * `{ "text": "<model reply>", "sessionId": ..., ... }`; the reply we want to parse is the
+ * `.text` string. Returns that string when the envelope is present, otherwise the raw
+ * stdout unchanged — so a bare or fenced JSON reply (and the injected-runner tests that feed
+ * one) still flow straight into the shared parser. Never throws.
+ */
+export function extractGrokText(stdout: string): string {
+  try {
+    const env = JSON.parse(stdout) as { text?: unknown };
+    if (env && typeof env === "object" && typeof env.text === "string") {
+      return env.text;
+    }
+  } catch {
+    // Not an envelope (bare/fenced JSON or prose) — fall through to the raw text.
+  }
+  return stdout;
+}
+
+/** How long a single headless grok text turn may run before it is SIGKILLed. */
+const TEXT_TIMEOUT_MS = 180_000;
+
+/**
+ * Default runner: invoke the configured CLI headlessly and collect its stdout. Matching the
+ * Chronicle reference, the prompt is the `-p` VALUE (not stdin) with `--output-format json`,
+ * and grok runs in a throwaway temp `--cwd` with planning/subagents/web-search off and the
+ * mutating tools denied — so an agentic reply can neither explore nor edit this repo, and
+ * runs fast. The child inherits our environment (subscription login) without this module
+ * reading it (secrets.ts is the only env reader). A spawn error or timeout resolves as a
+ * non-zero code so generate() degrades to null.
  */
 export const defaultTextRunner: TerminalTextRunner = ({ command, args, prompt }) =>
   new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const workDir = mkdtempSync(join(tmpdir(), "brickfeed-gen-"));
+    let settled = false;
+    const finish = (result: { stdout: string; code: number }): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        rmSync(workDir, { recursive: true, force: true });
+      } catch {
+        /* best-effort cleanup */
+      }
+      resolve(result);
+    };
+
+    const child = spawn(command, [...args, ...grokHeadlessArgs(workDir, "-p", prompt)], {
+      cwd: workDir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish({ stdout, code: 1 });
+    }, TEXT_TIMEOUT_MS);
 
     let stdout = "";
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     // Drain stderr so the pipe never blocks; we don't surface it.
     child.stderr.on("data", () => {});
 
-    child.on("error", () => resolve({ stdout: "", code: 1 }));
-    child.on("close", (code) => resolve({ stdout, code: code ?? 1 }));
-
-    child.stdin.on("error", () => {}); // ignore EPIPE if the child exits early
-    child.stdin.write(prompt);
-    child.stdin.end();
+    child.on("error", () => finish({ stdout: "", code: 1 }));
+    child.on("close", (code) => finish({ stdout, code: code ?? 1 }));
   });
+
+/**
+ * The headless flags shared by the grok-terminal text + image runners (Chronicle reference):
+ * an isolated `--cwd`, JSON output, the agentic scaffolding trimmed off, and every mutating /
+ * shell tool denied so grok can only produce its answer. `promptFlag`/`prompt` carry the turn
+ * (`-p "<prompt>"` for text, `-p "/imagine <prompt>"` for image).
+ */
+export function grokHeadlessArgs(
+  workDir: string,
+  promptFlag: string,
+  prompt: string,
+): string[] {
+  return [
+    "--cwd",
+    workDir,
+    promptFlag,
+    prompt,
+    "--output-format",
+    "json",
+    "--no-plan",
+    "--no-subagents",
+    "--disable-web-search",
+    "--deny",
+    "Bash",
+    "--deny",
+    "Shell",
+    "--deny",
+    "Terminal",
+    "--deny",
+    "Edit",
+    "--deny",
+    "Write",
+  ];
+}

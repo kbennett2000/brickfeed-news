@@ -4,7 +4,7 @@
   ],
   "manifestPath": "data/manifest.json",
   "generator": {
-    "provider": "grok",
+    "provider": "grok-terminal",
     "model": "claude-sonnet-5",
     "grok": {
       "baseUrl": "https://api.x.ai/v1",
@@ -19,7 +19,7 @@
     "styleLanguage": "Rendered as a diorama built from generic plastic toy building bricks: glossy studded pieces, blocky minifigure characters with cylindrical grip hands, arranged on a studded baseplate under soft studio lighting."
   },
   "image": {
-    "provider": "grok",
+    "provider": "grok-terminal",
     "grok": {
       "baseUrl": "https://api.x.ai/v1",
       "model": "grok-imagine-image-quality",

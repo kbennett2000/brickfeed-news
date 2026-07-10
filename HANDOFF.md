@@ -1,5 +1,48 @@
 # Handoff
 
+## Latest: keyless grok-terminal is now the real default (issue #20, PR pending)
+
+The prod-keyless promise (ADR-0006 #7) was not actually in effect, and the grok-terminal
+providers were built against contracts the real `grok` CLI does not honor. All three fixed
+and **proven live, keyless** (no `XAI_API_KEY`, subscription CLI only):
+
+- **Defaults flipped to keyless.** `DEFAULT_PROVIDER` and `DEFAULT_IMAGE_PROVIDER` are now
+  `"grok-terminal"` (were `"grok"`, the xAI API-key paths); `config.example.json` matches. A
+  fresh/legacy config resolves to the keyless path and never demands `XAI_API_KEY`. The
+  `XAI_API_KEY` warning lives only on the API-key `grok` branch, which is no longer the
+  default — so the keyless path is silent.
+- **grok-terminal TEXT rebuilt** (`src/generator/grokTerminal.ts`). The real `grok` is an
+  agentic *coding* CLI: it needs the prompt as the `-p <prompt>` value + `--output-format
+  json` (NOT stdin) and returns a `{ "text": ..., "sessionId": ... }` envelope. New
+  `extractGrokText` unwraps `.text`, then the shared `parseGeneratorOutput` runs. The default
+  runner cages grok in a throwaway temp `--cwd` with planning/subagents/web-search off and
+  mutating tools denied (Chronicle reference), so a reply can't explore/edit this repo.
+- **grok-terminal IMAGE rebuilt** (`src/image/grokTerminal.ts`). Grok Build never prints PNG
+  bytes on stdout; `/imagine <prompt>` writes a file under
+  `~/.grok/sessions/<enc(cwd)>/<sessionId>/images/` and records its path in
+  `chat_history.jsonl`. The default runner drives `/imagine` in a temp dir, locates the file
+  (chat-history `path`, then a newest-image salvage scan), reads the bytes, and cleans up both
+  the temp cwd and grok's session copy (so a cron cycle doesn't grow `~/.grok` unbounded).
+  Exported `findGrokImagePath` / `newestImageUnder` are unit-tested against a fake tree.
+- The provider/runner INTERFACES are unchanged (`TerminalTextRunner` → `{stdout,code}`,
+  `TerminalImageRunner` → `{bytes,code}`), so all injected-runner tests still hold; the new
+  protocol lives in the default runners + the small text-envelope unwrap.
+- Tests **266 passing** (+10). Gates clean: `process.env` only in `secrets.ts`; no lego.
+- **LIVE KEYLESS PROOF:** ran the real `npm run cycle -- --no-deploy` against a bounded 2-item
+  local feed with `generator`/`image` = grok-terminal and local storage, `XAI_API_KEY` unset
+  and no API keys present → `generate: 2 generated, 0 pending`, `image: 2 stored, 0 failed`,
+  `render: 2 publishable → 10 files`, exit 0. Both stored files are valid 1280×720 images from
+  the grok subscription CLI; headlines are original rewrites; categories assigned. Zero
+  API-key warnings.
+- **Follow-up (not this cycle):** grok emits JPEG, but the storage layer names artifacts
+  `<id>.png` / content-type `image/png` (`src/image.ts` + `src/storage/*`). Browsers
+  content-sniff so images render, but the extension/Content-Type are cosmetically wrong for a
+  real Blob store — worth a small follow-up to derive the type from the bytes.
+- **Box action:** the box `config.json` still has the pre-grok-terminal `generator.provider`
+  (`"subscription"` → aliases to `claude`) and no `image` block. To run fully keyless, set
+  BOTH `generator.provider` and `image.provider` to `"grok-terminal"` (or delete the blocks so
+  they default there now). `config.example.json` is the current correct shape.
+
 ## Current state
 **Slice 8 (publish-cycle orchestrator + CLI-direct Vercel deploy — the FINAL slice)** is
 built on branch `slice-8-cycle-orchestrator-deploy` (off `master`, which already has slices

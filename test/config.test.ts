@@ -76,9 +76,9 @@ describe("validateConfig", () => {
     expect(() => validateConfig("nope")).toThrow();
   });
 
-  it("defaults the generator block to grok + default model + grok defaults when absent", () => {
+  it("defaults the generator block to the keyless grok-terminal provider when absent", () => {
     const cfg = validateConfig(base);
-    expect(cfg.generator.provider).toBe("grok");
+    expect(cfg.generator.provider).toBe("grok-terminal");
     expect(cfg.generator.model).toBe(DEFAULT_MODEL);
     expect(cfg.generator.grok).toEqual({
       baseUrl: DEFAULT_GROK_BASE_URL,
@@ -119,9 +119,9 @@ describe("validateConfig", () => {
     ).toThrow();
   });
 
-  it("defaults the image block to grok + nested defaults when absent", () => {
+  it("defaults the image block to the keyless grok-terminal provider + nested defaults when absent", () => {
     const cfg = validateConfig(base);
-    expect(cfg.image.provider).toBe("grok");
+    expect(cfg.image.provider).toBe("grok-terminal");
     expect(cfg.image.grok).toEqual({
       baseUrl: DEFAULT_IMAGE_GROK_BASE_URL,
       model: DEFAULT_IMAGE_GROK_MODEL,
