@@ -9,6 +9,7 @@
     "generate": "tsx src/generate-cli.ts",
     "images": "tsx src/image-cli.ts",
     "ageout": "tsx src/ageout-cli.ts",
+    "render": "tsx src/render-cli.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -39,5 +39,9 @@
     }
   },
   "maxAgeHours": 72,
-  "publishedPath": "data/published.json"
+  "publishedPath": "data/published.json",
+  "render": {
+    "outputDir": "site",
+    "secondaryStoryCount": 4
+  }
 }

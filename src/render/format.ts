@@ -1,0 +1,84 @@
+/**
+ * Pure formatting/escaping helpers for the static render (Slice 7). No IO, no clock of
+ * their own — every time-dependent helper takes an explicit `now`, so the render stays
+ * hermetic and testable. Kept separate from the templates so the string-escaping rules
+ * live in one auditable place.
+ */
+import type { Category } from "../category.js";
+
+/** HTML-escape text for element content (`<`, `>`, `&`). */
+export function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Escape a string for use inside a double-quoted attribute value. Covers `&` and `"`
+ * plus `<`/`>` for safety; used for `href`, `src`, `alt`, etc. so a stray quote in a
+ * source URL or caption can never break out of the attribute.
+ */
+export function escapeAttr(value: string): string {
+  return escapeHtml(value).replace(/"/g, "&quot;");
+}
+
+/**
+ * The masthead dateline, e.g. `FRIDAY, JULY 10, 2026`. Formatted in UTC so the output is
+ * deterministic for a given clock regardless of the host timezone (the render is hermetic
+ * and CI runs anywhere), then uppercased to the broadsheet style.
+ */
+export function formatMastheadDate(now: Date): string {
+  const formatted = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(now);
+  return formatted.toUpperCase();
+}
+
+/**
+ * A deadpan relative-time label from an ISO timestamp to `now`, e.g. `34 min ago`,
+ * `2 hr ago`, `3 days ago`. This is decorative chrome (the real freshness signal is the
+ * live feed), so it degrades to `just now` for future/near/unparseable timestamps rather
+ * than throwing.
+ */
+export function relativeTime(iso: string, now: Date): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "just now";
+  const seconds = Math.floor((now.getTime() - then) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
+}
+
+/** The URL slug for a section page, e.g. WORLD → `world`. Lowercased category name. */
+export function sectionSlug(category: Category): string {
+  return category.toLowerCase();
+}
+
+/** Title-case a single UPPERCASE category token, e.g. TECHNOLOGY → `Technology`. */
+export function titleCase(value: string): string {
+  if (value.length === 0) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+}
+
+/**
+ * The decorative byline for a card, e.g. `By the Technology Desk`. This is chrome, not a
+ * real author credit — the actual source attribution is the outbound link to the article.
+ */
+export function bylineFor(category: Category): string {
+  return `By the ${titleCase(category)} Desk`;
+}
+
+/**
+ * The rendered caption text with the static studio credit appended. The generator's
+ * `caption` is a bare neutral description (no credit — see prompt.ts); the
+ * `/ BRICKFEED STUDIO` credit is a render-side concern, added here.
+ */
+export function captionWithCredit(caption: string): string {
+  return `${caption} / BRICKFEED STUDIO`;
+}
