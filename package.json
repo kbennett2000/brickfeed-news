@@ -1,0 +1,21 @@
+{
+  "name": "brickfeed-news",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pulls stories from a news RSS feed and renders a static toy-brick cover page.",
+  "scripts": {
+    "ingest": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.23.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
