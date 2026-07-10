@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GrokImageProvider,
+  GrokTerminalImageProvider,
   LocalImageProvider,
   createImageProvider,
 } from "../src/image/index.js";
@@ -19,6 +20,21 @@ describe("createImageProvider (provider selection)", () => {
     const config = makeConfig();
     config.image.provider = "local";
     expect(createImageProvider(config)).toBeInstanceOf(LocalImageProvider);
+  });
+
+  it("selects the grok-terminal provider when provider is 'grok-terminal'", () => {
+    const config = makeConfig();
+    config.image.provider = "grok-terminal";
+    expect(createImageProvider(config)).toBeInstanceOf(GrokTerminalImageProvider);
+  });
+
+  it("passes an injected terminalRunner through to the grok-terminal provider", async () => {
+    const config = makeConfig();
+    config.image.provider = "grok-terminal";
+    const gen = createImageProvider(config, {
+      terminalRunner: async () => ({ bytes: bytes("PNG"), code: 0 }),
+    });
+    expect(await gen.generate("a wrapped prompt")).toEqual(bytes("PNG"));
   });
 
   it("passes an injected runner through to the Grok provider", async () => {

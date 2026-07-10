@@ -10,6 +10,7 @@
     "images": "tsx src/image-cli.ts",
     "ageout": "tsx src/ageout-cli.ts",
     "render": "tsx src/render-cli.ts",
+    "cycle": "tsx src/cycle-cli.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

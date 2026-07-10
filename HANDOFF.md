@@ -1,6 +1,75 @@
 # Handoff
 
 ## Current state
+**Slice 8 (publish-cycle orchestrator + CLI-direct Vercel deploy — the FINAL slice)** is
+built on branch `slice-8-cycle-orchestrator-deploy` (off `master`, which already has slices
+1–7 merged) with an open PR (see issue #16). It sequences the existing modules into one
+in-process run and deploys the rendered `site/` from the LAN box via `vercel --prod`. It does
+NOT push to git (deploy is CLI-direct, not a git-trigger). ADR: `docs/adr/0006-orchestrator-and-deploy.md`.
+
+Slice 8 — one run = ingest → generate → image+store → ageout → render → deploy:
+- `src/cycle.ts` — `runCycle(config, deps, opts)`: pure orchestrator, calls the module
+  functions directly, threads the manifest in memory, persists after each mutating stage.
+  Story-level failures stay pending + continue; a STAGE hard-failure (a throw) is logged,
+  aborts BEFORE deploy, and returns `ok:false` (CLI exits non-zero). Render consumes
+  `publishableRecords(manifest)` directly. Boundaries injected via `CycleDeps`
+  (clock, fetch, the 3 configured providers, `DeployRunner`, `CycleIo`) — `defaultCycleIo`
+  is the real fs impl (delegates to manifest.ts/publish.ts + a mkdir/writeFile loop).
+- `src/deploy.ts` — `deploy(config, {files, publishableCount}, {run,log}, {requested})`,
+  NEVER-THROW → `DeployResult` (`deployed` | `failed` | `skipped-flag` | `skipped-disabled`
+  | `refused-empty`). CRITICAL GUARD: refuses when no `index.html` or 0 publishable records
+  (non-fatal, exit 0) so a bad render never nukes the live site. Deploy runs last, only on a
+  real render.
+- `src/cycle-cli.ts` (`npm run cycle`): wires real deps (fetch, `createGenerator`/
+  `createImageProvider`/`createStorageProvider`, the default spawn-based `DeployRunner`,
+  `defaultCycleIo`). Flags `--no-deploy` (run all, skip deploy) and `--dry-run` (log intended
+  actions, mutate nothing — no providers/network/writes/deploy). Exit non-zero only on a hard
+  stage failure; empty-render refusal stays exit 0.
+- `scripts/cycle.sh` — wraps `npm run cycle` in `flock -n /tmp/brickfeed.lock`: an overlapping
+  cron tick logs "skipping" and exits 0 instead of racing. Logs to a file
+  (`$BRICKFEED_LOG`, default `<repo>/cycle.log`), passes through the exit code.
+- **Keyless `grok-terminal` providers** (prod = subscription, no API key, for BOTH text +
+  image): `src/generator/grokTerminal.ts` + `src/image/grokTerminal.ts` — same never-throw,
+  stdin-prompt, injected-subprocess pattern as `claude -p`. Selected by config
+  (`generator.provider` / `image.provider` = `"grok-terminal"`), never hardcoded. Text parses
+  the model's JSON reply from stdout (shared `parseGeneratorOutput`); image reads raw PNG
+  bytes from stdout. Command/args are config (`grokTerminal.command`/`args`, default `grok`).
+- Config: NEW `deploy` block `{ command "vercel --prod --yes", cwd = render.outputDir,
+  enabled true }` + `generator.grokTerminal` + `image.grokTerminal` in `src/config.ts`
+  (`DeployConfig`/`GrokTerminalConfig` + defaults + `validateDeploy`/`validateGrokTerminal`),
+  `config.example.json`, `test/helpers.ts` `makeConfig`, `test/config.test.ts`. New secret
+  getter `getVercelToken()` (env stays confined to `secrets.ts`).
+- Tests: **251 passing** (was 213, +38) — `test/cycle.test.ts` (exact stage order; hard-fail
+  aborts before deploy + non-zero; empty-render guard blocks deploy but ok/exit 0;
+  `--no-deploy`; `--dry-run` mutates nothing; `deploy.enabled=false`), `test/deploy.test.ts`
+  (deployed/failed/runner-throws-swallowed/skips/guard), `test/generator.grokTerminal.test.ts`
+  + `test/image.grokTerminal.test.ts` (parse/bytes + never-throw), extended config/factory
+  tests. Gates clean: `grep -rn process.env src/` → only `secrets.ts`;
+  `grep -rin lego src/ config.example.json` → EMPTY; `tsc --noEmit` clean.
+- Verified end-to-end by driving the REAL `npm run cycle` against a scratch config (owner's
+  config.json/manifest/network untouched): `--dry-run` logged intended actions and mutated
+  nothing; `--no-deploy` ran the full chain (grok-terminal `true` left the pending story
+  pending, ageout dropped a stale record, render wrote 10 files, deploy skipped-flag, exit 0);
+  a full run had the real `DeployRunner` spawn the deploy command (deployed exit 0);
+  `deploy.enabled=false` → skipped-disabled; and two overlapping `scripts/cycle.sh` runs
+  confirmed the second SKIPS on the lock.
+
+### One-time HUMAN prerequisites on the box (do NOT automate headless)
+- `cd <repo>/site && vercel login && vercel link` once (creates `.vercel` in the deploy cwd;
+  or set `deploy.cwd` and link there). The grok CLI logged in via subscription. Set the box
+  `config.json` `generator.provider`/`image.provider` to `"grok-terminal"` (the current box
+  config.json still says the OLD `"subscription"` — rename to `"claude"` or switch to
+  `"grok-terminal"`; `config.example.json` is the correct current shape). For Blob storage:
+  `BLOB_READ_WRITE_TOKEN` + `storage.blob.publicBaseUrl`. Optional `VERCEL_TOKEN` only for
+  CI-like contexts.
+
+### Crontab (configure the schedule placeholder; absolute path)
+```
+<SCHEDULE>  /abs/path/to/brickfeed-news/scripts/cycle.sh      # e.g. */30 * * * *
+```
+
+---
+
 **Slice 7 (static cover-page render — the FIRST UI slice)** is built on branch
 `slice-7-render-cover-page` (off `slice-6-category-caption`) with an open PR (see issue #13).
 It consumes `published.json` and emits a static newspaper site — no ingestion/generation/

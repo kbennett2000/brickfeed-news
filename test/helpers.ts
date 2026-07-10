@@ -1,15 +1,20 @@
 import type { Config } from "../src/config.js";
 import type {
   ClaudeRunner,
+  CycleIo,
+  DeployRunner,
   GenerationInput,
   Generator,
   GeneratorOutput,
   GrokChatRunner,
   ImageHttpRunner,
   ImageProvider,
+  Manifest,
   StorageFs,
   StorageHttpRunner,
   StorageProvider,
+  TerminalImageRunner,
+  TerminalTextRunner,
 } from "../src/types.js";
 import type { FetchLike } from "../src/types.js";
 
@@ -71,6 +76,7 @@ export function makeConfig(over: Partial<Config> = {}): Config {
       provider: "grok",
       model: "test-model",
       grok: { baseUrl: "https://grok.test/v1", model: "grok-test" },
+      grokTerminal: { command: "grok-test", args: [] },
     },
     brickStyle: { styleLanguage: "TEST-STYLE plastic building-block diorama" },
     image: {
@@ -82,6 +88,7 @@ export function makeConfig(over: Partial<Config> = {}): Config {
         resolution: "1k",
       },
       local: { url: "http://imagegen.test", style: "test-base" },
+      grokTerminal: { command: "grok-test", args: [] },
     },
     storage: {
       provider: "blob",
@@ -94,6 +101,7 @@ export function makeConfig(over: Partial<Config> = {}): Config {
     maxAgeHours: 72,
     publishedPath: "unused-published.json",
     render: { outputDir: "site", secondaryStoryCount: 4 },
+    deploy: { command: "vercel --prod --yes", cwd: "site", enabled: true },
     ...over,
   };
 }
@@ -349,4 +357,96 @@ export function fakeGrokRunner(opts: {
       body: opts.body ?? "",
     };
   };
+}
+
+/** A fake TerminalTextRunner returning canned stdout/exit code, for grok-terminal text tests. */
+export function fakeTerminalTextRunner(opts: {
+  stdout?: string;
+  code?: number;
+  throws?: boolean;
+}): TerminalTextRunner & { calls: { command: string; args: string[]; prompt: string }[] } {
+  const calls: { command: string; args: string[]; prompt: string }[] = [];
+  const runner = async (a: { command: string; args: string[]; prompt: string }) => {
+    calls.push(a);
+    if (opts.throws) throw new Error("simulated spawn failure");
+    return { stdout: opts.stdout ?? "", code: opts.code ?? 0 };
+  };
+  return Object.assign(runner, { calls });
+}
+
+/** A fake TerminalImageRunner returning canned bytes/exit code, for grok-terminal image tests. */
+export function fakeTerminalImageRunner(opts: {
+  bytes?: Uint8Array;
+  code?: number;
+  throws?: boolean;
+}): TerminalImageRunner & { calls: { command: string; args: string[]; prompt: string }[] } {
+  const calls: { command: string; args: string[]; prompt: string }[] = [];
+  const runner = async (a: { command: string; args: string[]; prompt: string }) => {
+    calls.push(a);
+    if (opts.throws) throw new Error("simulated spawn failure");
+    return { bytes: opts.bytes ?? new Uint8Array(0), code: opts.code ?? 0 };
+  };
+  return Object.assign(runner, { calls });
+}
+
+/**
+ * A fake DeployRunner for deploy/cycle tests. Returns a canned exit code (default 0);
+ * set `throws` to make it reject (to prove deploy() swallows it). Records every call so
+ * tests can assert the command + cwd it was invoked with — and that it was NOT called when
+ * deploy is skipped/refused/aborted.
+ */
+export function fakeDeployRunner(
+  opts: { code?: number; throws?: boolean } = {},
+): DeployRunner & { calls: { command: string; cwd: string }[] } {
+  const calls: { command: string; cwd: string }[] = [];
+  const runner = async (a: { command: string; cwd: string }) => {
+    calls.push(a);
+    if (opts.throws) throw new Error("simulated deploy spawn failure");
+    return { code: opts.code ?? 0, stdout: "", stderr: "" };
+  };
+  return Object.assign(runner, { calls });
+}
+
+/** A single write recorded by fakeCycleIo, tagged by kind. */
+export interface RecordedIoWrite {
+  kind: "manifest" | "published" | "site";
+  path: string;
+  /** For a site write: the rendered file map. */
+  files?: Record<string, string>;
+}
+
+/**
+ * An in-memory CycleIo for orchestrator tests. `readManifest` returns the seeded manifest
+ * (a fresh clone each call). Every write is recorded in `writes` (and the latest manifest
+ * kept in `saved`) so tests can assert persistence order and prove `--dry-run` writes
+ * nothing. Set `throwOn` to a write kind to simulate a hard IO failure mid-run.
+ */
+export function fakeCycleIo(
+  manifest: Manifest,
+  opts: { throwOn?: "manifest" | "published" | "site"; throwOnRead?: boolean } = {},
+): CycleIo & { writes: RecordedIoWrite[]; saved?: Manifest } {
+  const state = {
+    writes: [] as RecordedIoWrite[],
+    saved: undefined as Manifest | undefined,
+  };
+  const io: CycleIo = {
+    async readManifest() {
+      if (opts.throwOnRead) throw new Error("simulated manifest read failure");
+      return { version: manifest.version, stories: { ...manifest.stories } };
+    },
+    async writeManifest(path, m) {
+      if (opts.throwOn === "manifest") throw new Error("simulated manifest write failure");
+      state.writes.push({ kind: "manifest", path });
+      state.saved = m;
+    },
+    async writePublished(path) {
+      if (opts.throwOn === "published") throw new Error("simulated published write failure");
+      state.writes.push({ kind: "published", path });
+    },
+    async writeSite(path, files) {
+      if (opts.throwOn === "site") throw new Error("simulated site write failure");
+      state.writes.push({ kind: "site", path, files });
+    },
+  };
+  return Object.assign(io, state);
 }
