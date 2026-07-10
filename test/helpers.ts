@@ -185,6 +185,8 @@ export function fakeGenerator(opts: {
       headline: `Rewritten: ${input.title}`,
       description: `An original two-sentence take on ${input.title}. It links out.`,
       imagePrompt: `A neutral photographic scene evoking ${input.title}.`,
+      category: "WORLD",
+      caption: `A neutral scene evoking ${input.title}.`,
     }));
   const throwOn = opts.throwOn ?? new Set<string>();
 

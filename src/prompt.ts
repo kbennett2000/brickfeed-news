@@ -1,3 +1,4 @@
+import { CATEGORIES } from "./category.js";
 import type { GenerationInput } from "./types.js";
 
 /**
@@ -14,7 +15,7 @@ import type { GenerationInput } from "./types.js";
  */
 export const GENERATION_INSTRUCTIONS = `You rewrite a news story into original cover-page content for a static news site.
 
-Given the story below, produce THREE things:
+Given the story below, produce FIVE things:
 
 1. "headline": ONE punchy, neutral, factual sentence. It is an ORIGINAL rewrite —
    it must NOT reuse the source article's title verbatim or near-verbatim. Rephrase
@@ -35,12 +36,24 @@ Given the story below, produce THREE things:
    - A caricature of a well-known public figure is fine, but never state or imply a
      fabricated factual claim about anyone.
 
+4. "category": the single best-fitting section for this story. Pick EXACTLY ONE of
+   these values, copied verbatim (uppercase), and nothing else:
+   ${CATEGORIES.join(", ")}.
+
+5. "caption": ONE short line — roughly 8 to 15 words — that describes the imagePrompt
+   scene, as an italic-style photo caption for the generated image. Same hard rules
+   as the imagePrompt: NO text/letters/logos in the description, NO brand names or
+   trademarks, no fabricated factual claims. Describe the visual scene only — do NOT
+   append any credit, byline, studio name, or attribution (that is added later,
+   downstream, not by you).
+
 Legal guardrails (must obey): the headline and description are ORIGINAL rewrites,
-never verbatim source text; the imagePrompt names no brands or trademarks and
-contains no written words.
+never verbatim source text; the imagePrompt and caption name no brands or trademarks
+and contain no written words.
 
 Output STRICT JSON and nothing else — no prose, no markdown fences — an object with
-EXACTLY these keys: "headline", "description", "imagePrompt". Do not add other keys.`;
+EXACTLY these keys: "headline", "description", "imagePrompt", "category", "caption".
+Do not add other keys.`;
 
 /**
  * Build the full single-shot prompt for one story: the fixed instructions plus the

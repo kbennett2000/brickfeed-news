@@ -2,6 +2,7 @@
  * Shared types for the ingestion backbone (Slice 1) and the Claude generation
  * layer (Slice 2), per docs/adr/0001-brickfeed-architecture.md.
  */
+import type { Category } from "./category.js";
 
 /** A single item parsed from an RSS feed, before link resolution / identity. */
 export interface FeedItem {
@@ -16,9 +17,10 @@ export interface FeedItem {
 /**
  * A manifest record — the persisted identity + provenance of a known story.
  *
- * The generation fields (headline, description, imagePrompt, wrappedPrompt) are
- * optional: they are absent for a story that has not been generated yet ("pending
- * generation") and written together, all-or-nothing, once generation succeeds.
+ * The generation fields (headline, description, imagePrompt, wrappedPrompt,
+ * category, caption) are optional: they are absent for a story that has not been
+ * generated yet ("pending generation") and written together, all-or-nothing, once
+ * generation succeeds.
  * Their PRESENCE is what makes generation idempotent — matching Slice 1's dedup
  * style, there is no separate status flag.
  */
@@ -43,6 +45,10 @@ export interface ManifestRecord {
   imagePrompt?: string;
   /** imagePrompt after brick-style wrapping — the artifact imagegen will consume. */
   wrappedPrompt?: string;
+  /** The story's section, one of the fixed CATEGORIES (Slice 6). Defaults to WORLD. */
+  category?: Category;
+  /** Short (~8–15 word) neutral caption describing the generated image scene (Slice 6). */
+  caption?: string;
 
   // --- Storage fields (Slice 4). Present only once the image is durably stored. ---
   /**
@@ -61,6 +67,10 @@ export interface GeneratorOutput {
   headline: string;
   description: string;
   imagePrompt: string;
+  /** One of the fixed CATEGORIES; normalized to WORLD if the model gives a bad value. */
+  category: Category;
+  /** Short (~8–15 word) neutral caption describing the image scene. */
+  caption: string;
 }
 
 /** The story context handed to a Generator to produce {headline, description, imagePrompt}. */

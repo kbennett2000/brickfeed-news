@@ -13,6 +13,8 @@ const INNER = {
   headline: "City reveals ambitious transit overhaul",
   description: "The mayor outlined a plan to expand bus routes. Funding details follow.",
   imagePrompt: "A grinning mayor rides a wildly oversized bouncing bus through downtown.",
+  category: "POLITICS",
+  caption: "A beaming official rides a comically enormous bouncing bus downtown.",
 };
 
 /** Wrap inner text in an OpenAI-compatible chat-completions envelope. */
@@ -90,9 +92,37 @@ describe("GrokGenerator.generate — never-throw failure modes", () => {
     expect(await gen.generate(INPUT)).toBeNull();
   });
 
+  it("returns null when caption is missing (caption is required)", async () => {
+    const { caption, ...noCaption } = INNER;
+    const gen = grok({ body: envelope(JSON.stringify(noCaption)) });
+    expect(await gen.generate(INPUT)).toBeNull();
+  });
+
   it("returns null on an empty body", async () => {
     const gen = grok({ body: "" });
     expect(await gen.generate(INPUT)).toBeNull();
+  });
+});
+
+describe("GrokGenerator.generate — category normalization (Slice 6)", () => {
+  it("normalizes an invalid category to WORLD (story still generates)", async () => {
+    const gen = grok({
+      body: envelope(JSON.stringify({ ...INNER, category: "GOSSIP" })),
+    });
+    expect(await gen.generate(INPUT)).toEqual({ ...INNER, category: "WORLD" });
+  });
+
+  it("normalizes a missing category to WORLD", async () => {
+    const { category, ...noCategory } = INNER;
+    const gen = grok({ body: envelope(JSON.stringify(noCategory)) });
+    expect(await gen.generate(INPUT)).toEqual({ ...INNER, category: "WORLD" });
+  });
+
+  it("accepts a lowercase category, upcasing it", async () => {
+    const gen = grok({
+      body: envelope(JSON.stringify({ ...INNER, category: "politics" })),
+    });
+    expect(await gen.generate(INPUT)).toEqual({ ...INNER, category: "POLITICS" });
   });
 });
 

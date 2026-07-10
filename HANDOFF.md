@@ -1,6 +1,58 @@
 # Handoff
 
 ## Current state
+**Slice 6 (category + caption on the generation contract)** is built on branch
+`slice-6-category-caption` (off `slice-4-storage-publish`) with an open PR (see issue #11).
+It amends ONLY the generation + manifest/publish shape — no ingestion, image, or storage
+changes.
+
+Slice 6 — the Generator normalized output goes from `{headline, description, imagePrompt}`
+to `{headline, description, imagePrompt, category, caption}`:
+- `src/category.ts` — NEW single source of truth: the fixed 8-section nav
+  `CATEGORIES = [WORLD, POLITICS, BUSINESS, TECHNOLOGY, SCIENCE, SPORT, CULTURE, OPINION]`,
+  `type Category`, `DEFAULT_CATEGORY = "WORLD"`, and `normalizeCategory(v)` (trim+upcase,
+  invalid/missing → WORLD, never throws). A CODE CONSTANT (not config) so the pure
+  `prompt.ts`/`parse.ts` seams import it directly.
+- `src/prompt.ts` — `GENERATION_INSTRUCTIONS` now asks for FIVE keys; injects the enum list
+  for `category` (pick exactly one), and a `caption` (~8–15 word neutral photo caption of the
+  imagePrompt scene, same no-text/no-brand rules, NO credit/byline — the "/ BRICKFEED STUDIO"
+  credit is appended render-side). Strict-JSON reaffirmed to exactly the 5 keys. Still names
+  no brick/toy/lego (regression anchor holds).
+- `src/generator/parse.ts` — extracts the 2 new keys: `caption` is REQUIRED like the other text
+  fields (missing/empty → whole parse null → story stays pending); `category` is NEVER null —
+  `normalizeCategory` defaults it to WORLD. Both providers (grok/subscription) call this shared
+  parser unchanged.
+- `src/generate.ts` — `isGenerated` now also requires `category` + `caption`, so a record
+  generated BEFORE this slice (has the 4 old gen fields, lacks these) is treated as still-pending
+  and BACKFILLS on the next run. All-or-nothing write now includes both new fields.
+- `src/publish.ts` — `isPublishable` now also requires `category` + `caption` (no half-formed
+  publish). `published.json` is a whole-record array, so it already carries both fields once
+  present — doc updated, test confirms.
+- `src/types.ts` — `GeneratorOutput` gains `category: Category` + `caption: string`;
+  `ManifestRecord` gains optional `category?`/`caption?`.
+- Enum defined as a constant → NO `config.example.json` change. `secrets.ts` untouched.
+- Tests: **192 passing** (was 173, +19): `test/category.test.ts` (enum + normalize/fallback),
+  prompt anchors (5 keys, enum listed, caption neutral, no brick/toy/lego), both providers parse
+  5-key JSON + invalid/missing category → WORLD + missing caption → null, generate backfill +
+  all-six persistence + round-trip, publish gate + `published.json` carries both. Both gates
+  clean: `grep -rn process.env src/` → only `secrets.ts`; `grep -rin lego src/ config.example.json`
+  → empty. `tsc --noEmit` clean.
+
+Verified end-to-end (Slice 6) — LIVE against the real `claude` model (subscription path; note the
+production runner's `--bare` flag is not logged-in in this box, so verification used a non-`--bare`
+runner over the real CLI, which IS authenticated): generated 2 real pending stories → each got a
+valid enum `category` (POLITICS) and a short neutral `caption` (12 & 14 words, no brand/text/brick).
+Then stripped `category`+`caption` from one generated record → `isGenerated` = false → re-ran →
+it regenerated and refilled both fields (`isGenerated` = true). The real working `data/manifest.json`
+was NOT mutated (verification ran in-memory). Follow-up for the owner: the default `SubscriptionGenerator`
+runner uses `claude -p --bare ...`; in this environment `--bare` reports "Not logged in" while plain
+`claude -p` authenticates — if live subscription generation stays empty, that flag is the likely cause.
+
+**Branch stacking note:** `slice-6-category-caption` is based on `slice-4-storage-publish`.
+Merge order: Slice 2 → 2c → 3 → 4 → 6.
+
+---
+
 **Slice 4 (StorageProvider + image-gated publish + age-out)** is built on branch
 `slice-4-storage-publish` (off `slice-3-image-provider`) with an open PR (see issue #9).
 This is the LAST backend slice — it ends at a manifest carrying durable image URLs plus a

@@ -4,12 +4,19 @@ import type { Manifest, ManifestRecord } from "./types.js";
 
 /**
  * Image-gated publishing (ADR-0001 #4: "no story publishes without an image"). A record
- * is publishable only when it has all three of headline, description, and a durable
- * imageUrl. Pure predicate — this is the seam the future render slice consumes; nothing
- * is rendered here.
+ * is publishable only when it has headline, description, a durable imageUrl, and the
+ * Slice 6 render fields category + caption — so partially-migrated (pre-Slice-6) records
+ * never publish half-formed. Pure predicate — this is the seam the future render slice
+ * consumes; nothing is rendered here.
  */
 export function isPublishable(record: ManifestRecord): boolean {
-  return !!record.headline && !!record.description && !!record.imageUrl;
+  return (
+    !!record.headline &&
+    !!record.description &&
+    !!record.imageUrl &&
+    !!record.category &&
+    !!record.caption
+  );
 }
 
 /**
@@ -26,7 +33,8 @@ export function publishableRecords(manifest: Manifest): ManifestRecord[] {
 /**
  * Write the derived, newest-first published list to disk atomically (temp + rename,
  * mirroring writeManifest). This is the backend's final output seam for the render
- * slice — text-only JSON, not a rendered page.
+ * slice — text-only JSON, not a rendered page. Each entry is a whole ManifestRecord,
+ * so it carries the render fields (category + caption) the render slice consumes.
  */
 export async function writePublished(path: string, manifest: Manifest): Promise<void> {
   await mkdir(dirname(path), { recursive: true });

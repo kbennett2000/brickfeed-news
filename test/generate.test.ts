@@ -28,6 +28,22 @@ function done(id: string, title: string): ManifestRecord {
     description: "already generated",
     imagePrompt: "a scene",
     wrappedPrompt: "TEST-STYLE Scene: a scene",
+    category: "WORLD",
+    caption: "an already-generated scene",
+  };
+}
+
+/**
+ * A record generated BEFORE Slice 6: it has the original four gen fields but lacks
+ * category + caption. It must be treated as still-pending so it backfills on re-run.
+ */
+function preSliceDone(id: string, title: string): ManifestRecord {
+  return {
+    ...pending(id, title),
+    headline: "already",
+    description: "already generated",
+    imagePrompt: "a scene",
+    wrappedPrompt: "TEST-STYLE Scene: a scene",
   };
 }
 
@@ -42,7 +58,7 @@ function deps(gen = fakeGenerator({})): GenerateDeps {
 }
 
 describe("generateAll", () => {
-  it("generates pending records and persists all four fields together", async () => {
+  it("generates pending records and persists all six fields together", async () => {
     const gen = fakeGenerator({});
     const result = await generateAll(config, manifestOf(pending("a", "Story A")), deps(gen));
 
@@ -56,6 +72,9 @@ describe("generateAll", () => {
     expect(rec.imagePrompt).toContain("Story A");
     // Brick wrapping uses the config style, applied to the neutral imagePrompt.
     expect(rec.wrappedPrompt).toBe(`TEST-STYLE Scene: ${rec.imagePrompt}`);
+    // Slice 6 render fields written together with the rest.
+    expect(rec.category).toBe("WORLD");
+    expect(rec.caption).toContain("Story A");
     expect(isGenerated(rec)).toBe(true);
   });
 
@@ -69,6 +88,31 @@ describe("generateAll", () => {
     expect(result.failed).toBe(0);
   });
 
+  it("backfills a pre-Slice-6 record missing category/caption (regenerates it)", async () => {
+    // The record has the original four gen fields but no category/caption.
+    const stale = preSliceDone("a", "Story A");
+    expect(isGenerated(stale)).toBe(false); // treated as still-pending
+
+    const gen = fakeGenerator({});
+    const result = await generateAll(config, manifestOf(stale), deps(gen));
+
+    // It was regenerated (not skipped) and now carries the two new fields.
+    expect(gen.calls).toHaveLength(1);
+    expect(result.generated).toHaveLength(1);
+    expect(result.skipped).toBe(0);
+    const rec = result.manifest.stories["a"];
+    expect(rec.category).toBe("WORLD");
+    expect(rec.caption).toContain("Story A");
+    expect(isGenerated(rec)).toBe(true);
+  });
+
+  it("does NOT backfill a fully-generated (Slice 6) record — still skipped", async () => {
+    const gen = fakeGenerator({});
+    const result = await generateAll(config, manifestOf(done("a", "Story A")), deps(gen));
+    expect(gen.calls).toHaveLength(0);
+    expect(result.skipped).toBe(1);
+  });
+
   it("never-throw: a null result leaves that record pending and others still generate", async () => {
     // Fail only Story B (impl returns null for it).
     const gen = fakeGenerator({
@@ -79,6 +123,8 @@ describe("generateAll", () => {
               headline: `H:${input.title}`,
               description: `D:${input.title}`,
               imagePrompt: `P:${input.title}`,
+              category: "WORLD",
+              caption: `C:${input.title}`,
             },
     });
 
@@ -158,7 +204,7 @@ describe("manifest round-trips the generation fields", () => {
     await rm(path, { force: true });
   });
 
-  it("writeManifest then readManifest preserves headline/description/imagePrompt/wrappedPrompt", async () => {
+  it("writeManifest then readManifest preserves all six generation fields", async () => {
     const gen = fakeGenerator({});
     const { manifest } = await generateAll(
       config,

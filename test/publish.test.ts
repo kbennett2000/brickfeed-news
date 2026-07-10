@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { isPublishable, publishableRecords } from "../src/publish.js";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { afterEach, describe, expect, it } from "vitest";
+import { isPublishable, publishableRecords, writePublished } from "../src/publish.js";
 import type { Manifest, ManifestRecord } from "../src/types.js";
 
-/** A fully publishable record (headline + description + imageUrl). */
+/** A fully publishable record (headline + description + imageUrl + category + caption). */
 function full(id: string, firstSeen: string): ManifestRecord {
   return {
     id,
@@ -15,6 +19,8 @@ function full(id: string, firstSeen: string): ManifestRecord {
     description: "A description.",
     imagePrompt: "a scene",
     wrappedPrompt: "STYLE scene",
+    category: "WORLD",
+    caption: `A neutral scene for ${id}.`,
     imageUrl: `https://cdn.test/${id}.png`,
     imageStoredAt: firstSeen,
   };
@@ -23,7 +29,7 @@ function full(id: string, firstSeen: string): ManifestRecord {
 describe("isPublishable — truth table", () => {
   const base = full("a", "2025-07-01T00:00:00.000Z");
 
-  it("is true only with headline + description + imageUrl", () => {
+  it("is true with headline + description + imageUrl + category + caption", () => {
     expect(isPublishable(base)).toBe(true);
   });
 
@@ -39,9 +45,18 @@ describe("isPublishable — truth table", () => {
     expect(isPublishable({ ...base, imageUrl: undefined })).toBe(false);
   });
 
+  it("is false without a category (Slice 6 — no half-formed publish)", () => {
+    expect(isPublishable({ ...base, category: undefined })).toBe(false);
+  });
+
+  it("is false without a caption (Slice 6 — no half-formed publish)", () => {
+    expect(isPublishable({ ...base, caption: undefined })).toBe(false);
+  });
+
   it("treats empty strings as absent", () => {
     expect(isPublishable({ ...base, headline: "" })).toBe(false);
     expect(isPublishable({ ...base, imageUrl: "" })).toBe(false);
+    expect(isPublishable({ ...base, caption: "" })).toBe(false);
   });
 });
 
@@ -68,5 +83,25 @@ describe("publishableRecords", () => {
       stories: { p: { ...full("p", "2025-07-01T00:00:00.000Z"), imageUrl: undefined } },
     };
     expect(publishableRecords(manifest)).toEqual([]);
+  });
+});
+
+describe("writePublished carries category + caption to the render seam (Slice 6)", () => {
+  const path = join(tmpdir(), "brickfeed-published-slice6.json");
+  afterEach(async () => {
+    await rm(path, { force: true });
+  });
+
+  it("each published.json entry includes category + caption", async () => {
+    const manifest: Manifest = {
+      version: 1,
+      stories: { a: full("a", "2025-07-01T00:00:00.000Z") },
+    };
+    await writePublished(path, manifest);
+    const written = JSON.parse(await readFile(path, "utf8")) as ManifestRecord[];
+
+    expect(written).toHaveLength(1);
+    expect(written[0].category).toBe("WORLD");
+    expect(written[0].caption).toBe("A neutral scene for a.");
   });
 });

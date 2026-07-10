@@ -1,3 +1,4 @@
+import { normalizeCategory } from "../category.js";
 import type { GeneratorOutput } from "../types.js";
 
 /**
@@ -31,9 +32,13 @@ export function parseGeneratorOutput(text: string): GeneratorOutput | null {
   const headline = cleanString(obj.headline);
   const description = cleanString(obj.description);
   const imagePrompt = cleanString(obj.imagePrompt);
-  if (!headline || !description || !imagePrompt) return null;
+  const caption = cleanString(obj.caption);
+  // caption is required like the other text fields — missing/empty leaves the story
+  // pending. category is NOT: a bad value normalizes to WORLD so generation succeeds.
+  if (!headline || !description || !imagePrompt || !caption) return null;
+  const category = normalizeCategory(obj.category);
 
-  return { headline, description, imagePrompt };
+  return { headline, description, imagePrompt, category, caption };
 }
 
 /** Non-empty trimmed string, or "" if the value isn't a usable string. */
