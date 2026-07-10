@@ -1,6 +1,65 @@
 # Handoff
 
 ## Current state
+**Slice 7 (static cover-page render — the FIRST UI slice)** is built on branch
+`slice-7-render-cover-page` (off `slice-6-category-caption`) with an open PR (see issue #13).
+It consumes `published.json` and emits a static newspaper site — no ingestion/generation/
+image/storage changes. **Ends at static HTML openable locally: NO deploy, NO Vercel, NO push
+beyond the PR branch** (deploy is the next slice, after a chat).
+
+Slice 7 — `published.json` (newest-first `ManifestRecord[]`) → a static site:
+- `src/render/` — a PURE render core (records + clock in → `path→contents` map out, no fs,
+  no wall clock): `index.ts` (`renderSite`, `toStoryView`), `templates.ts` (template-literal
+  partials — masthead, sticky nav, lead, rail, card, section head, footer, page shell; the
+  nav + footer Sections are built by mapping over `CATEGORIES` from `src/category.ts`, the
+  single source of truth — never re-listed), `format.ts` (escape + `formatMastheadDate`
+  UTC-uppercased + `relativeTime` + `sectionSlug`/`titleCase`/`bylineFor`), `styles.ts`
+  (`STYLES` — the chrome CSS as a committed source string, authored from the design tokens).
+- Output: `index.html` (cover: masthead + nav + hero(lead + rail of N) + "Across the
+  Brickyard" overflow card grid + footer) + one `<slug>.html` per section (nav works with NO
+  client JS; filtered by category, active nav underlined) + `styles.css`. No framework, no
+  new dep (template literals; the design DSL/React runtime was reference-only).
+- Data mapping: kicker = `category`; headline = `headline` (never the raw feed `title`);
+  dek = `description`; caption = `caption` + a render-side `/ BRICKFEED STUDIO` credit;
+  byline = decorative `By the {Category} Desk`; "ago" = `relativeTime(firstSeen, now)`; each
+  card/headline links OUT to the source `url` (`target="_blank" rel="noopener noreferrer"`);
+  real `<img src=imageUrl>` degrading to the studded placeholder frame when absent.
+  `imagePrompt`/`wrappedPrompt` never rendered.
+- Masthead: injected-clock date (`FRIDAY, JULY 10, 2026`), `LATE BRICK EDITION`, motto
+  `TOTVS MVNDVS EX LATERIBVS`. English tagline REMOVED; Search/Subscribe/Today's Paper OMITTED.
+- Scope: Hero + overflow only. The design's feature / "Most Bricked" / Opinion-strip are a
+  noted FOLLOW-ON (need editorial hand-picking / copy we don't generate). Fonts via Google
+  Fonts `<link>` (Georgia fallback); self-hosting is a follow-on.
+- `src/render-cli.ts` — `npm run render`: loads config → reads `config.publishedPath`
+  (missing/invalid → `[]`, not an error) → `renderSite` → writes `config.render.outputDir`.
+  Reads no env (secrets gate holds).
+- Config: NEW `render` block `{ outputDir "site", secondaryStoryCount 4 }` in `src/config.ts`
+  (`RenderConfig` + defaults + `validateRender`), `config.example.json`, `test/helpers.ts`
+  `makeConfig`, `test/config.test.ts`.
+- Output policy: `site/` is a gitignored BUILD ARTIFACT (deploy slice decides serving);
+  chrome lives as committed SOURCE in `src/render/styles.ts`. No binary assets (wordmark is
+  type + CSS studs).
+- ADR: `docs/adr/0005-render.md` records all of the above.
+- Tests: **213 passing** (was 192, +21) — `test/render.test.ts` (lead headline; nav from the
+  enum; kickers; caption + `/ BRICKFEED STUDIO`; outbound source links; SEARCH/SUBSCRIBE/
+  TODAY'S PAPER + tagline ABSENT; no "lego"; empty → valid empty page; injected-clock date;
+  per-section filtering + active nav; HTML escaping) + `test/config.test.ts` render-block
+  cases. Both gates clean: `grep -rin lego src/ site/ config.example.json` → EMPTY;
+  `grep -rn process.env src/` → only `secrets.ts`. `tsc --noEmit` clean.
+- Verified end-to-end: ran `npm run render` over a representative **seeded** `data/published.json`
+  (gitignored; 7 on-brand records, one with a data-URI image, the rest exercising placeholder
+  frames) → 10 files (cover + 8 sections + styles.css). Structural confirmation: 1 lead + 4
+  rail + 2 overflow cards; 1 real `<img>` + 6 placeholders; `world.html` shows only WORLD +
+  active nav; `opinion.html` (no stories) → empty state; masthead date/motto/edition present;
+  Search/Subscribe/tagline absent. NOTE: no REAL `published.json` exists yet (the live
+  manifest has 0 publishable records — generation+images not run live), so the seed stands in
+  until the pipeline produces one; a browser-open pass is the owner's to do on merge.
+
+**Branch stacking note:** `slice-7-render-cover-page` is based on `slice-6-category-caption`.
+Merge order: 2 → 2c → 3 → 4 → 6 → 7.
+
+---
+
 **Slice 6 (category + caption on the generation contract)** is built on branch
 `slice-6-category-caption` (off `slice-4-storage-publish`) with an open PR (see issue #11).
 It amends ONLY the generation + manifest/publish shape — no ingestion, image, or storage

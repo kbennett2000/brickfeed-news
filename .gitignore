@@ -22,3 +22,7 @@ PAUSE
 # generated image bytes for local visual inspection (Slice 3 temporary sink) — never
 # committed; images live in storage referenced by URL, never in git (ADR-0001 #5)
 /out/
+
+# rendered static site (Slice 7 build artifact) — derived output; the deploy slice decides
+# how it's served. Chrome lives as committed SOURCE in src/render/styles.ts, not here.
+/site/

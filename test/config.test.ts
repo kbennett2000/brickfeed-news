@@ -11,6 +11,8 @@ import {
   DEFAULT_MAX_AGE_HOURS,
   DEFAULT_MODEL,
   DEFAULT_PUBLISHED_PATH,
+  DEFAULT_RENDER_OUTPUT_DIR,
+  DEFAULT_RENDER_SECONDARY_STORY_COUNT,
   DEFAULT_STORAGE_BLOB_PATH_PREFIX,
   DEFAULT_STORAGE_LOCAL_DIR,
   DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL,
@@ -226,6 +228,31 @@ describe("validateConfig", () => {
 
   it("rejects a blank publishedPath", () => {
     expect(() => validateConfig({ ...base, publishedPath: "" })).toThrow();
+  });
+
+  it("defaults the render block when absent", () => {
+    const cfg = validateConfig(base);
+    expect(cfg.render).toEqual({
+      outputDir: DEFAULT_RENDER_OUTPUT_DIR,
+      secondaryStoryCount: DEFAULT_RENDER_SECONDARY_STORY_COUNT,
+    });
+  });
+
+  it("accepts an explicit render block and defaults per-field", () => {
+    const cfg = validateConfig({ ...base, render: { outputDir: "public" } });
+    expect(cfg.render.outputDir).toBe("public");
+    expect(cfg.render.secondaryStoryCount).toBe(DEFAULT_RENDER_SECONDARY_STORY_COUNT);
+    expect(validateConfig({ ...base, render: { secondaryStoryCount: 0 } }).render.secondaryStoryCount).toBe(0);
+  });
+
+  it("rejects a blank render.outputDir and a bad render.secondaryStoryCount", () => {
+    expect(() => validateConfig({ ...base, render: { outputDir: "" } })).toThrow();
+    expect(() =>
+      validateConfig({ ...base, render: { secondaryStoryCount: -1 } }),
+    ).toThrow();
+    expect(() =>
+      validateConfig({ ...base, render: { secondaryStoryCount: 2.5 } }),
+    ).toThrow();
   });
 
   it("rejects a missing or blank brickStyle.styleLanguage", () => {

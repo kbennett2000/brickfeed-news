@@ -22,6 +22,16 @@ export interface Config {
   maxAgeHours: number;
   /** Where the derived newest-first list of publishable records is written (Slice 4). */
   publishedPath: string;
+  /** Static cover-page render settings (Slice 7). */
+  render: RenderConfig;
+}
+
+/** Where the static site is written + how many secondary (rail) stories the cover shows. */
+export interface RenderConfig {
+  /** Build dir the rendered index.html + per-section pages + styles.css are written to. */
+  outputDir: string;
+  /** Number of secondary stories in the hero rail, after the single lead (Slice 7). */
+  secondaryStoryCount: number;
 }
 
 /** Which text generator to use, plus provider-specific settings. */
@@ -119,6 +129,10 @@ export const DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL = "http://localhost:8189/blob
 export const DEFAULT_MAX_AGE_HOURS = 72;
 export const DEFAULT_PUBLISHED_PATH = "data/published.json";
 
+/** Defaults when the config omits the `render` block (Slice 7). */
+export const DEFAULT_RENDER_OUTPUT_DIR = "site";
+export const DEFAULT_RENDER_SECONDARY_STORY_COUNT = 4;
+
 /** Load and validate config.json (path defaults to ./config.json). */
 export async function loadConfig(path = "config.json"): Promise<Config> {
   let raw: string;
@@ -172,6 +186,7 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
     path,
     "publishedPath",
   );
+  const render = validateRender(obj.render, path);
 
   return {
     feedUrls: feedUrls as string[],
@@ -182,6 +197,7 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
     storage,
     maxAgeHours,
     publishedPath,
+    render,
   };
 }
 
@@ -414,6 +430,44 @@ function validateStorageLocal(raw: unknown, path: string): LocalStorageConfig {
   );
 
   return { dir, publicBaseUrl };
+}
+
+/**
+ * Validate the `render` block (Slice 7). Absent → defaults (outputDir "site",
+ * secondaryStoryCount 4). A present outputDir must be a non-empty string; a present
+ * secondaryStoryCount must be a non-negative integer (0 = lead only, no rail).
+ */
+function validateRender(raw: unknown, path: string): RenderConfig {
+  if (raw == null) {
+    return {
+      outputDir: DEFAULT_RENDER_OUTPUT_DIR,
+      secondaryStoryCount: DEFAULT_RENDER_SECONDARY_STORY_COUNT,
+    };
+  }
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: render must be an object.`);
+  }
+  const r = raw as Record<string, unknown>;
+
+  const outputDir = requireStringField(
+    r.outputDir,
+    DEFAULT_RENDER_OUTPUT_DIR,
+    path,
+    "render.outputDir",
+  );
+
+  const secondaryStoryCount = r.secondaryStoryCount ?? DEFAULT_RENDER_SECONDARY_STORY_COUNT;
+  if (
+    typeof secondaryStoryCount !== "number" ||
+    !Number.isInteger(secondaryStoryCount) ||
+    secondaryStoryCount < 0
+  ) {
+    throw new Error(
+      `Config at ${path}: render.secondaryStoryCount must be a non-negative integer.`,
+    );
+  }
+
+  return { outputDir, secondaryStoryCount };
 }
 
 /** Validate `maxAgeHours`. Absent → default; present must be a positive finite number. */

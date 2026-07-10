@@ -93,6 +93,7 @@ export function makeConfig(over: Partial<Config> = {}): Config {
     },
     maxAgeHours: 72,
     publishedPath: "unused-published.json",
+    render: { outputDir: "site", secondaryStoryCount: 4 },
     ...over,
   };
 }
