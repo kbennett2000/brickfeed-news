@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { generateImages } from "../src/image.js";
 import type { ImageDeps, Manifest, ManifestRecord } from "../src/types.js";
-import { bytes, fakeImageProvider, fixedNow, makeConfig } from "./helpers.js";
+import { bytes, fakeImageProvider, fakeStorageProvider, fixedNow, makeConfig } from "./helpers.js";
 
 const NOW = "2025-07-08T00:00:00.000Z";
 const config = makeConfig();
 
-/** A record that has been through generation (has a wrappedPrompt → renderable). */
-function renderable(id: string): ManifestRecord {
+/** A record that has been through generation (has a wrappedPrompt → eligible). */
+function eligible(id: string): ManifestRecord {
   return {
     id,
     url: `https://example.com/${id}`,
@@ -22,14 +22,19 @@ function renderable(id: string): ManifestRecord {
   };
 }
 
-/** A pending record with no wrappedPrompt yet (not renderable). */
+/** A pending record with no wrappedPrompt yet (not eligible). */
 function pending(id: string): ManifestRecord {
-  const r = renderable(id);
+  const r = eligible(id);
   delete r.headline;
   delete r.description;
   delete r.imagePrompt;
   delete r.wrappedPrompt;
   return r;
+}
+
+/** An already-stored record (has imageUrl) — must be skipped idempotently. */
+function stored(id: string): ManifestRecord {
+  return { ...eligible(id), imageUrl: `https://cdn.test/${id}.png`, imageStoredAt: NOW };
 }
 
 function manifestOf(...records: ManifestRecord[]): Manifest {
@@ -38,118 +43,146 @@ function manifestOf(...records: ManifestRecord[]): Manifest {
   return { version: 1, stories };
 }
 
-/** A capturing writeImage sink + the deps bundle around a given provider. */
-function depsWith(provider: ImageDeps["provider"]): {
-  deps: ImageDeps;
-  writes: Map<string, Uint8Array>;
-} {
-  const writes = new Map<string, Uint8Array>();
-  const deps: ImageDeps = {
-    provider,
-    writeImage: async (id, b) => {
-      writes.set(id, b);
-    },
-    now: fixedNow(NOW),
-  };
-  return { deps, writes };
+function depsWith(
+  provider: ImageDeps["provider"],
+  storage: ImageDeps["storage"],
+): ImageDeps {
+  return { provider, storage, now: fixedNow(NOW) };
 }
 
 describe("generateImages", () => {
-  it("renders each record with a wrappedPrompt and writes its bytes by id", async () => {
+  it("generates, stores, and persists imageUrl + imageStoredAt for each eligible record", async () => {
     const provider = fakeImageProvider({});
-    const { deps, writes } = depsWith(provider);
-    const manifest = manifestOf(renderable("a"), renderable("b"));
+    const storage = fakeStorageProvider();
+    const manifest = manifestOf(eligible("a"), eligible("b"));
 
-    const result = await generateImages(config, manifest, deps);
+    const result = await generateImages(config, manifest, depsWith(provider, storage));
 
-    expect(result.written.sort()).toEqual(["a", "b"]);
+    expect(result.stored.sort()).toEqual(["a", "b"]);
     expect(result.skipped).toBe(0);
     expect(result.failed).toBe(0);
     expect(provider.calls.sort()).toEqual(["TEST-STYLE Scene: a", "TEST-STYLE Scene: b"]);
-    expect(writes.get("a")).toEqual(bytes("img:TEST-STYLE Scene: a"));
-    expect(writes.get("b")).toEqual(bytes("img:TEST-STYLE Scene: b"));
+    expect(storage.puts.map((p) => p.id).sort()).toEqual(["a", "b"]);
+    // The bytes handed to storage are the provider's output; content-type is png.
+    expect(storage.puts[0].contentType).toBe("image/png");
+    expect(storage.puts.find((p) => p.id === "a")!.bytes).toEqual(bytes("img:TEST-STYLE Scene: a"));
+    // Persisted onto the (immutable copy) manifest record.
+    expect(result.manifest.stories.a.imageUrl).toBe("https://cdn.test/a.png");
+    expect(result.manifest.stories.a.imageStoredAt).toBe(NOW);
   });
 
-  it("skips records without a wrappedPrompt and never calls the provider for them", async () => {
+  it("does not mutate the starting manifest", async () => {
     const provider = fakeImageProvider({});
-    const { deps, writes } = depsWith(provider);
-    const manifest = manifestOf(pending("a"), renderable("b"));
+    const storage = fakeStorageProvider();
+    const manifest = manifestOf(eligible("a"));
 
-    const result = await generateImages(config, manifest, deps);
+    await generateImages(config, manifest, depsWith(provider, storage));
+
+    expect(manifest.stories.a.imageUrl).toBeUndefined();
+  });
+
+  it("skips records without a wrappedPrompt and never calls the provider or storage", async () => {
+    const provider = fakeImageProvider({});
+    const storage = fakeStorageProvider();
+    const manifest = manifestOf(pending("a"), eligible("b"));
+
+    const result = await generateImages(config, manifest, depsWith(provider, storage));
 
     expect(result.skipped).toBe(1);
-    expect(result.written).toEqual(["b"]);
+    expect(result.stored).toEqual(["b"]);
     expect(provider.calls).toEqual(["TEST-STYLE Scene: b"]);
-    expect(writes.has("a")).toBe(false);
+    expect(storage.puts.map((p) => p.id)).toEqual(["b"]);
   });
 
-  it("is resilient: a null from the provider fails one record, others still written", async () => {
+  it("is idempotent: a record with an imageUrl is skipped — neither generate nor put called", async () => {
+    const provider = fakeImageProvider({});
+    const storage = fakeStorageProvider();
+    const manifest = manifestOf(stored("a"), eligible("b"));
+
+    const result = await generateImages(config, manifest, depsWith(provider, storage));
+
+    expect(result.skipped).toBe(1);
+    expect(result.stored).toEqual(["b"]);
+    // "a" was never regenerated or re-uploaded.
+    expect(provider.calls).toEqual(["TEST-STYLE Scene: b"]);
+    expect(storage.puts.map((p) => p.id)).toEqual(["b"]);
+    // Its existing URL is preserved untouched.
+    expect(result.manifest.stories.a.imageUrl).toBe("https://cdn.test/a.png");
+  });
+
+  it("all-or-nothing: provider returns null → no put, no imageUrl, record stays pending", async () => {
     const provider = fakeImageProvider({
       impl: (p) => (p === "TEST-STYLE Scene: a" ? null : bytes(`img:${p}`)),
     });
-    const { deps, writes } = depsWith(provider);
-    const manifest = manifestOf(renderable("a"), renderable("b"));
+    const storage = fakeStorageProvider();
+    const manifest = manifestOf(eligible("a"), eligible("b"));
 
-    const result = await generateImages(config, manifest, deps);
+    const result = await generateImages(config, manifest, depsWith(provider, storage));
 
     expect(result.failed).toBe(1);
-    expect(result.written).toEqual(["b"]);
-    expect(writes.has("a")).toBe(false);
+    expect(result.stored).toEqual(["b"]);
+    expect(storage.puts.map((p) => p.id)).toEqual(["b"]); // "a" never reached storage
+    expect(result.manifest.stories.a.imageUrl).toBeUndefined();
+  });
+
+  it("all-or-nothing: bytes ok but storage.put returns null → nothing persisted", async () => {
+    const provider = fakeImageProvider({});
+    const storage = fakeStorageProvider({ put: (id) => (id === "a" ? null : `https://cdn.test/${id}.png`) });
+    const manifest = manifestOf(eligible("a"), eligible("b"));
+
+    const result = await generateImages(config, manifest, depsWith(provider, storage));
+
+    expect(result.failed).toBe(1);
+    expect(result.stored).toEqual(["b"]);
+    // put WAS attempted for "a" (bytes arrived) but no URL → no persistence.
+    expect(storage.puts.map((p) => p.id).sort()).toEqual(["a", "b"]);
+    expect(result.manifest.stories.a.imageUrl).toBeUndefined();
+    expect(result.manifest.stories.a.imageStoredAt).toBeUndefined();
   });
 
   it("is resilient: a provider that throws fails one record, the run continues", async () => {
     const provider = fakeImageProvider({ throwOn: new Set(["TEST-STYLE Scene: a"]) });
-    const { deps, writes } = depsWith(provider);
-    const manifest = manifestOf(renderable("a"), renderable("b"));
+    const storage = fakeStorageProvider();
+    const manifest = manifestOf(eligible("a"), eligible("b"));
 
-    const result = await generateImages(config, manifest, deps);
-
-    expect(result.failed).toBe(1);
-    expect(result.written).toEqual(["b"]);
-    expect(writes.has("b")).toBe(true);
-  });
-
-  it("counts a failed write as failed and keeps going", async () => {
-    const provider = fakeImageProvider({});
-    const writes = new Map<string, Uint8Array>();
-    const deps: ImageDeps = {
-      provider,
-      writeImage: async (id, b) => {
-        if (id === "a") throw new Error("disk full");
-        writes.set(id, b);
-      },
-      now: fixedNow(NOW),
-    };
-    const manifest = manifestOf(renderable("a"), renderable("b"));
-
-    const result = await generateImages(config, manifest, deps);
+    const result = await generateImages(config, manifest, depsWith(provider, storage));
 
     expect(result.failed).toBe(1);
-    expect(result.written).toEqual(["b"]);
-    expect(writes.has("a")).toBe(false);
+    expect(result.stored).toEqual(["b"]);
   });
 
-  it("caps attempts with opts.limit (renderable records beyond the cap untouched)", async () => {
+  it("is resilient: a storage.put that throws fails one record, the run continues", async () => {
     const provider = fakeImageProvider({});
-    const { deps } = depsWith(provider);
-    const manifest = manifestOf(renderable("a"), renderable("b"), renderable("c"));
+    const storage = fakeStorageProvider({ throwOnPut: new Set(["a"]) });
+    const manifest = manifestOf(eligible("a"), eligible("b"));
 
-    const result = await generateImages(config, manifest, deps, { limit: 2 });
+    const result = await generateImages(config, manifest, depsWith(provider, storage));
+
+    expect(result.failed).toBe(1);
+    expect(result.stored).toEqual(["b"]);
+    expect(result.manifest.stories.a.imageUrl).toBeUndefined();
+  });
+
+  it("caps attempts with opts.limit (eligible records beyond the cap untouched)", async () => {
+    const provider = fakeImageProvider({});
+    const storage = fakeStorageProvider();
+    const manifest = manifestOf(eligible("a"), eligible("b"), eligible("c"));
+
+    const result = await generateImages(config, manifest, depsWith(provider, storage), { limit: 2 });
 
     expect(provider.calls).toHaveLength(2);
-    expect(result.written).toHaveLength(2);
+    expect(result.stored).toHaveLength(2);
   });
 
-  it("limit counts attempts, not skips (pending records don't consume the budget)", async () => {
+  it("limit counts attempts, not skips (pending/stored records don't consume the budget)", async () => {
     const provider = fakeImageProvider({});
-    const { deps } = depsWith(provider);
-    // Two pending (skipped, free) then two renderable; limit 1 should still render one.
-    const manifest = manifestOf(pending("p1"), pending("p2"), renderable("a"), renderable("b"));
+    const storage = fakeStorageProvider();
+    const manifest = manifestOf(pending("p1"), stored("s1"), eligible("a"), eligible("b"));
 
-    const result = await generateImages(config, manifest, deps, { limit: 1 });
+    const result = await generateImages(config, manifest, depsWith(provider, storage), { limit: 1 });
 
-    expect(result.skipped).toBe(2);
+    expect(result.skipped).toBe(2); // p1 (no prompt) + s1 (already stored)
     expect(provider.calls).toHaveLength(1);
-    expect(result.written).toHaveLength(1);
+    expect(result.stored).toHaveLength(1);
   });
 });

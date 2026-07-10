@@ -1,39 +1,61 @@
 import type { Config } from "./config.js";
-import type { ImageDeps, Manifest } from "./types.js";
+import type { ImageDeps, Manifest, ManifestRecord } from "./types.js";
+
+/** Content-type the pipeline stores images as (Grok Imagine / local imagegen return PNG). */
+const IMAGE_CONTENT_TYPE = "image/png";
 
 export interface ImageResult {
-  /** Story IDs whose image bytes were generated and written this run. */
-  written: string[];
-  /** Records skipped because they have no wrappedPrompt (not yet generated). */
+  /** Story IDs whose image was generated, stored, and persisted this run. */
+  stored: string[];
+  /** Records skipped: already have an image, or not yet generated (no wrappedPrompt). */
   skipped: number;
-  /** Records attempted but left without an image (provider/write returned null/threw). */
+  /** Records attempted but left pending (generation or storage returned null/threw). */
   failed: number;
+  /** The updated manifest (caller decides when/whether to persist it). */
+  manifest: Manifest;
 }
 
 /**
- * Image pass (Slice 3): for each manifest record that HAS a wrappedPrompt, ask the
- * ImageProvider for image bytes and hand them to the injected `writeImage` sink
- * (out/<id>.png this slice). Pure: the provider, writer, and clock are supplied by
- * the caller so this runs hermetically in tests.
+ * A record has a durable image when its imageUrl is present. Because imageUrl +
+ * imageStoredAt are written together (all-or-nothing) only after a successful store,
+ * presence is a reliable idempotency signal — matching the generation layer's
+ * isGenerated, no status flag.
+ */
+export function hasImage(record: ManifestRecord): boolean {
+  return !!record.imageUrl;
+}
+
+/**
+ * Image pass (Slice 4): the REAL gen → store → persist pipeline that replaces Slice 3's
+ * out/ inspection sink. For each manifest record that HAS a wrappedPrompt and NO
+ * imageUrl yet, ask the ImageProvider for bytes, hand them to the StorageProvider, and
+ * on a durable URL write imageUrl + imageStoredAt back onto the record. Pure: provider,
+ * storage, and clock are injected so this runs hermetically in tests.
  *
  * Guarantees:
- *  - Records without a wrappedPrompt are skipped; the provider is not called.
- *  - Resilient: a null/throwing provider (or a failed write) leaves that record
- *    without an image and the run continues with the remaining records.
- *  - opts.limit caps how many wrappedPrompt records are ATTEMPTED (keeps live runs
- *    cheap), matching generateAll's semantics.
- *
- * NOTE: Slice 3 has no per-record "already has an image" signal — that's a Slice 4
- * manifest field — so every wrappedPrompt record is (re)rendered each run, capped by
- * opts.limit. This is a temporary inspection sink, not the final publish path.
+ *  - Idempotent: a record that already has an imageUrl is skipped entirely — the
+ *    provider is NOT called and storage is NOT touched (never re-pay, never re-upload).
+ *  - Records without a wrappedPrompt are skipped (not generated yet).
+ *  - All-or-nothing: imageUrl is written ONLY after a successful put. A null from the
+ *    provider OR from storage leaves the record pending (imageUrl absent) — a story is
+ *    NEVER persisted with a missing/half image.
+ *  - Resilient: a null/throwing provider or a null from storage fails just that record;
+ *    the run continues with the rest.
+ *  - opts.limit caps how many eligible records are ATTEMPTED (keeps live runs cheap),
+ *    matching generateAll's semantics.
  */
 export async function generateImages(
   _config: Config,
-  manifest: Manifest,
+  startingManifest: Manifest,
   deps: ImageDeps,
   opts: { limit?: number } = {},
 ): Promise<ImageResult> {
-  const written: string[] = [];
+  const manifest: Manifest = {
+    version: startingManifest.version,
+    stories: { ...startingManifest.stories },
+  };
+
+  const stored: string[] = [];
   let skipped = 0;
   let failed = 0;
   let attempted = 0;
@@ -41,13 +63,18 @@ export async function generateImages(
   for (const id of Object.keys(manifest.stories)) {
     const record = manifest.stories[id];
 
+    if (hasImage(record)) {
+      skipped++; // already stored — idempotent, never re-generate or re-upload
+      continue;
+    }
+
     if (!record.wrappedPrompt) {
       skipped++; // not generated yet — nothing to render
       continue;
     }
 
     if (opts.limit != null && attempted >= opts.limit) {
-      // Beyond the attempt cap: leave remaining renderable records untouched.
+      // Beyond the attempt cap: leave remaining eligible records untouched.
       continue;
     }
     attempted++;
@@ -65,15 +92,28 @@ export async function generateImages(
       continue; // no image this run; retried next run
     }
 
+    // Storage never throws (returns null on failure), but guard anyway.
+    let url: string | null;
     try {
-      await deps.writeImage(record.id, bytes);
+      url = await deps.storage.put(record.id, bytes, IMAGE_CONTENT_TYPE);
     } catch {
-      failed++; // bytes arrived but the sink failed — leave it for next run
+      url = null;
+    }
+
+    if (url == null) {
+      failed++; // bytes arrived but storage failed — leave pending, retry next run
       continue;
     }
 
-    written.push(record.id);
+    // All-or-nothing write: only now do we persist the image fields together.
+    const updated: ManifestRecord = {
+      ...record,
+      imageUrl: url,
+      imageStoredAt: deps.now().toISOString(),
+    };
+    manifest.stories[id] = updated;
+    stored.push(record.id);
   }
 
-  return { written, skipped, failed };
+  return { stored, skipped, failed, manifest };
 }

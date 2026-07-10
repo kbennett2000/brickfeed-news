@@ -8,6 +8,7 @@
     "ingest": "tsx src/index.ts",
     "generate": "tsx src/generate-cli.ts",
     "images": "tsx src/image-cli.ts",
+    "ageout": "tsx src/ageout-cli.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

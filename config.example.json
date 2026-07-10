@@ -26,5 +26,18 @@
       "url": "http://localhost:8189",
       "style": "base"
     }
-  }
+  },
+  "storage": {
+    "provider": "blob",
+    "blob": {
+      "pathPrefix": "images/",
+      "publicBaseUrl": "https://your-store-id.public.blob.vercel-storage.com"
+    },
+    "local": {
+      "dir": "data/blob",
+      "publicBaseUrl": "http://localhost:8189/blob"
+    }
+  },
+  "maxAgeHours": 72,
+  "publishedPath": "data/published.json"
 }

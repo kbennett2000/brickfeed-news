@@ -7,6 +7,9 @@ import type {
   GrokChatRunner,
   ImageHttpRunner,
   ImageProvider,
+  StorageFs,
+  StorageHttpRunner,
+  StorageProvider,
 } from "../src/types.js";
 import type { FetchLike } from "../src/types.js";
 
@@ -80,6 +83,16 @@ export function makeConfig(over: Partial<Config> = {}): Config {
       },
       local: { url: "http://imagegen.test", style: "test-base" },
     },
+    storage: {
+      provider: "blob",
+      blob: {
+        pathPrefix: "images/",
+        publicBaseUrl: "https://store.test.public.blob.vercel-storage.com",
+      },
+      local: { dir: "/tmp/unused-storage", publicBaseUrl: "http://storage.test/blob" },
+    },
+    maxAgeHours: 72,
+    publishedPath: "unused-published.json",
     ...over,
   };
 }
@@ -183,6 +196,125 @@ export function fakeGenerator(opts: {
         throw new Error(`simulated generation failure for ${input.title}`);
       }
       return impl(input);
+    },
+  };
+}
+
+/** A single recorded put() call on a fakeStorageProvider. */
+export interface RecordedPut {
+  id: string;
+  bytes: Uint8Array;
+  contentType: string;
+}
+
+/**
+ * A fake StorageProvider for orchestrator tests. `put` maps a story id to a durable URL
+ * (default `https://cdn.test/<id>.png`); return null to simulate a never-throw failure,
+ * or set `throwOnPut` to make put() throw. `delete` records ids; set `throwOnDelete` to
+ * make delete() throw (used to assert non-fatal handling by the caller). Records all
+ * calls for idempotency / all-or-nothing assertions.
+ */
+export function fakeStorageProvider(opts: {
+  put?: (id: string, bytes: Uint8Array, contentType: string) => string | null;
+  throwOnPut?: Set<string>;
+  throwOnDelete?: Set<string>;
+} = {}): StorageProvider & { puts: RecordedPut[]; deletes: string[] } {
+  const puts: RecordedPut[] = [];
+  const deletes: string[] = [];
+  const putImpl = opts.put ?? ((id) => `https://cdn.test/${id}.png`);
+  const throwOnPut = opts.throwOnPut ?? new Set<string>();
+  const throwOnDelete = opts.throwOnDelete ?? new Set<string>();
+
+  return {
+    puts,
+    deletes,
+    async put(id: string, bytes: Uint8Array, contentType: string): Promise<string | null> {
+      puts.push({ id, bytes, contentType });
+      if (throwOnPut.has(id)) throw new Error(`simulated put failure for ${id}`);
+      return putImpl(id, bytes, contentType);
+    },
+    async delete(id: string): Promise<void> {
+      deletes.push(id);
+      if (throwOnDelete.has(id)) throw new Error(`simulated delete failure for ${id}`);
+    },
+  };
+}
+
+/** A single recorded outbound request from a fakeStorageRunner. */
+export interface RecordedStorageCall {
+  url: string;
+  method: "PUT" | "POST";
+  headers?: Record<string, string>;
+  body?: Uint8Array | string;
+}
+
+/**
+ * A fake StorageHttpRunner routing `${method} ${url}` to a canned {ok,status,body}, for
+ * BlobStorageProvider tests. Records every call for request-shape assertions. An
+ * unmatched route resolves to a 404; set `throws` to simulate a transport failure.
+ */
+export function fakeStorageRunner(opts: {
+  routes?: Record<string, { ok?: boolean; status?: number; body?: string }>;
+  throws?: boolean;
+}): StorageHttpRunner & { calls: RecordedStorageCall[] } {
+  const routes = opts.routes ?? {};
+  const calls: RecordedStorageCall[] = [];
+
+  const runner = async (args: {
+    url: string;
+    method: "PUT" | "POST";
+    headers?: Record<string, string>;
+    body?: Uint8Array | string;
+  }): Promise<{ ok: boolean; status: number; body: string }> => {
+    calls.push({ url: args.url, method: args.method, headers: args.headers, body: args.body });
+    if (opts.throws) throw new Error("simulated transport failure");
+    const route = routes[`${args.method} ${args.url}`];
+    if (!route) return { ok: false, status: 404, body: "" };
+    return { ok: route.ok ?? true, status: route.status ?? 200, body: route.body ?? "" };
+  };
+
+  return Object.assign(runner, { calls });
+}
+
+/**
+ * An in-memory StorageFs for LocalStorageProvider failure-path tests. Backs a Map of
+ * path→bytes. Set `failWrite`/`failRename`/`failUnlink` to simulate FS errors; unlink of
+ * a missing path throws an ENOENT-coded error (to prove non-fatal handling).
+ */
+export function fakeStorageFs(opts: {
+  failWrite?: boolean;
+  failRename?: boolean;
+  failUnlink?: boolean;
+} = {}): StorageFs & { files: Map<string, Uint8Array> } {
+  const files = new Map<string, Uint8Array>();
+  return {
+    files,
+    async mkdir() {
+      return undefined;
+    },
+    async writeFile(path: string, data: Uint8Array) {
+      if (opts.failWrite) throw new Error("simulated write failure");
+      files.set(path, data);
+    },
+    async rename(from: string, to: string) {
+      if (opts.failRename) throw new Error("simulated rename failure");
+      const data = files.get(from);
+      if (data === undefined) {
+        const err = new Error("ENOENT") as Error & { code: string };
+        err.code = "ENOENT";
+        throw err;
+      }
+      files.delete(from);
+      files.set(to, data);
+    },
+    async unlink(path: string) {
+      if (opts.failUnlink) throw new Error("simulated unlink failure");
+      if (!files.has(path)) {
+        const err = new Error("ENOENT") as Error & { code: string };
+        err.code = "ENOENT";
+        throw err;
+      }
+      files.delete(path);
     },
   };
 }

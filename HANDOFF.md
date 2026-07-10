@@ -1,6 +1,81 @@
 # Handoff
 
 ## Current state
+**Slice 4 (StorageProvider + image-gated publish + age-out)** is built on branch
+`slice-4-storage-publish` (off `slice-3-image-provider`) with an open PR (see issue #9).
+This is the LAST backend slice — it ends at a manifest carrying durable image URLs plus a
+derived `published.json`. NO page render / HTML / UI (that's the next slice).
+
+Storage + publish + age-out (Slice 4 — durable images, idempotent, image-gated):
+- `src/storage/blob.ts` — `BlobStorageProvider` (DEFAULT) behind the new `StorageProvider`
+  interface. Raw `fetch` (no SDK/deps) to Vercel Blob: `PUT {api}/{pathPrefix}{id}.png`
+  with `Authorization: Bearer BLOB_READ_WRITE_TOKEN`, `x-add-random-suffix: 0`
+  (deterministic/overwrite). Returns the deterministic public URL
+  `{publicBaseUrl}/{pathPrefix}{id}.png`; `delete(id)` reconstructs that URL and POSTs
+  `{api}/delete`. NEVER-THROW: `put`→null (story stays unpublished), `delete` failures
+  logged/non-fatal. HTTP boundary injected as `StorageHttpRunner`.
+- `src/storage/local.ts` — `LocalStorageProvider` (ALT). Atomic write (temp+rename) to a
+  configured dir; returns `{publicBaseUrl}/{id}.png`; `delete` unlinks (ENOENT non-fatal).
+  FS boundary injected (`StorageFs`).
+- `src/storage/index.ts` — `createStorageProvider(config, { runner?, fs? })`: default
+  `"blob"`, switchable `"local"`; advisory warn on missing token. Mirrors the image factory.
+- `src/image.ts` — `generateImages` REWRITTEN to the real gen→store→persist pass (replaces
+  Slice 3's `out/` sink). For each record with a `wrappedPrompt` and NO `imageUrl`:
+  `provider.generate` → `storage.put` → persist `imageUrl`+`imageStoredAt` (all-or-nothing,
+  immutable-copy manifest like `generateAll`). Idempotent: presence of `imageUrl` skips the
+  record entirely (never re-gen, never re-upload). Returns `{ stored, skipped, failed, manifest }`.
+- `src/publish.ts` — pure `isPublishable(r)` (headline + description + imageUrl) +
+  `publishableRecords(manifest)` (newest-first by `firstSeen`) + `writePublished` (derived
+  `published.json`). The seam the render slice will consume — NOTHING is rendered here.
+- `src/ageout.ts` — `ageOut(config, manifest, { storage, now })`: drops records whose
+  `lastSeen` is older than `config.maxAgeHours` AND `storage.delete(id)` for those with an
+  image (real artifact cleanup). Record is dropped regardless of delete outcome — NO
+  tombstone/retry (accepted trade: a rare orphaned blob; justified in ADR-0004 / PR).
+- `src/image-cli.ts` — REWRITTEN: gen→store→persist, `writeManifest`, `writePublished`.
+  `out/`/`writeOutImage` removed. `src/ageout-cli.ts` — new `npm run ageout`.
+- `src/types.ts` — added `imageUrl?`/`imageStoredAt?` to `ManifestRecord`, `StorageProvider`,
+  `StorageHttpRunner`, `StorageFs`; `ImageDeps.writeImage` → `storage: StorageProvider`.
+- `src/secrets.ts` — added `getBlobReadWriteToken()` (`BLOB_READ_WRITE_TOKEN`); still the
+  ONLY env reader.
+- Config: added `storage.provider` (`"blob"|"local"`, default `"blob"`),
+  `storage.blob.{pathPrefix "images/", publicBaseUrl}` (publicBaseUrl is the store's public
+  host — required for live delete/URLs; may be "" until then), `storage.local.{dir, publicBaseUrl}`,
+  `maxAgeHours` (default 72), `publishedPath` (default `data/published.json`).
+  `config.example.json` updated. `docs/adr/0004-storage-and-publish.md` records the decisions.
+- Tests: **173 passing** (was 130), all boundaries mocked (storage HTTP/FS + image + clock),
+  no real Blob/network/token. Both gates clean: `grep -rn process.env src/` → only
+  `secrets.ts`; `grep -rin lego src/ config.example.json` → empty.
+
+Verified end-to-end (Slice 4):
+- **Live storage chain proven via the local path** (the reachable, token-free proof, mirroring
+  Slice 3's smoke test). Real `image-cli` drove `createImageProvider`→local imagegen (:8189,
+  reachable) → real bytes → `createStorageProvider`→`LocalStorageProvider` → real FS write →
+  manifest `imageUrl`+`imageStoredAt` write-back → derived `published.json`. Result: a valid
+  1024×1024 PNG — a convincing generic-brick, **text-free, on-topic** riverside-park diorama
+  (brick look from our prompt wrapping, no LoRA — the legal guardrail holds through storage).
+  **Idempotency:** a second `images` run stored 0 / skipped 1, file mtime unchanged (no
+  re-upload). **Age-out:** forcing `lastSeen` past `maxAgeHours` then `ageout` dropped the
+  record from manifest + `published.json` AND deleted the stored file for real.
+- **The one unproven surface: the Vercel Blob HTTP put/delete against a real store.** It needs
+  `BLOB_READ_WRITE_TOKEN`, which was NOT present in this run's process env (the box's config
+  also has no `storage`/`image` block yet — my per-field defaults cover that). The Blob path is
+  fully mock-proven in `test/storage.blob.test.ts` (request shape, overwrite header, durable
+  URL, delete URL reconstruction, never-throw). **Action for whoever has the token:** set
+  `BLOB_READ_WRITE_TOKEN` + `storage.blob.publicBaseUrl` in `config.json`, run
+  `npm run generate && npm run images`, confirm each publishable record's Blob URL loads a real
+  brick image in a browser, re-run (stores nothing), and force one age-out (Blob object 404s).
+- Note: the Grok-Imagine default image path still gates on `XAI_API_KEY` (a pre-existing Slice 3
+  concern; the owner runs Grok via subscription). Out of Slice 4 scope — flagged for a follow-up.
+
+**Config migration (action for whoever runs the orchestrator):** add a `storage` block +
+`maxAgeHours` + `publishedPath` to local `config.json` (all default if omitted; but
+`storage.blob.publicBaseUrl` must be set for live Blob). See `config.example.json`.
+
+**Branch stacking note:** `slice-4-storage-publish` is based on `slice-3-image-provider`.
+Merge order: Slice 2 → 2c → 3 → 4.
+
+---
+
 Slice 1 (RSS ingestion) is merged to `master`. **Slice 2 (Claude generation layer)**
 is built on branch `slice-2-claude-generation` with an open PR (see issue #3).
 **Slice 2c (Grok generator + default provider)** is built on branch

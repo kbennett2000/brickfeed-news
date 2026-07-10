@@ -8,7 +8,12 @@ import {
   DEFAULT_IMAGE_LOCAL_STYLE,
   DEFAULT_IMAGE_LOCAL_URL,
   DEFAULT_IMAGE_RESOLUTION,
+  DEFAULT_MAX_AGE_HOURS,
   DEFAULT_MODEL,
+  DEFAULT_PUBLISHED_PATH,
+  DEFAULT_STORAGE_BLOB_PATH_PREFIX,
+  DEFAULT_STORAGE_LOCAL_DIR,
+  DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL,
   validateConfig,
 } from "../src/config.js";
 
@@ -155,6 +160,72 @@ describe("validateConfig", () => {
     expect(() =>
       validateConfig({ ...base, image: { provider: "local", local: { url: "" } } }),
     ).toThrow();
+  });
+
+  it("defaults the storage block to blob + nested defaults when absent", () => {
+    const cfg = validateConfig(base);
+    expect(cfg.storage.provider).toBe("blob");
+    expect(cfg.storage.blob).toEqual({
+      pathPrefix: DEFAULT_STORAGE_BLOB_PATH_PREFIX,
+      publicBaseUrl: "", // optional — empty until a Blob store is configured
+    });
+    expect(cfg.storage.local).toEqual({
+      dir: DEFAULT_STORAGE_LOCAL_DIR,
+      publicBaseUrl: DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL,
+    });
+  });
+
+  it("accepts the 'local' storage provider and a real blob publicBaseUrl", () => {
+    const cfg = validateConfig({
+      ...base,
+      storage: {
+        provider: "local",
+        blob: { publicBaseUrl: "https://s.public.blob.vercel-storage.com" },
+        local: { dir: "var/img", publicBaseUrl: "http://lan/img" },
+      },
+    });
+    expect(cfg.storage.provider).toBe("local");
+    expect(cfg.storage.blob.publicBaseUrl).toBe("https://s.public.blob.vercel-storage.com");
+    expect(cfg.storage.local).toEqual({ dir: "var/img", publicBaseUrl: "http://lan/img" });
+  });
+
+  it("rejects an unknown storage.provider", () => {
+    expect(() => validateConfig({ ...base, storage: { provider: "s3" } })).toThrow();
+  });
+
+  it("rejects a blank storage.blob.pathPrefix and a non-string publicBaseUrl", () => {
+    expect(() =>
+      validateConfig({ ...base, storage: { provider: "blob", blob: { pathPrefix: "" } } }),
+    ).toThrow();
+    expect(() =>
+      validateConfig({ ...base, storage: { provider: "blob", blob: { publicBaseUrl: 5 } } }),
+    ).toThrow();
+  });
+
+  it("rejects a blank storage.local.dir", () => {
+    expect(() =>
+      validateConfig({ ...base, storage: { provider: "local", local: { dir: "" } } }),
+    ).toThrow();
+  });
+
+  it("defaults maxAgeHours and publishedPath when absent", () => {
+    const cfg = validateConfig(base);
+    expect(cfg.maxAgeHours).toBe(DEFAULT_MAX_AGE_HOURS);
+    expect(cfg.publishedPath).toBe(DEFAULT_PUBLISHED_PATH);
+  });
+
+  it("accepts an explicit positive maxAgeHours", () => {
+    expect(validateConfig({ ...base, maxAgeHours: 24 }).maxAgeHours).toBe(24);
+  });
+
+  it("rejects a non-positive or non-number maxAgeHours", () => {
+    expect(() => validateConfig({ ...base, maxAgeHours: 0 })).toThrow();
+    expect(() => validateConfig({ ...base, maxAgeHours: -5 })).toThrow();
+    expect(() => validateConfig({ ...base, maxAgeHours: "72" })).toThrow();
+  });
+
+  it("rejects a blank publishedPath", () => {
+    expect(() => validateConfig({ ...base, publishedPath: "" })).toThrow();
   });
 
   it("rejects a missing or blank brickStyle.styleLanguage", () => {
