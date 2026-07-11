@@ -1,6 +1,13 @@
 # Handoff
 
-## brickfeed is LIVE on real Vercel Blob — image-existence gate + fail-loud preflight (issue #28, PR pending)
+## brickfeed is LIVE on real Vercel Blob — image-existence gate + fail-loud preflight (issue #28, merged as PR #29 → master, commit 70c7528)
+
+> **Current state (2026-07-10):** the image-existence-gate work below is merged to `master`
+> (commit `70c7528`). Two docs/chrome follow-ups are in review as PRs, not yet merged:
+> PR #30 (`chore/footer-tagline-and-dead-links`) replaces the Latin masthead/footer motto with
+> the plain-English tagline "All the stories, brick by brick" and drops the dead footer links;
+> and a repo-documentation PR (`docs/repo-documentation`) adds `README.md` +
+> `docs/{ARCHITECTURE,INSTALL,CONFIGURATION}.md`. History below is unchanged.
 
 **brickfeed now serves a live, fully-imaged page.** Live URL: **https://brickfeed-teal.vercel.app**
 (Vercel project `brickfeed`, `site/` linked). Three things landed:

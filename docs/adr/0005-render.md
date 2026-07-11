@@ -59,6 +59,14 @@ no Vercel wiring (that is the next slice).
    a record missing an optional field degrades (e.g. no `imageUrl` → the studded placeholder
    frame, never a publisher's photo). All record text is HTML/attribute-escaped.
 
+## Amendment (2026-07-10)
+The masthead + footer tagline described by this ADR (the Latin `TOTVS MVNDVS EX LATERIBVS`,
+with the English tagline removed) was reverted. The current render code shows the
+plain-English tagline **`All the stories, brick by brick`** in both the masthead and footer,
+and the three decorative (hrefless) footer columns were dropped, leaving only the live
+"Sections" column. This was a chrome/copy change only — the render architecture in the
+Decision section is unchanged. See branch `chore/footer-tagline-and-dead-links`.
+
 ## Consequences
 - Re-rendering is cheap and idempotent: pure records-in/files-out, safe to run every cycle.
 - The legal surface stays minimal: the wordmark is always "brickfeed", only our generated
