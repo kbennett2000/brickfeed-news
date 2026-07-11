@@ -30,3 +30,5 @@ PAUSE
 # source-of-truth binaries (e.g. the About portrait) — uploaded to Blob and referenced by
 # URL, never committed (repo stays text-only, same rule as generated story images).
 /assets/
+
+/cron.env

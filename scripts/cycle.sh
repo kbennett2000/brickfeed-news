@@ -35,7 +35,9 @@
 #   3. Optional: VERCEL_TOKEN in the environment only for CI-like/headless contexts; the
 #      box normally relies on the `vercel login` above and leaves it unset.
 #   4. A real config.json (copy config.example.json) and, for Blob storage,
-#      BLOB_READ_WRITE_TOKEN + storage.blob.publicBaseUrl.
+#      BLOB_READ_WRITE_TOKEN + storage.blob.publicBaseUrl. Under cron, put secrets like
+#      BLOB_READ_WRITE_TOKEN in a gitignored `cron.env` at the repo root (see below) —
+#      cron does NOT source .bashrc/.profile, so an interactive-shell export is invisible.
 #
 # ---------------------------------------------------------------------------------------
 # ENV OVERRIDES:
@@ -52,6 +54,10 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Load nvm's node into PATH — cron has a minimal PATH; nvm lives in the interactive shell only.
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+# Load cron secrets (gitignored) — cron doesn't source .bashrc/.profile, so secrets like
+# BLOB_READ_WRITE_TOKEN must be sourced explicitly. `set -a` exports every KEY=value line.
+if [ -f "$REPO_DIR/cron.env" ]; then set -a; . "$REPO_DIR/cron.env"; set +a; fi
 
 LOCK_FILE="${BRICKFEED_LOCK:-/tmp/brickfeed.lock}"
 LOG_FILE="${BRICKFEED_LOG:-$REPO_DIR/cycle.log}"
