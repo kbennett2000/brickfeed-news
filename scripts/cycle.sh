@@ -49,6 +49,10 @@ set -uo pipefail
 # Repo root = parent of this script's dir, resolved regardless of the caller's cwd.
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Load nvm's node into PATH — cron has a minimal PATH; nvm lives in the interactive shell only.
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
 LOCK_FILE="${BRICKFEED_LOCK:-/tmp/brickfeed.lock}"
 LOG_FILE="${BRICKFEED_LOG:-$REPO_DIR/cycle.log}"
 HEARTBEAT_SECS="${BRICKFEED_HEARTBEAT_SECS:-30}"
