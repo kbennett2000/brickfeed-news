@@ -236,3 +236,72 @@ describe("format helpers", () => {
     expect(editionLabel(new Date("2026-07-10T12:00:00.000Z"))).toBe("Afternoon Edition"); // default UTC
   });
 });
+
+const AD_A = {
+  imageUrl: "https://cdn.test/ads/ad-01.png",
+  href: "https://github.com/kbennett2000/slopify",
+  alt: "Advertisement — github.com",
+};
+const AD_B = {
+  imageUrl: "https://cdn.test/ads/ad-02.jpg",
+  href: 'https://example.com/two?q="x"', // quote must be escaped in the href attribute
+  alt: "Advertisement — example.com",
+};
+
+describe("renderSite — banner ads", () => {
+  it("omits the banner entirely when there are no ads", () => {
+    const files = renderSite(records, OPTS);
+    expect(files["index.html"]).not.toContain("adbanner");
+    expect(files[`${sectionSlug("WORLD")}.html`]).not.toContain("adbanner");
+    expect(files["styles.css"]).not.toContain("@keyframes adbannerfade");
+  });
+
+  it("also omits the banner when ads is an empty array", () => {
+    const files = renderSite(records, { ...OPTS, ads: [] });
+    expect(files["index.html"]).not.toContain("adbanner");
+  });
+
+  describe("with two ads", () => {
+    const files = renderSite(records, { ...OPTS, ads: [AD_A, AD_B] });
+    const index = files["index.html"];
+
+    it("renders the banner site-wide (cover + every section)", () => {
+      expect(index).toContain('class="adbanner"');
+      for (const c of CATEGORIES) {
+        expect(files[`${sectionSlug(c)}.html`]).toContain('class="adbanner"');
+      }
+    });
+
+    it("places the banner above the main content (below the nav)", () => {
+      expect(index.indexOf("adbanner")).toBeLessThan(index.indexOf("<main"));
+    });
+
+    it("links each ad out in a new tab, marked sponsored, with escaped href", () => {
+      expect(index).toContain(`href="${AD_A.href}"`);
+      expect(index).toContain('rel="noopener sponsored nofollow"');
+      expect(index).toContain('target="_blank"');
+      // The quote in AD_B's href is escaped — no attribute break-out.
+      expect(index).toContain("https://example.com/two?q=&quot;x&quot;");
+      expect(index).not.toContain('href="https://example.com/two?q="x""');
+    });
+
+    it("renders our own image and an Advertisement label (never a publisher photo)", () => {
+      expect(index).toContain(`src="${AD_A.imageUrl}"`);
+      expect(index).toContain(`alt="${AD_A.alt}"`);
+      expect(index).toContain("Advertisement");
+    });
+
+    it("emits the generated crossfade keyframes into styles.css for >1 ad", () => {
+      const css = files["styles.css"];
+      expect(css).toContain("@keyframes adbannerfade");
+      expect(css).toContain(".adbanner__slide:nth-child(2)");
+      expect(css).toContain("prefers-reduced-motion");
+    });
+  });
+
+  it("renders a single ad statically — no crossfade keyframes", () => {
+    const files = renderSite(records, { ...OPTS, ads: [AD_A] });
+    expect(files["index.html"]).toContain('class="adbanner"');
+    expect(files["styles.css"]).not.toContain("@keyframes adbannerfade");
+  });
+});

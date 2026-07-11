@@ -1,3 +1,4 @@
+import type { AdView } from "../src/ads.js";
 import type { Config } from "../src/config.js";
 import type {
   ClaudeRunner,
@@ -457,7 +458,12 @@ export interface RecordedIoWrite {
  */
 export function fakeCycleIo(
   manifest: Manifest,
-  opts: { throwOn?: "manifest" | "published" | "site"; throwOnRead?: boolean } = {},
+  opts: {
+    throwOn?: "manifest" | "published" | "site";
+    throwOnRead?: boolean;
+    /** Ads the (otherwise disk-reading) loadAds boundary returns. Default: none. */
+    ads?: AdView[];
+  } = {},
 ): CycleIo & { writes: RecordedIoWrite[]; saved?: Manifest } {
   const state = {
     writes: [] as RecordedIoWrite[],
@@ -480,6 +486,9 @@ export function fakeCycleIo(
     async writeSite(path, files) {
       if (opts.throwOn === "site") throw new Error("simulated site write failure");
       state.writes.push({ kind: "site", path, files });
+    },
+    async loadAds() {
+      return opts.ads ?? [];
     },
   };
   return Object.assign(io, state);

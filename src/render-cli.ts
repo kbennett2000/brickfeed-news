@@ -1,15 +1,19 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ADS_DIR, loadAds } from "./ads.js";
 import { loadConfig } from "./config.js";
 import { renderSite } from "./render/index.js";
+import { createStorageProvider } from "./storage/index.js";
 import type { ManifestRecord } from "./types.js";
 
 /**
  * CLI entry for the static render pass (Slice 7). Loads config.json, reads the newest-first
  * published.json (the seam publish.ts writes), renders the cover page + per-section pages +
- * stylesheet, and writes them under config.render.outputDir. Reads no environment (the
- * secrets guardrail confines env reads to secrets.ts; the renderer needs none). Mirrors
- * the other CLIs.
+ * stylesheet, and writes them under config.render.outputDir. Mirrors the other CLIs.
+ *
+ * Banner ads are uploaded here too (via the storage provider) so the local preview matches
+ * production; that upload reads BLOB_READ_WRITE_TOKEN through secrets.ts. Without the token
+ * the ad upload no-ops and the banner is omitted — the render itself needs no environment.
  *
  * A missing/empty published.json is not an error — it renders a valid empty-state page.
  *
@@ -36,10 +40,16 @@ async function main(): Promise<void> {
   const config = await loadConfig("config.json");
   const records = await readPublished(config.publishedPath);
 
+  // Banner ads: upload local ad images so the preview shows them. Without a storage token
+  // put() returns null → ads is [] → the banner is simply omitted; the render still succeeds.
+  const storage = createStorageProvider(config);
+  const ads = await loadAds(ADS_DIR, storage, { log: console.warn });
+
   const files = renderSite(records, {
     now: new Date(),
     secondaryStoryCount: config.render.secondaryStoryCount,
     timeZone: config.render.timeZone,
+    ads,
   });
 
   await mkdir(config.render.outputDir, { recursive: true });

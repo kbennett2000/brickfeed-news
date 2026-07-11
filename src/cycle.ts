@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ADS_DIR, loadAds } from "./ads.js";
 import { ageOut } from "./ageout.js";
 import type { Config } from "./config.js";
 import { deploy, type DeployResult } from "./deploy.js";
@@ -182,10 +183,14 @@ export async function runCycle(
     // Existence-verified: only records whose image really resolves in storage reach the page,
     // so no dangling <img> is ever rendered (or deployed — the deploy guard keys off this count).
     records = await verifiedPublishableRecords(manifest, deps.storage);
+    // Banner ads: upload any local ad images and pass the resulting URLs to the render.
+    // Tolerant by construction (bad/absent ads yield []), so it never fails the cycle.
+    const ads = await deps.io.loadAds(ADS_DIR, deps.storage);
     files = renderSite(records, {
       now: now(),
       secondaryStoryCount: config.render.secondaryStoryCount,
       timeZone: config.render.timeZone,
+      ads,
     });
     await deps.io.writeSite(config.render.outputDir, files);
     stages.render =
@@ -240,4 +245,5 @@ export const defaultCycleIo: CycleIo = {
       await writeFile(join(outputDir, name), contents, "utf8");
     }
   },
+  loadAds,
 };

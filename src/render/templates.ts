@@ -8,6 +8,7 @@
  * the single source of truth — never a re-listed local copy. The wordmark is always
  * "brickfeed"; no trademarked brand name appears anywhere.
  */
+import type { AdView } from "../ads.js";
 import { CATEGORIES, type Category } from "../category.js";
 import { escapeAttr, escapeHtml, sectionSlug, titleCase } from "./format.js";
 
@@ -193,6 +194,32 @@ export function emptyState(message: string): string {
   return `<div class="container empty">
     <p class="empty__title">Nothing to brick, just now.</p>
     <p class="empty__note">${escapeHtml(message)}</p>
+  </div>`;
+}
+
+/**
+ * The rotating leaderboard banner, drawn once per page below the nav. Each ad is a link to
+ * its outbound URL wrapping our own image (never a publisher's). With one ad it's static;
+ * with several, the stylesheet's crossfade (see adAnimationCss in styles.ts) cycles them.
+ * Returns "" for an empty list, so a site with no ads simply renders no banner.
+ *
+ * `rel="noopener sponsored nofollow"` marks these as paid/creator links per web conventions;
+ * `target="_blank"` opens them in a new tab like the story links do.
+ */
+export function adBanner(ads: AdView[]): string {
+  if (ads.length === 0) return "";
+  const slides = ads
+    .map(
+      (ad) =>
+        `<a class="adbanner__slide" href="${escapeAttr(ad.href)}" target="_blank" rel="noopener sponsored nofollow">` +
+        `<img class="adbanner__img" src="${escapeAttr(ad.imageUrl)}" alt="${escapeAttr(ad.alt)}"></a>`,
+    )
+    .join("");
+  return `<div class="container">
+    <aside class="adbanner" aria-label="Advertisement">
+      <div class="adbanner__label">Advertisement</div>
+      <div class="adbanner__frame">${slides}</div>
+    </aside>
   </div>`;
 }
 

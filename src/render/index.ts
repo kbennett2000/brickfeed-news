@@ -8,6 +8,7 @@
  * publish.ts writes). Output is a map of relative path → contents: `index.html` (the cover
  * page), one `<slug>.html` per section so the nav works without client JS, and `styles.css`.
  */
+import type { AdView } from "../ads.js";
 import { CATEGORIES, type Category, normalizeCategory } from "../category.js";
 import type { ManifestRecord } from "../types.js";
 import {
@@ -18,8 +19,9 @@ import {
   sectionSlug,
   titleCase,
 } from "./format.js";
-import { STYLES } from "./styles.js";
+import { adAnimationCss, STYLES } from "./styles.js";
 import {
+  adBanner,
   brickyardHead,
   card,
   emptyState,
@@ -45,6 +47,11 @@ export interface RenderOptions {
    * pass `render.timeZone` so the edition matches the server's local wall-clock.
    */
   timeZone?: string;
+  /**
+   * Banner ads to draw below the nav on every page. Absent/empty → no banner is rendered.
+   * The writers (cycle.ts / render-cli.ts) supply this via loadAds(); tests inject it directly.
+   */
+  ads?: AdView[];
 }
 
 /**
@@ -67,14 +74,15 @@ export function toStoryView(record: ManifestRecord, now: Date): StoryView {
   };
 }
 
-/** The cover page body: masthead + nav + hero (lead + rail) + overflow card grid + footer. */
+/** The cover page body: masthead + nav + banner + hero (lead + rail) + overflow card grid + footer. */
 function renderCover(
   views: StoryView[],
   dateStr: string,
   edition: string,
   secondaryStoryCount: number,
+  banner: string,
 ): string {
-  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav();
+  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav() + banner;
 
   if (views.length === 0) {
     const body =
@@ -104,15 +112,16 @@ function renderCover(
   return pageShell("brickfeed", body);
 }
 
-/** A single section page: masthead + nav (this section active) + filtered card grid + footer. */
+/** A single section page: masthead + nav (this section active) + banner + filtered card grid + footer. */
 function renderSection(
   category: Category,
   views: StoryView[],
   dateStr: string,
   edition: string,
+  banner: string,
 ): string {
   const secViews = views.filter((v) => v.kicker === category);
-  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(category);
+  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(category) + banner;
 
   const content = secViews.length
     ? sectionHead(category, secViews.length) +
@@ -140,12 +149,21 @@ export function renderSite(
   const edition = editionLabel(opts.now, tz);
   const views = records.map((r) => toStoryView(r, opts.now));
 
+  const ads = opts.ads ?? [];
+  const banner = adBanner(ads);
+
   const files: Record<string, string> = {
-    "index.html": renderCover(views, dateStr, edition, opts.secondaryStoryCount),
-    "styles.css": STYLES,
+    "index.html": renderCover(views, dateStr, edition, opts.secondaryStoryCount, banner),
+    "styles.css": STYLES + adAnimationCss(ads.length),
   };
   for (const category of CATEGORIES) {
-    files[`${sectionSlug(category)}.html`] = renderSection(category, views, dateStr, edition);
+    files[`${sectionSlug(category)}.html`] = renderSection(
+      category,
+      views,
+      dateStr,
+      edition,
+      banner,
+    );
   }
   return files;
 }
