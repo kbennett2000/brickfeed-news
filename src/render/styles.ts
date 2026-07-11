@@ -249,6 +249,111 @@ img { max-width: 100%; display: block; }
   .nav__inner { height: auto; flex-direction: column; align-items: flex-start; gap: 10px; padding-top: 10px; padding-bottom: 10px; }
   .nav__link { padding: 4px 0; }
 }
+
+/* ---- standalone pages: per-story landing (s/<id>.html) + share sheet (share.html) ---- */
+.standalone__brand {
+  border-bottom: 1px solid var(--hairline);
+  padding: 16px 0;
+  margin-bottom: 28px;
+  background: var(--paper);
+}
+.standalone__wordmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 40px;
+  font-family: var(--display);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.landing__main { max-width: 760px; padding-bottom: 60px; }
+.landing__article { display: block; }
+.landing__headline {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 40px;
+  line-height: 1.06;
+  letter-spacing: -0.015em;
+  margin: 12px 0 14px;
+  color: var(--ink);
+}
+.landing__dek { font-size: 19px; line-height: 1.5; }
+.landing__cta {
+  display: inline-block;
+  margin-top: 28px;
+  padding: 13px 22px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+}
+.landing__cta:hover { filter: brightness(0.92); }
+
+.sharesheet__main { max-width: 820px; padding-bottom: 60px; }
+.sharesheet__title {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 34px;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+  color: var(--ink);
+}
+.sharesheet__note { font-family: var(--serif); color: var(--muted); font-size: 15px; margin: 0 0 26px; }
+.sharesheet__list { list-style: none; margin: 0; padding: 0; }
+.sharesheet__row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 0;
+  border-top: 1px solid var(--hairline);
+}
+.sharesheet__row:last-child { border-bottom: 1px solid var(--hairline); }
+.sharesheet__thumbwrap { flex: 0 0 auto; }
+.sharesheet__thumb {
+  display: block;
+  width: 96px;
+  height: 64px;
+  object-fit: cover;
+  background: var(--photo-field);
+  border: 1px solid var(--photo-border);
+}
+.sharesheet__thumb--empty { display: flex; align-items: center; justify-content: center; }
+.sharesheet__body { flex: 1 1 auto; min-width: 0; }
+.sharesheet__headline {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 19px;
+  line-height: 1.2;
+  margin: 4px 0 0;
+  color: var(--ink);
+}
+.sharesheet__post {
+  flex: 0 0 auto;
+  padding: 10px 18px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.sharesheet__post:hover { background: var(--accent); }
+@media (max-width: 560px) {
+  .landing__headline { font-size: 30px; }
+  .sharesheet__row { flex-wrap: wrap; }
+  .sharesheet__body { flex-basis: 60%; }
+}
 `;
 
 /** Seconds each ad holds on screen, and the crossfade duration between ads. */

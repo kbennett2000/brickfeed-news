@@ -1,5 +1,49 @@
 # Handoff
 
+## Per-story landing pages + assisted-manual X share sheet (ADR-0009, PR pending)
+
+Sharing a brickfeed story on X used to paste the **outbound source URL**, so X rendered the
+*publisher's* OG card, not our brick art. This slice adds, entirely inside the pure render
+core (`src/render/*`) + the two thin writers:
+
+1. **Per-story landing pages at `site/s/<id>.html`.** `renderSite` now emits one
+   social-card page per publishable record. `<head>` (new `cardMeta` in `templates.ts`):
+   `twitter:card=summary_large_image`, `og:type=article`, `og:title`/`og:description`,
+   `og:image`+`twitter:image`=the record's absolute Blob `imageUrl`, `og:url`=the page's own
+   ABSOLUTE URL, and `twitter:site` **only** when a handle is configured. `<body>`: the brick
+   image (shared `figure`), kicker, headline, dek, caption + `/ BRICKFEED STUDIO`, and a
+   prominent outbound link to the source. Self-contained (lives in `s/`): a brand header, not
+   the root-relative masthead/nav/footer, and `../styles.css` via a new `pageShell`
+   `assetPrefix` hook.
+2. **Assisted-manual share sheet at `site/share.html`** (new `renderShareSheet`): one row
+   per story = thumb + headline + a **"Post to X"** button whose href is the X Web Intent
+   URL (`buildXIntentUrl` in `format.ts`, built with `URLSearchParams`): `text`=headline,
+   `url`=absolute landing URL, `hashtags`/`via` only when configured. Headline is
+   length-budgeted under 280 (23 for the t.co URL) and truncated with `…`. `<meta robots
+   noindex>`; NOT linked from the nav/footer. $0, no API, no scheduler — a human clicks.
+
+- **Config (`src/config.ts`):** NEW `render.siteBaseUrl` (absolute, no trailing slash,
+  validated; default `https://www.brickfeed.news`) — the only way to build absolute
+  `og:url` + share URLs. NEW optional `render.share { handle?, hashtags? }` (handle stored
+  without `@`, hashtags without `#`). `config.example.json`, `test/helpers.ts` `makeConfig`,
+  `test/config.test.ts` updated.
+- **Writers:** `defaultCycleIo.writeSite` (`cycle.ts`) + the `render-cli.ts` loop now
+  `mkdir` each file's parent (the `s/<id>.html` keys carry a subdir); both threaded
+  `siteBaseUrl` + `share`.
+- Tests **365 passing** (+57). Gates clean: `tsc --noEmit`; `process.env` only in
+  `secrets.ts`; `grep -rin lego src config.example.json` empty. Repo stays text-only —
+  landing/share pages are gitignored `site/` artifacts; templates/CSS are committed source.
+- **Verified end-to-end:** drove `renderSite` over the real 100-record `data/published.json`
+  → 112 files (100 landing + `share.html` + the 11 chrome pages). A landing page's `<head>`
+  carries the real Blob `og:image`, absolute `og:url`, `@brickfeednews` twitter:site, and
+  `../styles.css`; `share.html` has 100 fully-encoded intent links (text+url+hashtags+via,
+  `&amp;`-escaped), `noindex`, and is linked nowhere in the nav/footer (0 references).
+- **NOTE (no tracking issue):** this cycle was driven directly (no open `instructions`
+  issue), so there was nothing to comment/relabel — only the PR.
+- **Box action:** set `render.siteBaseUrl` to the real live origin in the box `config.json`
+  (it defaults to `https://www.brickfeed.news`); optionally set `render.share.handle` /
+  `render.share.hashtags` to enable `via`/hashtags + `twitter:site`.
+
 ## brickfeed is LIVE on real Vercel Blob — image-existence gate + fail-loud preflight (issue #28, merged as PR #29 → master, commit 70c7528)
 
 > **Current state (2026-07-10):** the image-existence-gate work below is merged to `master`

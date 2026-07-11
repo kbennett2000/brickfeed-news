@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { ADS_DIR, loadAds } from "./ads.js";
 import { ageOut } from "./ageout.js";
 import type { Config } from "./config.js";
@@ -190,6 +190,8 @@ export async function runCycle(
       now: now(),
       secondaryStoryCount: config.render.secondaryStoryCount,
       timeZone: config.render.timeZone,
+      siteBaseUrl: config.render.siteBaseUrl,
+      share: config.render.share,
       ads,
     });
     await deps.io.writeSite(config.render.outputDir, files);
@@ -242,7 +244,11 @@ export const defaultCycleIo: CycleIo = {
   async writeSite(outputDir: string, files: Record<string, string>): Promise<void> {
     await mkdir(outputDir, { recursive: true });
     for (const [name, contents] of Object.entries(files)) {
-      await writeFile(join(outputDir, name), contents, "utf8");
+      const dest = join(outputDir, name);
+      // Some keys (e.g. the per-story landing pages "s/<id>.html") live in a subdir, so
+      // create each file's parent before writing.
+      await mkdir(dirname(dest), { recursive: true });
+      await writeFile(dest, contents, "utf8");
     }
   },
   loadAds,

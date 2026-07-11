@@ -50,6 +50,26 @@ export interface RenderConfig {
    * local zone so the edition ("Morning"/"Evening"/…) matches the wall-clock the cron ran on.
    */
   timeZone: string;
+  /**
+   * Absolute site origin (scheme + host, NO trailing slash, e.g.
+   * "https://www.brickfeed.news"), used to build the absolute og:url on per-story landing
+   * pages and the absolute landing URLs the X share links point at (ADR-0009). Relative URLs
+   * are not valid for social cards, so this must be a real absolute origin.
+   */
+  siteBaseUrl: string;
+  /** Assisted-manual X (Twitter) share-sheet settings (ADR-0009). Both fields optional. */
+  share: ShareConfig;
+}
+
+/**
+ * X (Twitter) share settings for the assisted-manual share sheet (ADR-0009). Both optional:
+ * with neither set, the Web Intent URL carries only text + url and no twitter:site is emitted.
+ */
+export interface ShareConfig {
+  /** The site's X handle, stored WITHOUT a leading "@" (feeds via= and twitter:site). */
+  handle?: string;
+  /** Default hashtags for a post, each WITHOUT a leading "#". */
+  hashtags?: string[];
 }
 
 /**
@@ -228,6 +248,9 @@ export const DEFAULT_RENDER_OUTPUT_DIR = "site";
 export const DEFAULT_RENDER_SECONDARY_STORY_COUNT = 4;
 // UTC keeps the render deterministic by default; the box overrides this with its local zone.
 export const DEFAULT_RENDER_TIME_ZONE = "UTC";
+// The production origin, so an omitted siteBaseUrl still yields correct absolute card/share
+// URLs on the live box. No trailing slash (ADR-0009). Override in config for other origins.
+export const DEFAULT_RENDER_SITE_BASE_URL = "https://www.brickfeed.news";
 
 /** Defaults when the config omits the `deploy` block (Slice 8). `cwd` defaults to outputDir. */
 export const DEFAULT_DEPLOY_COMMAND = "vercel --prod --yes";
@@ -627,8 +650,10 @@ function validateStorageLocal(raw: unknown, path: string): LocalStorageConfig {
 
 /**
  * Validate the `render` block (Slice 7). Absent → defaults (outputDir "site",
- * secondaryStoryCount 4, timeZone "UTC"). A present outputDir/timeZone must be a non-empty
- * string; a present secondaryStoryCount must be a non-negative integer (0 = lead only, no rail).
+ * secondaryStoryCount 4, timeZone "UTC", siteBaseUrl the prod origin, empty share). A present
+ * outputDir/timeZone must be a non-empty string; a present secondaryStoryCount must be a
+ * non-negative integer (0 = lead only, no rail); siteBaseUrl must be an absolute origin with
+ * no trailing slash; share is an optional { handle?, hashtags? } block (ADR-0009).
  */
 function validateRender(raw: unknown, path: string): RenderConfig {
   if (raw == null) {
@@ -636,6 +661,8 @@ function validateRender(raw: unknown, path: string): RenderConfig {
       outputDir: DEFAULT_RENDER_OUTPUT_DIR,
       secondaryStoryCount: DEFAULT_RENDER_SECONDARY_STORY_COUNT,
       timeZone: DEFAULT_RENDER_TIME_ZONE,
+      siteBaseUrl: DEFAULT_RENDER_SITE_BASE_URL,
+      share: {},
     };
   }
   if (typeof raw !== "object") {
@@ -668,7 +695,71 @@ function validateRender(raw: unknown, path: string): RenderConfig {
     "render.timeZone",
   );
 
-  return { outputDir, secondaryStoryCount, timeZone };
+  const siteBaseUrl = validateSiteBaseUrl(r.siteBaseUrl, path);
+  const share = validateShare(r.share, path);
+
+  return { outputDir, secondaryStoryCount, timeZone, siteBaseUrl, share };
+}
+
+/**
+ * Validate `render.siteBaseUrl` (ADR-0009). Absent → the prod-origin default. A present
+ * value must be a non-empty absolute http(s) origin with NO trailing slash — that's what
+ * the absolute og:url and share URLs are built from, and a trailing slash would yield
+ * "…//s/<id>.html".
+ */
+function validateSiteBaseUrl(raw: unknown, path: string): string {
+  const v = raw ?? DEFAULT_RENDER_SITE_BASE_URL;
+  if (typeof v !== "string" || v.length === 0) {
+    throw new Error(`Config at ${path}: render.siteBaseUrl must be a non-empty string.`);
+  }
+  if (!/^https?:\/\//.test(v)) {
+    throw new Error(
+      `Config at ${path}: render.siteBaseUrl must be an absolute URL starting with http:// or https://.`,
+    );
+  }
+  if (v.endsWith("/")) {
+    throw new Error(
+      `Config at ${path}: render.siteBaseUrl must not have a trailing slash (e.g. "https://www.brickfeed.news").`,
+    );
+  }
+  return v;
+}
+
+/**
+ * Validate the optional `render.share` block (ADR-0009). Absent → {}. A present `handle`
+ * must be a non-empty string (a leading "@" is stripped — it's re-added for twitter:site);
+ * a present `hashtags` must be an array of non-empty strings (each with any leading "#"
+ * stripped — the Web Intent `hashtags=` param wants bare tags).
+ */
+function validateShare(raw: unknown, path: string): ShareConfig {
+  if (raw == null) return {};
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: render.share must be an object.`);
+  }
+  const s = raw as Record<string, unknown>;
+
+  const share: ShareConfig = {};
+
+  if (s.handle != null) {
+    if (typeof s.handle !== "string" || s.handle.trim().length === 0) {
+      throw new Error(`Config at ${path}: render.share.handle must be a non-empty string.`);
+    }
+    share.handle = s.handle.trim().replace(/^@/, "");
+  }
+
+  if (s.hashtags != null) {
+    if (
+      !Array.isArray(s.hashtags) ||
+      !s.hashtags.every((h) => typeof h === "string" && h.trim().length > 0)
+    ) {
+      throw new Error(
+        `Config at ${path}: render.share.hashtags must be an array of non-empty strings.`,
+      );
+    }
+    share.hashtags = (s.hashtags as string[]).map((h) => h.trim().replace(/^#/, ""));
+  }
+
+  return share;
 }
 
 /**

@@ -17,6 +17,7 @@ import {
   formatMastheadDate,
   editionLabel,
   sectionSlug,
+  storyPageUrl,
   titleCase,
 } from "./format.js";
 import { adAnimationCss, STYLES } from "./styles.js";
@@ -31,8 +32,11 @@ import {
   pageShell,
   railStory,
   renderAbout,
+  renderLandingPage,
+  renderShareSheet,
   sectionHead,
   sectionNav,
+  type ShareRow,
   utilityStrip,
   type StoryView,
 } from "./templates.js";
@@ -53,6 +57,21 @@ export interface RenderOptions {
    * The writers (cycle.ts / render-cli.ts) supply this via loadAds(); tests inject it directly.
    */
   ads?: AdView[];
+  /**
+   * Absolute site origin (no trailing slash) used to build each landing page's own absolute
+   * og:url and the absolute story URLs the X share links point at (ADR-0009).
+   */
+  siteBaseUrl: string;
+  /** X (Twitter) share settings for the share sheet + twitter:site meta. Both fields optional. */
+  share?: ShareOptions;
+}
+
+/** Optional X share settings threaded into the render (ADR-0009), mirroring the config shape. */
+export interface ShareOptions {
+  /** Site X handle WITHOUT a leading "@" (feeds via= and, as @handle, twitter:site). */
+  handle?: string;
+  /** Default hashtags, each WITHOUT a leading "#". */
+  hashtags?: string[];
 }
 
 /**
@@ -153,6 +172,9 @@ export function renderSite(
   const ads = opts.ads ?? [];
   const banner = adBanner(ads);
 
+  const share = opts.share ?? {};
+  const twitterSite = share.handle ? `@${share.handle}` : undefined;
+
   const files: Record<string, string> = {
     "index.html": renderCover(views, dateStr, edition, opts.secondaryStoryCount, banner),
     "about.html": renderAbout(dateStr, edition, banner),
@@ -167,5 +189,18 @@ export function renderSite(
       banner,
     );
   }
+
+  // Per-story landing pages (ADR-0009): one social-card-bearing page per record at
+  // s/<id>.html, plus the assisted-manual share sheet. `records` and `views` are aligned by
+  // index; the landing/share URL is this record's own absolute URL.
+  const shareRows: ShareRow[] = [];
+  records.forEach((record, i) => {
+    const view = views[i];
+    const pageUrl = storyPageUrl(opts.siteBaseUrl, record.id);
+    files[`s/${record.id}.html`] = renderLandingPage(view, { pageUrl, twitterSite });
+    shareRows.push({ view, pageUrl });
+  });
+  files["share.html"] = renderShareSheet(shareRows, share);
+
   return files;
 }

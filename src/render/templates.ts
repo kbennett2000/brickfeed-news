@@ -10,7 +10,7 @@
  */
 import type { AdView } from "../ads.js";
 import { CATEGORIES, type Category } from "../category.js";
-import { escapeAttr, escapeHtml, sectionSlug, titleCase } from "./format.js";
+import { buildXIntentUrl, escapeAttr, escapeHtml, sectionSlug, titleCase } from "./format.js";
 
 /** The view model a template consumes — a ManifestRecord already reduced to display fields. */
 export interface StoryView {
@@ -312,22 +312,171 @@ export function footer(): string {
   </footer>`;
 }
 
-/** The full HTML document shell: fonts via Google Fonts, the linked stylesheet, body. */
-export function pageShell(title: string, bodyHtml: string): string {
+/**
+ * The full HTML document shell: fonts via Google Fonts, the linked stylesheet, body.
+ *
+ * `opts.headExtra` injects extra `<head>` markup (the social-card meta on landing pages, the
+ * `robots noindex` on the share sheet); default "" keeps existing pages byte-identical.
+ * `opts.assetPrefix` prefixes the local `styles.css` href — landing pages live in the `s/`
+ * subdir and pass "../" so `../styles.css` resolves; default "" leaves root pages unchanged.
+ */
+export function pageShell(
+  title: string,
+  bodyHtml: string,
+  opts: { headExtra?: string; assetPrefix?: string } = {},
+): string {
+  const headExtra = opts.headExtra ? `${opts.headExtra}\n` : "";
+  const assetPrefix = opts.assetPrefix ?? "";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+${headExtra}<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..600&family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="${assetPrefix}styles.css">
 </head>
 <body>
 ${bodyHtml}
 </body>
 </html>
 `;
+}
+
+/**
+ * The Open Graph / Twitter card `<head>` block for a per-story landing page (ADR-0009), so a
+ * shared brickfeed URL renders a large-image card with OUR art. `twitter:card` is always
+ * `summary_large_image`; `og:image`/`twitter:image` are emitted only when an image is present
+ * (a publishable record always has one, but the core stays tolerant); `twitter:site` only when
+ * a handle is configured. Every value is attribute-escaped.
+ */
+export function cardMeta(args: {
+  title: string;
+  description: string;
+  pageUrl: string;
+  imageUrl?: string;
+  twitterSite?: string;
+}): string {
+  const { title, description, pageUrl, imageUrl, twitterSite } = args;
+  const lines = [
+    `<meta name="twitter:card" content="summary_large_image">`,
+    `<meta property="og:type" content="article">`,
+    `<meta property="og:site_name" content="brickfeed">`,
+    `<meta property="og:title" content="${escapeAttr(title)}">`,
+    `<meta property="og:description" content="${escapeAttr(description)}">`,
+    `<meta property="og:url" content="${escapeAttr(pageUrl)}">`,
+    `<meta name="twitter:title" content="${escapeAttr(title)}">`,
+    `<meta name="twitter:description" content="${escapeAttr(description)}">`,
+  ];
+  if (imageUrl) {
+    lines.push(`<meta property="og:image" content="${escapeAttr(imageUrl)}">`);
+    lines.push(`<meta name="twitter:image" content="${escapeAttr(imageUrl)}">`);
+  }
+  if (twitterSite) {
+    lines.push(`<meta name="twitter:site" content="${escapeAttr(twitterSite)}">`);
+  }
+  return lines.join("\n");
+}
+
+/** A minimal brand header for the standalone landing / share pages (no root-relative nav). */
+function standaloneBrand(homeHref: string): string {
+  return `<header class="standalone__brand">
+      <a class="standalone__wordmark" href="${escapeAttr(homeHref)}">${studs("")}brickfeed</a>
+    </header>`;
+}
+
+/**
+ * A per-story landing page (ADR-0009): a standalone, social-card-bearing page at
+ * `s/<id>.html`. The card (see cardMeta) points at our brick image; the body shows the image,
+ * kicker, headline, dek, caption + "/ BRICKFEED STUDIO" (via the shared figure), and a
+ * prominent outbound link to the source article. Self-contained on purpose — it lives in the
+ * `s/` subdir, so it uses a "../" asset prefix and a brand header instead of the root-relative
+ * masthead/nav/footer.
+ */
+export function renderLandingPage(
+  view: StoryView,
+  opts: { pageUrl: string; twitterSite?: string },
+): string {
+  const meta = cardMeta({
+    title: view.headline,
+    description: view.description,
+    pageUrl: opts.pageUrl,
+    imageUrl: view.imageUrl,
+    twitterSite: opts.twitterSite,
+  });
+  const body = `<div class="standalone landing">
+    ${standaloneBrand("../index.html")}
+    <main class="container landing__main">
+      <article class="landing__article">
+        ${figure(view, "lead")}
+        <div class="kicker">${escapeHtml(view.kicker)}</div>
+        <h1 class="landing__headline">${escapeHtml(view.headline)}</h1>
+        <p class="dek landing__dek">${escapeHtml(view.description)}</p>
+        <div class="byline byline--lead">${escapeHtml(view.byline)} &middot; ${escapeHtml(view.ago)}</div>
+        <a class="landing__cta" href="${escapeAttr(view.url)}" target="_blank" rel="noopener noreferrer">Read the full story at the source &rarr;</a>
+      </article>
+    </main>
+  </div>`;
+  return pageShell(`${view.headline} — brickfeed`, body, {
+    headExtra: meta,
+    assetPrefix: "../",
+  });
+}
+
+/** One story on the share sheet: its display view + its absolute landing-page URL. */
+export interface ShareRow {
+  view: StoryView;
+  pageUrl: string;
+}
+
+/**
+ * The assisted-manual X share sheet (ADR-0009): one row per publishable story — image thumb +
+ * headline + a "Post to X" button linking to the story's Web Intent URL (buildXIntentUrl). A
+ * human opens this private page and clicks to post; there is no API, key, or scheduler. It
+ * carries `robots noindex` (via pageShell) and is NOT linked from the site nav/footer, so it
+ * stays an unindexed operator tool. Root page, so it needs no asset prefix.
+ */
+export function renderShareSheet(
+  rows: ShareRow[],
+  opts: { handle?: string; hashtags?: string[] } = {},
+): string {
+  const items = rows
+    .map(({ view, pageUrl }) => {
+      const href = buildXIntentUrl({
+        headline: view.headline,
+        pageUrl,
+        handle: opts.handle,
+        hashtags: opts.hashtags,
+      });
+      const thumb = view.imageUrl
+        ? `<img class="sharesheet__thumb" src="${escapeAttr(view.imageUrl)}" alt="${escapeAttr(view.headline)}" loading="lazy">`
+        : `<div class="sharesheet__thumb sharesheet__thumb--empty">${studs("studs--6", true)}</div>`;
+      return `<li class="sharesheet__row">
+        <div class="sharesheet__thumbwrap">${thumb}</div>
+        <div class="sharesheet__body">
+          <div class="kicker kicker--sm">${escapeHtml(view.kicker)}</div>
+          <h2 class="sharesheet__headline">${escapeHtml(view.headline)}</h2>
+        </div>
+        <a class="sharesheet__post" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">Post to X</a>
+      </li>`;
+    })
+    .join("");
+
+  const content = rows.length
+    ? `<ul class="sharesheet__list">${items}</ul>`
+    : emptyState("No stories are ready to post yet. Check back once the presses roll.");
+
+  const body = `<div class="standalone sharesheet">
+    ${standaloneBrand("index.html")}
+    <main class="container sharesheet__main">
+      <h1 class="sharesheet__title">Post to X</h1>
+      <p class="sharesheet__note">A private worksheet: click a button to open X with a story prefilled, then post it by hand. ${rows.length} ${rows.length === 1 ? "story" : "stories"} ready.</p>
+      ${content}
+    </main>
+  </div>`;
+  return pageShell("Post to X — brickfeed", body, {
+    headExtra: `<meta name="robots" content="noindex">`,
+  });
 }

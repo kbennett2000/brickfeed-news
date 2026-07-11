@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { ADS_DIR, loadAds } from "./ads.js";
 import { loadConfig } from "./config.js";
 import { renderSite } from "./render/index.js";
@@ -49,12 +49,17 @@ async function main(): Promise<void> {
     now: new Date(),
     secondaryStoryCount: config.render.secondaryStoryCount,
     timeZone: config.render.timeZone,
+    siteBaseUrl: config.render.siteBaseUrl,
+    share: config.render.share,
     ads,
   });
 
   await mkdir(config.render.outputDir, { recursive: true });
   for (const [name, contents] of Object.entries(files)) {
-    await writeFile(join(config.render.outputDir, name), contents, "utf8");
+    const dest = join(config.render.outputDir, name);
+    // Per-story landing pages live under s/, so ensure each file's parent dir exists.
+    await mkdir(dirname(dest), { recursive: true });
+    await writeFile(dest, contents, "utf8");
   }
 
   const at = new Date().toISOString();

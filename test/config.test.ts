@@ -16,6 +16,7 @@ import {
   DEFAULT_RENDER_OUTPUT_DIR,
   DEFAULT_RENDER_SECONDARY_STORY_COUNT,
   DEFAULT_RENDER_TIME_ZONE,
+  DEFAULT_RENDER_SITE_BASE_URL,
   DEFAULT_STORAGE_BLOB_PATH_PREFIX,
   DEFAULT_STORAGE_LOCAL_DIR,
   DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL,
@@ -240,7 +241,54 @@ describe("validateConfig", () => {
       outputDir: DEFAULT_RENDER_OUTPUT_DIR,
       secondaryStoryCount: DEFAULT_RENDER_SECONDARY_STORY_COUNT,
       timeZone: DEFAULT_RENDER_TIME_ZONE,
+      siteBaseUrl: DEFAULT_RENDER_SITE_BASE_URL,
+      share: {},
     });
+  });
+
+  it("defaults render.siteBaseUrl when omitted and keeps a valid explicit one", () => {
+    expect(validateConfig({ ...base, render: { outputDir: "public" } }).render.siteBaseUrl).toBe(
+      DEFAULT_RENDER_SITE_BASE_URL,
+    );
+    const cfg = validateConfig({
+      ...base,
+      render: { siteBaseUrl: "https://www.brickfeed.news" },
+    });
+    expect(cfg.render.siteBaseUrl).toBe("https://www.brickfeed.news");
+  });
+
+  it("rejects a render.siteBaseUrl with a trailing slash or a non-http value", () => {
+    expect(() =>
+      validateConfig({ ...base, render: { siteBaseUrl: "https://www.brickfeed.news/" } }),
+    ).toThrow(/trailing slash/);
+    expect(() =>
+      validateConfig({ ...base, render: { siteBaseUrl: "brickfeed.news" } }),
+    ).toThrow(/http/);
+    expect(() =>
+      validateConfig({ ...base, render: { siteBaseUrl: "" } }),
+    ).toThrow();
+  });
+
+  it("defaults render.share to empty and validates a configured share block", () => {
+    expect(validateConfig(base).render.share).toEqual({});
+    const cfg = validateConfig({
+      ...base,
+      render: { share: { handle: "@brickfeednews", hashtags: ["#brickfeed", "news"] } },
+    });
+    // Leading @ and # are stripped for the Web Intent params.
+    expect(cfg.render.share).toEqual({ handle: "brickfeednews", hashtags: ["brickfeed", "news"] });
+  });
+
+  it("rejects a bad render.share.handle or hashtags", () => {
+    expect(() =>
+      validateConfig({ ...base, render: { share: { handle: "" } } }),
+    ).toThrow();
+    expect(() =>
+      validateConfig({ ...base, render: { share: { hashtags: "brickfeed" } } }),
+    ).toThrow();
+    expect(() =>
+      validateConfig({ ...base, render: { share: { hashtags: ["ok", ""] } } }),
+    ).toThrow();
   });
 
   it("accepts an explicit render block and defaults per-field", () => {

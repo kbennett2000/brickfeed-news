@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "../src/category.js";
 import { renderSite } from "../src/render/index.js";
 import {
+  buildXIntentUrl,
   bylineFor,
   editionForHour,
   editionLabel,
   formatMastheadDate,
   relativeTime,
   sectionSlug,
+  storyPageUrl,
+  truncateForTweet,
 } from "../src/render/format.js";
 import type { ManifestRecord } from "../src/types.js";
 
@@ -43,7 +46,8 @@ const records: ManifestRecord[] = [
 ];
 
 const NOW = new Date("2026-07-10T12:00:00.000Z");
-const OPTS = { now: NOW, secondaryStoryCount: 3 };
+const SITE_BASE_URL = "https://www.brickfeed.example";
+const OPTS = { now: NOW, secondaryStoryCount: 3, siteBaseUrl: SITE_BASE_URL };
 
 describe("renderSite — cover page", () => {
   const files = renderSite(records, OPTS);
@@ -133,6 +137,7 @@ describe("renderSite — cover page", () => {
       now: new Date("2026-07-11T02:00:00.000Z"),
       secondaryStoryCount: 3,
       timeZone: "America/Denver",
+      siteBaseUrl: SITE_BASE_URL,
     });
     expect(files["index.html"]).toContain("Night Edition");
     expect(files["index.html"]).not.toContain("Afternoon Edition");
@@ -349,5 +354,194 @@ describe("renderSite — banner ads", () => {
     const files = renderSite(records, { ...OPTS, ads: [AD_A] });
     expect(files["index.html"]).toContain('class="adbanner"');
     expect(files["styles.css"]).not.toContain("@keyframes adbannerfade");
+  });
+});
+
+describe("renderSite — per-story landing pages", () => {
+  const files = renderSite(records, OPTS);
+
+  it("emits one s/<id>.html per record", () => {
+    for (const r of records) {
+      expect(files[`s/${r.id}.html`]).toBeTruthy();
+    }
+  });
+
+  describe("the lead's landing page", () => {
+    const page = files["s/lead.html"];
+
+    it("carries a summary_large_image Twitter card", () => {
+      expect(page).toContain('<meta name="twitter:card" content="summary_large_image">');
+    });
+
+    it("points og:image and twitter:image at the record's absolute image URL", () => {
+      expect(page).toContain('<meta property="og:image" content="https://cdn.test/lead.png">');
+      expect(page).toContain('<meta name="twitter:image" content="https://cdn.test/lead.png">');
+    });
+
+    it("sets og:type=article, og:title=headline, and an ABSOLUTE og:url to its own page", () => {
+      expect(page).toContain('<meta property="og:type" content="article">');
+      expect(page).toContain(
+        '<meta property="og:title" content="Summit Ends With a Handshake and a Communique">',
+      );
+      expect(page).toContain(
+        `<meta property="og:url" content="${SITE_BASE_URL}/s/lead.html">`,
+      );
+    });
+
+    it("links out to the source article, opening it in a new tab", () => {
+      expect(page).toContain('href="https://example.com/lead"');
+      expect(page).toContain('target="_blank"');
+      expect(page).toContain('rel="noopener noreferrer"');
+    });
+
+    it("references the stylesheet from the parent dir (../styles.css)", () => {
+      expect(page).toContain('href="../styles.css"');
+      expect(page).not.toContain('href="styles.css"');
+    });
+
+    it("shows the headline, dek, and caption + studio credit", () => {
+      expect(page).toContain("Summit Ends With a Handshake and a Communique");
+      expect(page).toContain("A sober description for lead.");
+      expect(page).toContain("A neutral caption for lead");
+      expect(page).toContain("/ BRICKFEED STUDIO");
+    });
+  });
+
+  it("omits og:image on an image-less record but still emits a card", () => {
+    const noImg = renderSite([rec({ id: "np", imageUrl: undefined })], OPTS)["s/np.html"];
+    expect(noImg).toContain('<meta name="twitter:card" content="summary_large_image">');
+    expect(noImg).not.toContain("og:image");
+    expect(noImg).not.toContain("twitter:image");
+  });
+
+  it("emits twitter:site ONLY when a handle is configured", () => {
+    // Default OPTS has no share config → no twitter:site anywhere.
+    expect(files["s/lead.html"]).not.toContain("twitter:site");
+    const withHandle = renderSite(records, {
+      ...OPTS,
+      share: { handle: "brickfeednews" },
+    });
+    expect(withHandle["s/lead.html"]).toContain(
+      '<meta name="twitter:site" content="@brickfeednews">',
+    );
+  });
+
+  it("escapes interpolated values in the card meta", () => {
+    const page = renderSite(
+      [rec({ id: "x", headline: 'Markets "rise" & <fall>' })],
+      OPTS,
+    )["s/x.html"];
+    expect(page).toContain(
+      '<meta property="og:title" content="Markets &quot;rise&quot; &amp; &lt;fall&gt;">',
+    );
+    expect(page).not.toContain('content="Markets "rise"');
+  });
+
+  it("never contains the trademark in a landing page", () => {
+    expect(files["s/lead.html"].toLowerCase()).not.toContain("lego");
+  });
+});
+
+describe("renderSite — X share sheet", () => {
+  const files = renderSite(records, OPTS);
+  const sheet = files["share.html"];
+
+  it("emits share.html", () => {
+    expect(sheet).toBeTruthy();
+  });
+
+  it("marks the share sheet noindex", () => {
+    expect(sheet).toContain('<meta name="robots" content="noindex">');
+  });
+
+  it("has one X Web Intent link per publishable story", () => {
+    const count = sheet.match(/https:\/\/x\.com\/intent\/tweet\?/g)?.length ?? 0;
+    expect(count).toBe(records.length);
+  });
+
+  it("points each intent link's url param at the story's ABSOLUTE landing page URL", () => {
+    // URLSearchParams percent-encodes the landing URL as the `url` param value.
+    const encoded = encodeURIComponent(`${SITE_BASE_URL}/s/lead.html`);
+    expect(sheet).toContain(`url=${encoded}`);
+  });
+
+  it("opens each post link in a new tab", () => {
+    expect(sheet).toContain('target="_blank"');
+    expect(sheet).toContain('rel="noopener noreferrer"');
+    expect(sheet).toContain("Post to X");
+  });
+
+  it("omits via/hashtags params when unconfigured", () => {
+    expect(sheet).not.toContain("via=");
+    expect(sheet).not.toContain("hashtags=");
+  });
+
+  it("includes via + hashtags params when configured", () => {
+    const configured = renderSite(records, {
+      ...OPTS,
+      share: { handle: "brickfeednews", hashtags: ["brickfeed", "news"] },
+    })["share.html"];
+    expect(configured).toContain("via=brickfeednews");
+    expect(configured).toContain("hashtags=brickfeed%2Cnews");
+  });
+
+  it("is NOT linked from the nav/footer on any page", () => {
+    for (const [name, file] of Object.entries(files)) {
+      if (name === "share.html") continue;
+      expect(file).not.toContain('href="share.html"');
+      expect(file).not.toContain('href="../share.html"');
+    }
+  });
+
+  it("never contains the trademark in the share sheet", () => {
+    expect(sheet.toLowerCase()).not.toContain("lego");
+  });
+});
+
+describe("share format helpers", () => {
+  it("builds the absolute landing-page URL from the site base + id", () => {
+    expect(storyPageUrl("https://www.brickfeed.news", "abc123")).toBe(
+      "https://www.brickfeed.news/s/abc123.html",
+    );
+  });
+
+  it("encodes the headline and url in the intent URL, omitting via/hashtags when unset", () => {
+    const url = buildXIntentUrl({
+      headline: "Markets rise & fall",
+      pageUrl: "https://www.brickfeed.news/s/id.html",
+    });
+    expect(url.startsWith("https://x.com/intent/tweet?")).toBe(true);
+    expect(url).toContain("text=Markets+rise+%26+fall");
+    expect(url).toContain("url=https%3A%2F%2Fwww.brickfeed.news%2Fs%2Fid.html");
+    expect(url).not.toContain("via=");
+    expect(url).not.toContain("hashtags=");
+  });
+
+  it("adds via (no @) and comma-joined hashtags (no #) when provided", () => {
+    const url = buildXIntentUrl({
+      headline: "Hi",
+      pageUrl: "https://x/s/id.html",
+      handle: "brickfeednews",
+      hashtags: ["brickfeed", "news"],
+    });
+    expect(url).toContain("via=brickfeednews");
+    expect(url).toContain("hashtags=brickfeed%2Cnews");
+  });
+
+  it("truncates an over-long headline with an ellipsis so the tweet fits", () => {
+    const long = "A".repeat(400);
+    const url = buildXIntentUrl({ headline: long, pageUrl: "https://x/s/id.html" });
+    const text = new URL(url).searchParams.get("text") ?? "";
+    expect(text.endsWith("…")).toBe(true);
+    // Text + the wrapped-URL budget stays within the 280 ceiling.
+    expect(text.length).toBeLessThanOrEqual(280 - 23 - 1);
+  });
+
+  it("truncateForTweet leaves a short headline untouched and cuts a long one", () => {
+    expect(truncateForTweet("short", 20)).toBe("short");
+    const cut = truncateForTweet("A".repeat(50), 10);
+    expect(cut.length).toBe(10);
+    expect(cut.endsWith("…")).toBe(true);
+    expect(truncateForTweet("anything", 0)).toBe("");
   });
 });
