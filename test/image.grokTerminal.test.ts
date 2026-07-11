@@ -27,6 +27,21 @@ describe("GrokTerminalImageProvider.generate — happy path", () => {
     expect(runner.calls[0].args).toEqual(["image"]);
     expect(runner.calls[0].prompt).toBe("WRAPPED brick prompt");
   });
+
+  it("passes a configured timeoutMs through to the runner (undefined when unset)", async () => {
+    const withTimeout = fakeTerminalImageRunner({ bytes: bytes("PNGDATA") });
+    await new GrokTerminalImageProvider({
+      command: "grok",
+      args: ["image"],
+      timeoutMs: 150_000,
+      runner: withTimeout,
+    }).generate("p");
+    expect(withTimeout.calls[0].timeoutMs).toBe(150_000);
+
+    const noTimeout = fakeTerminalImageRunner({ bytes: bytes("PNGDATA") });
+    await provider(noTimeout).generate("p");
+    expect(noTimeout.calls[0].timeoutMs).toBeUndefined();
+  });
 });
 
 describe("GrokTerminalImageProvider.generate — never-throw failure modes", () => {

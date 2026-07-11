@@ -22,6 +22,16 @@ export interface Config {
   maxAgeHours: number;
   /** Where the derived newest-first list of publishable records is written (Slice 4). */
   publishedPath: string;
+  /**
+   * How many stories the generate + image stages process CONCURRENTLY. Each grok call is
+   * ~90% idle waiting on the server, so a small pool collapses total wall-clock. Default 4.
+   */
+  concurrency: number;
+  /**
+   * Max stories the generate + image stages ATTEMPT per cycle, so a big backlog is spread
+   * across cron ticks instead of one very long run. Default 20.
+   */
+  maxStoriesPerCycle: number;
   /** Static cover-page render settings (Slice 7). */
   render: RenderConfig;
   /** Deploy-step settings (Slice 8): how the rendered site is published to Vercel. */
@@ -69,6 +79,12 @@ export interface GeneratorConfig {
 export interface GrokTerminalConfig {
   command: string;
   args: string[];
+  /**
+   * Per-call wall-clock budget (ms) before the grok subprocess is SIGKILLed. Optional:
+   * when omitted the provider's default applies (text 120s, image 180s). A hung call is
+   * killed and the story stays pending, rather than stalling the whole cycle.
+   */
+  timeoutMs?: number;
 }
 
 /** xAI/Grok endpoint + model. The API key is a secret (env), never config. */
@@ -190,6 +206,10 @@ export const DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL = "http://localhost:8189/blob
 export const DEFAULT_MAX_AGE_HOURS = 72;
 export const DEFAULT_PUBLISHED_PATH = "data/published.json";
 
+/** Defaults for the pipeline throughput controls. */
+export const DEFAULT_CONCURRENCY = 4;
+export const DEFAULT_MAX_STORIES_PER_CYCLE = 20;
+
 /** Defaults when the config omits the `render` block (Slice 7). */
 export const DEFAULT_RENDER_OUTPUT_DIR = "site";
 export const DEFAULT_RENDER_SECONDARY_STORY_COUNT = 4;
@@ -251,6 +271,18 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
     path,
     "publishedPath",
   );
+  const concurrency = validatePositiveInt(
+    obj.concurrency,
+    DEFAULT_CONCURRENCY,
+    path,
+    "concurrency",
+  );
+  const maxStoriesPerCycle = validatePositiveInt(
+    obj.maxStoriesPerCycle,
+    DEFAULT_MAX_STORIES_PER_CYCLE,
+    path,
+    "maxStoriesPerCycle",
+  );
   const render = validateRender(obj.render, path);
   const deploy = validateDeploy(obj.deploy, render.outputDir, path);
 
@@ -263,9 +295,25 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
     storage,
     maxAgeHours,
     publishedPath,
+    concurrency,
+    maxStoriesPerCycle,
     render,
     deploy,
   };
+}
+
+/** Validate an optional positive-integer field, defaulting when omitted. */
+function validatePositiveInt(
+  raw: unknown,
+  fallback: number,
+  path: string,
+  field: string,
+): number {
+  if (raw == null) return fallback;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1) {
+    throw new Error(`Config at ${path}: ${field} must be a positive integer.`);
+  }
+  return raw;
 }
 
 /**
@@ -340,7 +388,17 @@ function validateGrokTerminal(
     throw new Error(`Config at ${path}: ${field}.args must be an array of strings.`);
   }
 
-  return { command, args: args as string[] };
+  // Optional per-call timeout: when omitted, the provider's default applies (undefined
+  // passes through). Present → must be a positive integer number of milliseconds.
+  let timeoutMs: number | undefined;
+  if (t.timeoutMs != null) {
+    if (typeof t.timeoutMs !== "number" || !Number.isInteger(t.timeoutMs) || t.timeoutMs < 1) {
+      throw new Error(`Config at ${path}: ${field}.timeoutMs must be a positive integer.`);
+    }
+    timeoutMs = t.timeoutMs;
+  }
+
+  return { command, args: args as string[], timeoutMs };
 }
 
 /** Default grok endpoint/model, used when the block or a field is omitted. */

@@ -287,6 +287,46 @@ describe("validateConfig", () => {
     ).toThrow();
   });
 
+  it("accepts an explicit grokTerminal.timeoutMs and rejects an invalid one", () => {
+    const cfg = validateConfig({
+      ...base,
+      image: { provider: "grok-terminal", grokTerminal: { command: "grok", timeoutMs: 90000 } },
+    });
+    expect(cfg.image.grokTerminal.timeoutMs).toBe(90000);
+    // Absent → undefined (provider applies its own default).
+    expect(cfg.generator.grokTerminal.timeoutMs).toBeUndefined();
+    for (const bad of [0, -1, 1.5, "60000"]) {
+      expect(() =>
+        validateConfig({ ...base, generator: { grokTerminal: { timeoutMs: bad } } }),
+      ).toThrow(/timeoutMs must be a positive integer/);
+    }
+  });
+
+  it("defaults concurrency + maxStoriesPerCycle when absent", () => {
+    const cfg = validateConfig(base);
+    expect(cfg.concurrency).toBe(4);
+    expect(cfg.maxStoriesPerCycle).toBe(20);
+  });
+
+  it("accepts explicit concurrency + maxStoriesPerCycle", () => {
+    const cfg = validateConfig({ ...base, concurrency: 8, maxStoriesPerCycle: 50 });
+    expect(cfg.concurrency).toBe(8);
+    expect(cfg.maxStoriesPerCycle).toBe(50);
+  });
+
+  it("rejects a non-positive-integer concurrency or maxStoriesPerCycle", () => {
+    for (const bad of [0, -2, 2.5, "4"]) {
+      expect(() => validateConfig({ ...base, concurrency: bad })).toThrow(
+        /concurrency must be a positive integer/,
+      );
+    }
+    for (const bad of [0, -1, 3.3, "20"]) {
+      expect(() => validateConfig({ ...base, maxStoriesPerCycle: bad })).toThrow(
+        /maxStoriesPerCycle must be a positive integer/,
+      );
+    }
+  });
+
   it("defaults the deploy block when absent (cwd = render.outputDir)", () => {
     const cfg = validateConfig(base);
     expect(cfg.deploy).toEqual({

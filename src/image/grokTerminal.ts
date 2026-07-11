@@ -34,11 +34,18 @@ export class GrokTerminalImageProvider implements ImageProvider {
   private readonly command: string;
   private readonly args: string[];
   private readonly runner: TerminalImageRunner;
+  private readonly timeoutMs?: number;
 
-  constructor(opts: { command: string; args: string[]; runner?: TerminalImageRunner }) {
+  constructor(opts: {
+    command: string;
+    args: string[];
+    runner?: TerminalImageRunner;
+    timeoutMs?: number;
+  }) {
     this.command = opts.command;
     this.args = opts.args;
     this.runner = opts.runner ?? defaultImageRunner;
+    this.timeoutMs = opts.timeoutMs;
   }
 
   async generate(wrappedPrompt: string): Promise<Uint8Array | null> {
@@ -48,6 +55,7 @@ export class GrokTerminalImageProvider implements ImageProvider {
         command: this.command,
         args: this.args,
         prompt: wrappedPrompt,
+        timeoutMs: this.timeoutMs,
       });
     } catch {
       return null;
@@ -58,8 +66,8 @@ export class GrokTerminalImageProvider implements ImageProvider {
   }
 }
 
-/** How long a single headless grok image turn may run before it is SIGKILLed. */
-const IMAGE_TIMEOUT_MS = 240_000;
+/** Default budget for a single headless grok image turn before it is SIGKILLed (measured ~14s). */
+export const DEFAULT_IMAGE_TIMEOUT_MS = 180_000;
 
 /**
  * Default runner: drive grok's `/imagine` headlessly and return the generated image BYTES.
@@ -70,15 +78,16 @@ const IMAGE_TIMEOUT_MS = 240_000;
  * environment (subscription login) without this module reading it (secrets.ts is the only env
  * reader). Any failure resolves as a non-zero code so the provider degrades to null.
  */
-export const defaultImageRunner: TerminalImageRunner = async ({ command, args, prompt }) => {
+export const defaultImageRunner: TerminalImageRunner = async ({ command, args, prompt, timeoutMs }) => {
   const workDir = mkdtempSync(join(tmpdir(), "brickfeed-img-"));
   const sessionsBase = join(homedir(), ".grok", "sessions", encodeURIComponent(workDir));
   const startedAt = startedAtMs();
   try {
-    const { stdout, code } = await runGrok(command, [
-      ...args,
-      ...grokHeadlessArgs(workDir, "-p", `/imagine ${prompt}`),
-    ]);
+    const { stdout, code } = await runGrok(
+      command,
+      [...args, ...grokHeadlessArgs(workDir, "-p", `/imagine ${prompt}`)],
+      timeoutMs ?? DEFAULT_IMAGE_TIMEOUT_MS,
+    );
 
     // Preferred: the exact path grok recorded in this session's chat history. Salvage: the
     // newest image written during this run (works even when a timeout robbed us of stdout /
@@ -121,6 +130,7 @@ function startedAtMs(): number {
 function runGrok(
   command: string,
   argv: string[],
+  timeoutMs: number,
 ): Promise<{ stdout: string; code: number }> {
   return new Promise((resolve) => {
     const child = spawn(command, argv, { stdio: ["ignore", "pipe", "pipe"] });
@@ -134,7 +144,7 @@ function runGrok(
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       finish({ stdout, code: 1 });
-    }, IMAGE_TIMEOUT_MS);
+    }, timeoutMs);
 
     let stdout = "";
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));

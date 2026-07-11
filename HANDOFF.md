@@ -1,5 +1,38 @@
 # Handoff
 
+## grok-terminal pipeline sped up: stage concurrency + cap + logging + timeout (issue #24, PR pending)
+
+The cycle was slow because `generate` then `image` ran one grok CLI call per story, **serially**
+(67 + 67). Investigation (measured on the box, keyless): **Chronicle has no faster/warm grok
+path** — every Chronicle grok call is a fresh spawn, its grok text is ~116–151s and grok image
+~15–20s, and its genuinely-fast images come from a **ComfyUI warm HTTP service**, not grok.
+brickfeed's providers already match Chronicle's invocation. Per-call grok time is
+**xAI-server-bound** (text ~5–6s, image ~13–15s, ~90% idle waiting), so the model/leader/boot
+barely help. **The only material lever is concurrency** — overlapping the idle waits.
+
+- **`src/pool.ts`** — `mapWithConcurrency(items, n, fn)`: bounded pool, results in input order,
+  no deps. Unit-tested (`test/pool.test.ts`).
+- **`src/generate.ts` / `src/image.ts`** — each stage now selects eligible IDs (in manifest
+  order, capped by `opts.limit`), runs them through the pool at `opts.concurrency` (default 1 =
+  serial), and applies results **in manifest order** so output is identical to serial
+  regardless of finish order. All guarantees preserved (idempotency, all-or-nothing,
+  never-throw, limit-as-attempt-cap). Per-story progress via optional `deps.log`
+  (`generate 3/20 <id>: ok (5.1s)` / `… pending`).
+- **Config** (`src/config.ts`, `config.example.json`) — `concurrency` (default **4**),
+  `maxStoriesPerCycle` (default **20**, the per-cycle cap, reuses `opts.limit`), and optional
+  `grokTerminal.timeoutMs` (per-call SIGKILL budget; defaults 120s text / 180s image, down from
+  180/240). `cycle.ts` threads `{limit: maxStoriesPerCycle, concurrency}` + `log` into both
+  stages; factories pass `timeoutMs` to the providers.
+- Provider/runner INTERFACES unchanged except an added **optional** `timeoutMs` on the runner
+  arg and `log` on the deps — all injected-runner tests hold. Tests **281 passing** (+15).
+  Gates clean (`process.env` only in `secrets.ts`; no lego).
+- **MEASURED, keyless (no API keys), real grok-terminal + local storage, 6 stories:**
+  serial (c=1) **138.6s** (generate 55.0s + image 83.6s, 23.1s/story) → concurrent (c=4)
+  **48.4s** (generate 15.1s + image 33.3s, 8.1s/story) = **2.86× faster**, 6/6 generated + 6/6
+  stored, valid 340–400 KB images. A full 67-story run approaches ~4×.
+- **Follow-up (noted, not done):** incremental per-story manifest persistence would make a long
+  concurrent image run crash-resilient (today the stage persists once at the end).
+
 ## Box config migrated to keyless grok-terminal (issue #22, PR pending)
 
 The box `config.json` (gitignored — not in the repo) predated the grok-terminal rename and did

@@ -27,6 +27,7 @@ export function createImageProvider(
     return new GrokTerminalImageProvider({
       command: grokTerminal.command,
       args: grokTerminal.args,
+      timeoutMs: grokTerminal.timeoutMs,
       runner: opts.terminalRunner,
     });
   }

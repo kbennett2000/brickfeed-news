@@ -1,5 +1,6 @@
 import { wrapBrickStyle } from "./brick.js";
 import type { Config } from "./config.js";
+import { mapWithConcurrency } from "./pool.js";
 import type { GenerateDeps, Manifest, ManifestRecord } from "./types.js";
 
 export interface GenerateResult {
@@ -48,36 +49,41 @@ export function isGenerated(record: ManifestRecord): boolean {
  *  - Resilient: a null/throwing generation leaves that record pending and the run
  *    continues with the remaining records.
  *  - opts.limit caps how many pending records are ATTEMPTED (keeps live runs cheap).
+ *  - opts.concurrency runs that many generations at once (each grok call is ~90% idle
+ *    waiting on the server, so a small pool collapses total wall-clock). Default 1
+ *    (serial). Results are applied in manifest order, so output is independent of which
+ *    task finishes first.
+ *  - deps.log, when present, is called once per attempted story with progress + timing.
  */
 export async function generateAll(
   config: Config,
   startingManifest: Manifest,
   deps: GenerateDeps,
-  opts: { limit?: number } = {},
+  opts: { limit?: number; concurrency?: number } = {},
 ): Promise<GenerateResult> {
   const manifest: Manifest = {
     version: startingManifest.version,
     stories: { ...startingManifest.stories },
   };
+  const log = deps.log ?? (() => {});
 
-  const generated: ManifestRecord[] = [];
+  // Select pending records in manifest order, capped by opts.limit. Already-generated
+  // records are counted as skipped and never consume the attempt budget.
   let skipped = 0;
-  let failed = 0;
-  let attempted = 0;
-
+  const eligible: string[] = [];
   for (const id of Object.keys(manifest.stories)) {
-    const record = manifest.stories[id];
-
-    if (isGenerated(record)) {
+    if (isGenerated(manifest.stories[id])) {
       skipped++;
       continue;
     }
+    if (opts.limit != null && eligible.length >= opts.limit) continue;
+    eligible.push(id);
+  }
 
-    if (opts.limit != null && attempted >= opts.limit) {
-      // Beyond the attempt cap: leave remaining pending records untouched.
-      continue;
-    }
-    attempted++;
+  const total = eligible.length;
+  const outcomes = await mapWithConcurrency(eligible, opts.concurrency ?? 1, async (id, i) => {
+    const record = manifest.stories[id];
+    const t0 = deps.now().getTime();
 
     let output;
     try {
@@ -92,12 +98,13 @@ export async function generateAll(
       output = null;
     }
 
+    const secs = ((deps.now().getTime() - t0) / 1000).toFixed(1);
     if (output == null) {
-      failed++;
-      continue; // leave the record pending; retried next run
+      log(`generate ${i + 1}/${total} ${id}: pending (${secs}s)`);
+      return { id, updated: null as ManifestRecord | null };
     }
 
-    // All-or-nothing write: build the fully-populated record, then swap it in.
+    // All-or-nothing write: build the fully-populated record.
     const updated: ManifestRecord = {
       ...record,
       headline: output.headline,
@@ -107,6 +114,18 @@ export async function generateAll(
       category: output.category,
       caption: output.caption,
     };
+    log(`generate ${i + 1}/${total} ${id}: ok (${secs}s)`);
+    return { id, updated };
+  });
+
+  // Apply in manifest (input) order so output is deterministic regardless of finish order.
+  const generated: ManifestRecord[] = [];
+  let failed = 0;
+  for (const { id, updated } of outcomes) {
+    if (updated == null) {
+      failed++;
+      continue; // leave the record pending; retried next run
+    }
     manifest.stories[id] = updated;
     generated.push(updated);
   }

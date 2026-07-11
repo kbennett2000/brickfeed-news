@@ -12,7 +12,8 @@
     },
     "grokTerminal": {
       "command": "grok",
-      "args": []
+      "args": [],
+      "timeoutMs": 120000
     }
   },
   "brickStyle": {
@@ -32,7 +33,8 @@
     },
     "grokTerminal": {
       "command": "grok",
-      "args": []
+      "args": [],
+      "timeoutMs": 180000
     }
   },
   "storage": {
@@ -48,6 +50,8 @@
   },
   "maxAgeHours": 72,
   "publishedPath": "data/published.json",
+  "concurrency": 4,
+  "maxStoriesPerCycle": 20,
   "render": {
     "outputDir": "site",
     "secondaryStoryCount": 4

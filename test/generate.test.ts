@@ -196,6 +196,37 @@ describe("generateAll", () => {
     expect(result.skipped).toBe(1);
     expect(result.generated).toHaveLength(2);
   });
+
+  it("runs with concurrency, preserves manifest order, and logs per-story progress", async () => {
+    const logs: string[] = [];
+    // Story B fails (null) so we exercise both the ok and pending log lines.
+    const gen = fakeGenerator({
+      impl: (input) =>
+        input.title === "B"
+          ? null
+          : {
+              headline: `H:${input.title}`,
+              description: `D:${input.title}`,
+              imagePrompt: `P:${input.title}`,
+              category: "WORLD",
+              caption: `C:${input.title}`,
+            },
+    });
+    const result = await generateAll(
+      config,
+      manifestOf(pending("a", "A"), pending("b", "B"), pending("c", "C")),
+      { generator: gen, now: fixedNow(NOW), log: (m) => logs.push(m) },
+      { concurrency: 3 },
+    );
+
+    // Output order follows the manifest, independent of task finish order.
+    expect(result.generated.map((r) => r.id)).toEqual(["a", "c"]);
+    expect(result.failed).toBe(1);
+    // One log line per attempted story, with the ok/pending outcome.
+    expect(logs).toHaveLength(3);
+    expect(logs.filter((l) => / ok \(/.test(l))).toHaveLength(2);
+    expect(logs.some((l) => /^generate 2\/3 b: pending \(/.test(l))).toBe(true);
+  });
 });
 
 describe("manifest round-trips the generation fields", () => {

@@ -110,6 +110,8 @@ export type TerminalTextRunner = (args: {
   command: string;
   args: string[];
   prompt: string;
+  /** Per-call wall-clock budget (ms) before the subprocess is killed; provider default if omitted. */
+  timeoutMs?: number;
 }) => Promise<{ stdout: string; code: number }>;
 
 /**
@@ -124,6 +126,8 @@ export type TerminalImageRunner = (args: {
   command: string;
   args: string[];
   prompt: string;
+  /** Per-call wall-clock budget (ms) before the subprocess is killed; provider default if omitted. */
+  timeoutMs?: number;
 }) => Promise<{ bytes: Uint8Array; code: number }>;
 
 /**
@@ -144,6 +148,8 @@ export interface GenerateDeps {
   generator: Generator;
   /** Returns "now"; injected so tests can pin timestamps / logs. */
   now: () => Date;
+  /** Optional per-story progress logger (defaults to a no-op in the stage). */
+  log?: (message: string) => void;
 }
 
 /**
@@ -221,6 +227,8 @@ export interface ImageDeps {
   storage: StorageProvider;
   /** Returns "now"; injected so tests can pin timestamps / logs. */
   now: () => Date;
+  /** Optional per-story progress logger (defaults to a no-op in the stage). */
+  log?: (message: string) => void;
 }
 
 /** The text-only JSON manifest: the source of truth for known stories. */

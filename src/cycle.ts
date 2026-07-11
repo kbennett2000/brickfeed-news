@@ -109,7 +109,12 @@ export async function runCycle(
     {
       name: "generate",
       run: async () => {
-        const r = await generateAll(config, manifest, { generator: deps.generator, now });
+        const r = await generateAll(
+          config,
+          manifest,
+          { generator: deps.generator, now, log },
+          { limit: config.maxStoriesPerCycle, concurrency: config.concurrency },
+        );
         manifest = r.manifest;
         await deps.io.writeManifest(config.manifestPath, manifest);
         return `${r.generated.length} generated, ${r.skipped} skipped, ${r.failed} pending`;
@@ -118,11 +123,12 @@ export async function runCycle(
     {
       name: "image",
       run: async () => {
-        const r = await generateImages(config, manifest, {
-          provider: deps.imageProvider,
-          storage: deps.storage,
-          now,
-        });
+        const r = await generateImages(
+          config,
+          manifest,
+          { provider: deps.imageProvider, storage: deps.storage, now, log },
+          { limit: config.maxStoriesPerCycle, concurrency: config.concurrency },
+        );
         manifest = r.manifest;
         await deps.io.writeManifest(config.manifestPath, manifest);
         await deps.io.writePublished(config.publishedPath, manifest);

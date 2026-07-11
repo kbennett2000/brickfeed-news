@@ -39,6 +39,7 @@ export function createGenerator(
     return new GrokTerminalGenerator({
       command: grokTerminal.command,
       args: grokTerminal.args,
+      timeoutMs: grokTerminal.timeoutMs,
       runner: opts.terminalRunner,
     });
   }
