@@ -15,6 +15,7 @@ import {
   DEFAULT_PUBLISHED_PATH,
   DEFAULT_RENDER_OUTPUT_DIR,
   DEFAULT_RENDER_SECONDARY_STORY_COUNT,
+  DEFAULT_RENDER_TIME_ZONE,
   DEFAULT_STORAGE_BLOB_PATH_PREFIX,
   DEFAULT_STORAGE_LOCAL_DIR,
   DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL,
@@ -238,6 +239,7 @@ describe("validateConfig", () => {
     expect(cfg.render).toEqual({
       outputDir: DEFAULT_RENDER_OUTPUT_DIR,
       secondaryStoryCount: DEFAULT_RENDER_SECONDARY_STORY_COUNT,
+      timeZone: DEFAULT_RENDER_TIME_ZONE,
     });
   });
 
@@ -245,10 +247,16 @@ describe("validateConfig", () => {
     const cfg = validateConfig({ ...base, render: { outputDir: "public" } });
     expect(cfg.render.outputDir).toBe("public");
     expect(cfg.render.secondaryStoryCount).toBe(DEFAULT_RENDER_SECONDARY_STORY_COUNT);
+    expect(cfg.render.timeZone).toBe(DEFAULT_RENDER_TIME_ZONE);
     expect(validateConfig({ ...base, render: { secondaryStoryCount: 0 } }).render.secondaryStoryCount).toBe(0);
   });
 
-  it("rejects a blank render.outputDir and a bad render.secondaryStoryCount", () => {
+  it("accepts an explicit render.timeZone", () => {
+    const cfg = validateConfig({ ...base, render: { timeZone: "America/Denver" } });
+    expect(cfg.render.timeZone).toBe("America/Denver");
+  });
+
+  it("rejects a blank render.outputDir, a bad render.secondaryStoryCount, and a blank render.timeZone", () => {
     expect(() => validateConfig({ ...base, render: { outputDir: "" } })).toThrow();
     expect(() =>
       validateConfig({ ...base, render: { secondaryStoryCount: -1 } }),
@@ -256,6 +264,7 @@ describe("validateConfig", () => {
     expect(() =>
       validateConfig({ ...base, render: { secondaryStoryCount: 2.5 } }),
     ).toThrow();
+    expect(() => validateConfig({ ...base, render: { timeZone: "" } })).toThrow();
   });
 
   it("accepts the 'grok-terminal' generator + image providers and defaults grokTerminal", () => {
@@ -305,7 +314,7 @@ describe("validateConfig", () => {
   it("defaults concurrency + maxStoriesPerCycle when absent", () => {
     const cfg = validateConfig(base);
     expect(cfg.concurrency).toBe(4);
-    expect(cfg.maxStoriesPerCycle).toBe(20);
+    expect(cfg.maxStoriesPerCycle).toBe(40);
   });
 
   it("accepts explicit concurrency + maxStoriesPerCycle", () => {

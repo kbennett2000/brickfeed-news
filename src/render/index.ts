@@ -10,7 +10,14 @@
  */
 import { CATEGORIES, type Category, normalizeCategory } from "../category.js";
 import type { ManifestRecord } from "../types.js";
-import { bylineFor, relativeTime, formatMastheadDate, sectionSlug, titleCase } from "./format.js";
+import {
+  bylineFor,
+  relativeTime,
+  formatMastheadDate,
+  editionLabel,
+  sectionSlug,
+  titleCase,
+} from "./format.js";
 import { STYLES } from "./styles.js";
 import {
   brickyardHead,
@@ -29,10 +36,15 @@ import {
 
 /** Injected inputs for a render pass. */
 export interface RenderOptions {
-  /** "Now" — drives the masthead dateline and relative timestamps. */
+  /** "Now" — drives the masthead dateline, edition label, and relative timestamps. */
   now: Date;
   /** How many secondary (rail) stories follow the single lead on the cover. */
   secondaryStoryCount: number;
+  /**
+   * IANA time zone the dateline + edition label are computed in (default "UTC"). The CLI/cycle
+   * pass `render.timeZone` so the edition matches the server's local wall-clock.
+   */
+  timeZone?: string;
 }
 
 /**
@@ -56,8 +68,13 @@ export function toStoryView(record: ManifestRecord, now: Date): StoryView {
 }
 
 /** The cover page body: masthead + nav + hero (lead + rail) + overflow card grid + footer. */
-function renderCover(views: StoryView[], dateStr: string, secondaryStoryCount: number): string {
-  const chrome = utilityStrip(dateStr) + masthead() + sectionNav();
+function renderCover(
+  views: StoryView[],
+  dateStr: string,
+  edition: string,
+  secondaryStoryCount: number,
+): string {
+  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav();
 
   if (views.length === 0) {
     const body =
@@ -88,9 +105,14 @@ function renderCover(views: StoryView[], dateStr: string, secondaryStoryCount: n
 }
 
 /** A single section page: masthead + nav (this section active) + filtered card grid + footer. */
-function renderSection(category: Category, views: StoryView[], dateStr: string): string {
+function renderSection(
+  category: Category,
+  views: StoryView[],
+  dateStr: string,
+  edition: string,
+): string {
   const secViews = views.filter((v) => v.kicker === category);
-  const chrome = utilityStrip(dateStr) + masthead() + sectionNav(category);
+  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(category);
 
   const content = secViews.length
     ? sectionHead(category, secViews.length) +
@@ -113,15 +135,17 @@ export function renderSite(
   records: ManifestRecord[],
   opts: RenderOptions,
 ): Record<string, string> {
-  const dateStr = formatMastheadDate(opts.now);
+  const tz = opts.timeZone ?? "UTC";
+  const dateStr = formatMastheadDate(opts.now, tz);
+  const edition = editionLabel(opts.now, tz);
   const views = records.map((r) => toStoryView(r, opts.now));
 
   const files: Record<string, string> = {
-    "index.html": renderCover(views, dateStr, opts.secondaryStoryCount),
+    "index.html": renderCover(views, dateStr, edition, opts.secondaryStoryCount),
     "styles.css": STYLES,
   };
   for (const category of CATEGORIES) {
-    files[`${sectionSlug(category)}.html`] = renderSection(category, views, dateStr);
+    files[`${sectionSlug(category)}.html`] = renderSection(category, views, dateStr, edition);
   }
   return files;
 }

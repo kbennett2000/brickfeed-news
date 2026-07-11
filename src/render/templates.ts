@@ -88,12 +88,12 @@ function storyLinkAttrs(url: string, className: string): string {
   return `class="${className}" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer"`;
 }
 
-/** The utility strip: dateline + edition only (no Search / Subscribe / Today's Paper). */
-export function utilityStrip(dateStr: string): string {
+/** The utility strip: dateline + time-of-day edition (no Search / Subscribe / Today's Paper). */
+export function utilityStrip(dateStr: string, edition: string): string {
   return `<div class="utility">
     <div class="container utility__inner">
       <div class="utility__date">${escapeHtml(dateStr)}</div>
-      <div class="utility__edition">Late Brick Edition</div>
+      <div class="utility__edition">${escapeHtml(edition)}</div>
       <div class="utility__spacer"></div>
     </div>
   </div>`;

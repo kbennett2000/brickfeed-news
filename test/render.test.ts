@@ -3,6 +3,8 @@ import { CATEGORIES } from "../src/category.js";
 import { renderSite } from "../src/render/index.js";
 import {
   bylineFor,
+  editionForHour,
+  editionLabel,
   formatMastheadDate,
   relativeTime,
   sectionSlug,
@@ -102,6 +104,10 @@ describe("renderSite — cover page", () => {
     expect(index).toContain('class="figure__zoom" aria-hidden="true"');
     // The stylesheet carries the hover rule.
     expect(files["styles.css"]).toContain(".figure__zoom");
+    // Hover-intent: the reveal rule holds ~1s before fading the preview in.
+    const revealRule =
+      files["styles.css"].match(/\.figure__frame:hover \+ \.figure__zoom\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(revealRule).toContain("1s");
   });
 
   it("emits no zoom preview for an image-less (placeholder) story", () => {
@@ -110,10 +116,23 @@ describe("renderSite — cover page", () => {
     expect(placeholderOnly["index.html"]).not.toContain("figure__zoom");
   });
 
-  it("shows the masthead date from the injected clock and the tagline", () => {
+  it("shows the masthead date, tagline, and time-of-day edition from the injected clock", () => {
     expect(index).toContain("FRIDAY, JULY 10, 2026");
     expect(index).toContain("All the stories, brick by brick");
-    expect(index).toContain("Late Brick Edition");
+    // NOW is 12:00Z, default tz UTC → the noon window.
+    expect(index).toContain("Afternoon Edition");
+    expect(index).not.toContain("Late Brick Edition");
+  });
+
+  it("computes the edition in the configured timeZone", () => {
+    // 02:00Z is the previous evening (20:00) in America/Denver → the Night window.
+    const files = renderSite(records, {
+      now: new Date("2026-07-11T02:00:00.000Z"),
+      secondaryStoryCount: 3,
+      timeZone: "America/Denver",
+    });
+    expect(files["index.html"]).toContain("Night Edition");
+    expect(files["index.html"]).not.toContain("Afternoon Edition");
   });
 
   it("omits removed chrome: search, subscribe, today's paper, English tagline", () => {
@@ -192,5 +211,28 @@ describe("format helpers", () => {
 
   it("derives a decorative byline from a category", () => {
     expect(bylineFor("TECHNOLOGY")).toBe("By the Technology Desk");
+  });
+
+  it("maps each hour to its 4-hour edition window (inclusive of boundaries)", () => {
+    // start-of-window and end-of-window hours land in the same edition.
+    expect(editionForHour(0)).toBe("Midnight Edition");
+    expect(editionForHour(3)).toBe("Midnight Edition");
+    expect(editionForHour(4)).toBe("Sunrise Edition");
+    expect(editionForHour(7)).toBe("Sunrise Edition");
+    expect(editionForHour(8)).toBe("Morning Edition");
+    expect(editionForHour(11)).toBe("Morning Edition");
+    expect(editionForHour(12)).toBe("Afternoon Edition");
+    expect(editionForHour(15)).toBe("Afternoon Edition");
+    expect(editionForHour(16)).toBe("Evening Edition");
+    expect(editionForHour(19)).toBe("Evening Edition");
+    expect(editionForHour(20)).toBe("Night Edition");
+    expect(editionForHour(23)).toBe("Night Edition");
+  });
+
+  it("computes the edition label from a clock in a given time zone", () => {
+    const t = new Date("2026-07-11T02:00:00.000Z");
+    expect(editionLabel(t, "UTC")).toBe("Midnight Edition"); // 02:00 UTC
+    expect(editionLabel(t, "America/Denver")).toBe("Night Edition"); // 20:00 local
+    expect(editionLabel(new Date("2026-07-10T12:00:00.000Z"))).toBe("Afternoon Edition"); // default UTC
   });
 });

@@ -185,6 +185,7 @@ export async function runCycle(
     files = renderSite(records, {
       now: now(),
       secondaryStoryCount: config.render.secondaryStoryCount,
+      timeZone: config.render.timeZone,
     });
     await deps.io.writeSite(config.render.outputDir, files);
     stages.render =

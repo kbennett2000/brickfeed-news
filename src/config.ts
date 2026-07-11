@@ -44,6 +44,12 @@ export interface RenderConfig {
   outputDir: string;
   /** Number of secondary stories in the hero rail, after the single lead (Slice 7). */
   secondaryStoryCount: number;
+  /**
+   * IANA time zone (e.g. "America/Denver") the dateline + time-of-day edition label are
+   * computed in. Defaults to "UTC" so the render stays deterministic; set it to the server's
+   * local zone so the edition ("Morning"/"Evening"/…) matches the wall-clock the cron ran on.
+   */
+  timeZone: string;
 }
 
 /**
@@ -212,11 +218,16 @@ export const DEFAULT_PUBLISHED_PATH = "data/published.json";
 
 /** Defaults for the pipeline throughput controls. */
 export const DEFAULT_CONCURRENCY = 4;
-export const DEFAULT_MAX_STORIES_PER_CYCLE = 20;
+// Imaging is newest-first (src/image.ts), so this caps how many of the freshest un-imaged
+// stories get a picture per cycle. Sized to cover a cycle's fresh intake with headroom so the
+// lead tracks current news; ~40 images ≈ a few minutes wall time, trivial for the cron cadence.
+export const DEFAULT_MAX_STORIES_PER_CYCLE = 40;
 
 /** Defaults when the config omits the `render` block (Slice 7). */
 export const DEFAULT_RENDER_OUTPUT_DIR = "site";
 export const DEFAULT_RENDER_SECONDARY_STORY_COUNT = 4;
+// UTC keeps the render deterministic by default; the box overrides this with its local zone.
+export const DEFAULT_RENDER_TIME_ZONE = "UTC";
 
 /** Defaults when the config omits the `deploy` block (Slice 8). `cwd` defaults to outputDir. */
 export const DEFAULT_DEPLOY_COMMAND = "vercel --prod --yes";
@@ -616,14 +627,15 @@ function validateStorageLocal(raw: unknown, path: string): LocalStorageConfig {
 
 /**
  * Validate the `render` block (Slice 7). Absent → defaults (outputDir "site",
- * secondaryStoryCount 4). A present outputDir must be a non-empty string; a present
- * secondaryStoryCount must be a non-negative integer (0 = lead only, no rail).
+ * secondaryStoryCount 4, timeZone "UTC"). A present outputDir/timeZone must be a non-empty
+ * string; a present secondaryStoryCount must be a non-negative integer (0 = lead only, no rail).
  */
 function validateRender(raw: unknown, path: string): RenderConfig {
   if (raw == null) {
     return {
       outputDir: DEFAULT_RENDER_OUTPUT_DIR,
       secondaryStoryCount: DEFAULT_RENDER_SECONDARY_STORY_COUNT,
+      timeZone: DEFAULT_RENDER_TIME_ZONE,
     };
   }
   if (typeof raw !== "object") {
@@ -649,7 +661,14 @@ function validateRender(raw: unknown, path: string): RenderConfig {
     );
   }
 
-  return { outputDir, secondaryStoryCount };
+  const timeZone = requireStringField(
+    r.timeZone,
+    DEFAULT_RENDER_TIME_ZONE,
+    path,
+    "render.timeZone",
+  );
+
+  return { outputDir, secondaryStoryCount, timeZone };
 }
 
 /**

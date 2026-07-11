@@ -39,6 +39,7 @@ async function main(): Promise<void> {
   const files = renderSite(records, {
     now: new Date(),
     secondaryStoryCount: config.render.secondaryStoryCount,
+    timeZone: config.render.timeZone,
   });
 
   await mkdir(config.render.outputDir, { recursive: true });
