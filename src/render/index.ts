@@ -9,6 +9,7 @@
  * page), one `<slug>.html` per section so the nav works without client JS, and `styles.css`.
  */
 import type { AdView } from "../ads.js";
+import type { Article } from "../articles.js";
 import { CATEGORIES, type Category, normalizeCategory } from "../category.js";
 import type { ManifestRecord } from "../types.js";
 import {
@@ -16,10 +17,12 @@ import {
   relativeTime,
   formatMastheadDate,
   editionLabel,
+  hashString,
   sectionSlug,
   storyPageUrl,
   titleCase,
 } from "./format.js";
+import { renderMarkdown } from "./markdown.js";
 import { adAnimationCss, STYLES } from "./styles.js";
 import {
   adBanner,
@@ -65,6 +68,12 @@ export interface RenderOptions {
    */
   ads?: AdView[];
   /**
+   * Locally hosted articles (ADR-0010) to merge into the story lists. Each is placed on the
+   * cover by its Main Page Rank and on its section page by its SubPage Rank; expired ones are
+   * dropped here (against `now`). Absent/empty → the site renders exactly as before.
+   */
+  articles?: Article[];
+  /**
    * Absolute site origin (no trailing slash) used to build each landing page's own absolute
    * og:url and the absolute story URLs the X share links point at (ADR-0009).
    */
@@ -99,6 +108,64 @@ export function toStoryView(record: ManifestRecord, now: Date): StoryView {
     ago: relativeTime(record.firstSeen ?? "", now),
     imageUrl: record.imageUrl,
   };
+}
+
+/**
+ * Reduce a locally hosted Article to the same StoryView the templates consume (ADR-0010).
+ * Unlike a feed story, its `url` is its own internal hosted page (`s/<id>.html`), it carries no
+ * timestamp (`ago` is ""), its byline is the article's own, and it ships the rendered body HTML
+ * for the landing page. `local: true` flips links to same-tab/internal and swaps the landing
+ * page's outbound CTA for the body.
+ */
+export function articleToStoryView(article: Article): StoryView {
+  return {
+    url: `s/${article.id}.html`,
+    kicker: article.category,
+    headline: article.headline,
+    description: article.description,
+    caption: "",
+    byline: article.byline,
+    ago: "",
+    imageUrl: article.imageUrl,
+    local: true,
+    bodyHtml: renderMarkdown(article.bodyMarkdown),
+  };
+}
+
+/** True when an article has a valid expiry and `now` is past it (end of the expiry day). */
+function isExpired(article: Article, now: Date): boolean {
+  return article.expires !== undefined && now.getTime() > article.expires.getTime();
+}
+
+/** A local article paired with the StoryView + the rank relevant to the page being built. */
+interface RankedArticle {
+  id: string;
+  rank: number;
+  view: StoryView;
+}
+
+/**
+ * Merge local articles into an ordered list of feed views (ADR-0010). Ranked articles (rank ≥ 1)
+ * land at their exact 1-based slot — rank 1 first, a rank past the list length last — inserted
+ * AFTER the unranked ones so those positions hold on the final list. Unranked articles (rank 0,
+ * "position doesn't matter") go to a pseudo-random slot derived from their id + `seed`, so the
+ * placement varies across cycles but is deterministic for a pinned clock. Pure; returns a fresh
+ * array.
+ */
+function insertRanked(base: StoryView[], articles: RankedArticle[], seed: string): StoryView[] {
+  const result = [...base];
+  const unranked = articles.filter((a) => a.rank <= 0);
+  const ranked = articles.filter((a) => a.rank >= 1).sort((a, b) => a.rank - b.rank);
+
+  for (const a of unranked) {
+    const idx = hashString(`${a.id}|${seed}`) % (result.length + 1);
+    result.splice(idx, 0, a.view);
+  }
+  for (const a of ranked) {
+    const idx = Math.min(a.rank - 1, result.length);
+    result.splice(idx, 0, a.view);
+  }
+  return result;
 }
 
 /** The cover page body: masthead + nav + banner + hero (lead + rail) + overflow card grid + footer. */
@@ -147,15 +214,18 @@ function renderCover(
   return pageShell("brickfeed", body);
 }
 
-/** A single section page: masthead + nav (this section active) + banner + filtered card grid + footer. */
+/**
+ * A single section page: masthead + nav (this section active) + banner + card grid + footer.
+ * `secViews` is the already-filtered, article-merged list of stories for this section (built by
+ * the caller so local articles land at their SubPage Rank).
+ */
 function renderSection(
   category: Category,
-  views: StoryView[],
+  secViews: StoryView[],
   dateStr: string,
   edition: string,
   banner: string,
 ): string {
-  const secViews = views.filter((v) => v.kicker === category);
   const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(category) + banner;
 
   const content = secViews.length
@@ -190,15 +260,33 @@ export function renderSite(
   const share = opts.share ?? {};
   const twitterSite = share.handle ? `@${share.handle}` : undefined;
 
+  // Locally hosted articles (ADR-0010): drop expired ones, then build a StoryView per live
+  // article once (shared across the cover, its section page, and its own landing page). The
+  // rank-0 placement seed shifts each edition so unranked articles wander across cycles.
+  const liveArticles = (opts.articles ?? []).filter((a) => !isExpired(a, opts.now));
+  const articleViews = liveArticles.map((article) => ({ article, view: articleToStoryView(article) }));
+  const seed = `${dateStr}|${edition}`;
+
+  const coverViews = insertRanked(
+    views,
+    articleViews.map(({ article, view }) => ({ id: article.id, rank: article.mainRank, view })),
+    seed,
+  );
+
   const files: Record<string, string> = {
-    "index.html": renderCover(views, dateStr, edition, opts.secondaryStoryCount, banner),
+    "index.html": renderCover(coverViews, dateStr, edition, opts.secondaryStoryCount, banner),
     "about.html": renderAbout(dateStr, edition, banner),
     "styles.css": STYLES + adAnimationCss(ads.length),
   };
   for (const category of CATEGORIES) {
+    const base = views.filter((v) => v.kicker === category);
+    const sectionArticles = articleViews
+      .filter(({ article }) => article.category === category)
+      .map(({ article, view }) => ({ id: article.id, rank: article.subRank, view }));
+    const secViews = insertRanked(base, sectionArticles, seed);
     files[`${sectionSlug(category)}.html`] = renderSection(
       category,
-      views,
+      secViews,
       dateStr,
       edition,
       banner,
@@ -215,6 +303,13 @@ export function renderSite(
     files[`s/${record.id}.html`] = renderLandingPage(view, { pageUrl, twitterSite });
     shareRows.push({ view, pageUrl });
   });
+  // Local articles get the same s/<id>.html page — but it IS the article (body rendered inline),
+  // and it's shareable too, so it joins the share sheet.
+  for (const { article, view } of articleViews) {
+    const pageUrl = storyPageUrl(opts.siteBaseUrl, article.id);
+    files[`s/${article.id}.html`] = renderLandingPage(view, { pageUrl, twitterSite });
+    shareRows.push({ view, pageUrl });
+  }
   files["share.html"] = renderShareSheet(shareRows, share);
 
   return files;

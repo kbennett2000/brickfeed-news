@@ -128,6 +128,21 @@ export function storyPageUrl(siteBaseUrl: string, id: string): string {
   return `${siteBaseUrl}/s/${id}.html`;
 }
 
+/**
+ * A tiny, stable string hash (FNV-1a, 32-bit) returning a non-negative integer. Used to place
+ * unranked (Main/Sub Page Rank 0) local articles at a pseudo-random-but-deterministic slot: the
+ * render seeds it with the article id + the current edition, so the slot shifts across cycles
+ * yet is fully reproducible for a pinned clock — the render stays hermetic and testable.
+ */
+export function hashString(value: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    h ^= value.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
 /** X (Twitter) tweet character ceiling. */
 const TWEET_MAX = 280;
 /** Every URL in a tweet is wrapped to a fixed-width t.co link, so it always costs this much. */

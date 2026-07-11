@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ADS_DIR, loadAds } from "./ads.js";
+import { ARTICLES_DIR, loadArticles } from "./articles.js";
 import { loadConfig } from "./config.js";
 import { renderSite } from "./render/index.js";
 import { createStorageProvider } from "./storage/index.js";
@@ -44,6 +45,8 @@ async function main(): Promise<void> {
   // put() returns null → ads is [] → the banner is simply omitted; the render still succeeds.
   const storage = createStorageProvider(config);
   const ads = await loadAds(ADS_DIR, storage, { log: console.warn });
+  // Locally hosted articles (ADR-0010): upload their images so the preview matches production.
+  const articles = await loadArticles(ARTICLES_DIR, storage, { log: console.warn });
 
   const files = renderSite(records, {
     now: new Date(),
@@ -52,6 +55,7 @@ async function main(): Promise<void> {
     siteBaseUrl: config.render.siteBaseUrl,
     share: config.render.share,
     ads,
+    articles,
   });
 
   await mkdir(config.render.outputDir, { recursive: true });

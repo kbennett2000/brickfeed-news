@@ -3,6 +3,7 @@
  * layer (Slice 2), per docs/adr/0001-brickfeed-architecture.md.
  */
 import type { AdView } from "./ads.js";
+import type { Article } from "./articles.js";
 import type { Category } from "./category.js";
 
 /** A single item parsed from an RSS feed, before link resolution / identity. */
@@ -295,6 +296,13 @@ export interface CycleIo {
    * tests stub it to stay hermetic; production wires the real loadAds.
    */
   loadAds(dir: string, storage: StorageProvider): Promise<AdView[]>;
+  /**
+   * Read locally hosted articles from `dir` (ADR-0010), upload their images via `storage`, and
+   * return the loaded articles for the render to merge into the story lists. A disk read like
+   * loadAds, so it lives on this IO boundary — tests stub it; production wires the real
+   * loadArticles.
+   */
+  loadArticles(dir: string, storage: StorageProvider): Promise<Article[]>;
 }
 
 /**

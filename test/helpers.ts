@@ -1,4 +1,5 @@
 import type { AdView } from "../src/ads.js";
+import type { Article } from "../src/articles.js";
 import type { Config } from "../src/config.js";
 import type {
   ClaudeRunner,
@@ -469,6 +470,8 @@ export function fakeCycleIo(
     throwOnRead?: boolean;
     /** Ads the (otherwise disk-reading) loadAds boundary returns. Default: none. */
     ads?: AdView[];
+    /** Articles the (otherwise disk-reading) loadArticles boundary returns. Default: none. */
+    articles?: Article[];
   } = {},
 ): CycleIo & { writes: RecordedIoWrite[]; saved?: Manifest } {
   const state = {
@@ -495,6 +498,9 @@ export function fakeCycleIo(
     },
     async loadAds() {
       return opts.ads ?? [];
+    },
+    async loadArticles() {
+      return opts.articles ?? [];
     },
   };
   return Object.assign(io, state);

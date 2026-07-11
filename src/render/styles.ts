@@ -304,6 +304,19 @@ img { max-width: 100%; display: block; }
 }
 .landing__cta:hover { filter: brightness(0.92); }
 
+/* Locally hosted article body (ADR-0010): rendered markdown under the landing headline. */
+.landing__body { margin-top: 22px; font-family: var(--serif); font-size: 19px; line-height: 1.6; color: var(--ink); }
+.landing__body > :first-child { margin-top: 0; }
+.landing__body p { margin: 0 0 1.1em; }
+.landing__body h2, .landing__body h3 { font-family: var(--display); font-weight: 600; line-height: 1.14; margin: 1.4em 0 0.5em; }
+.landing__body h2 { font-size: 27px; }
+.landing__body h3 { font-size: 22px; }
+.landing__body a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.landing__body ul, .landing__body ol { margin: 0 0 1.1em; padding-left: 1.4em; }
+.landing__body li { margin: 0.3em 0; }
+.landing__body blockquote { margin: 1.2em 0; padding-left: 1em; border-left: 3px solid var(--hairline); color: var(--muted); font-style: italic; }
+.landing__body img { max-width: 100%; height: auto; }
+
 .sharesheet__main { max-width: 820px; padding-bottom: 60px; }
 .sharesheet__title {
   font-family: var(--display);
