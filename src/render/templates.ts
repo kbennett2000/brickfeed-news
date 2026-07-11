@@ -89,13 +89,13 @@ export function utilityStrip(dateStr: string): string {
   </div>`;
 }
 
-/** The home masthead: nameplate + Latin motto between hairlines (no English tagline). */
+/** The home masthead: nameplate + tagline between hairlines. */
 export function masthead(): string {
   return `<div class="container masthead">
     <h1 class="masthead__nameplate">brickfeed</h1>
     <div class="masthead__motto-row">
       <span class="masthead__rule"></span>
-      <span class="masthead__motto">Totvs Mvndvs Ex Lateribvs</span>
+      <span class="masthead__motto">All the stories, brick by brick</span>
       <span class="masthead__rule"></span>
     </div>
   </div>`;
@@ -186,30 +186,22 @@ export function emptyState(message: string): string {
   </div>`;
 }
 
-/** The footer: wordmark + motto, decorative link columns (Sections are live), disclaimer. */
+/** The footer: wordmark + tagline, the live Sections links, disclaimer. */
 export function footer(): string {
   const sectionLinks = CATEGORIES.map(
     (c) => `<a class="footer__link" href="${sectionSlug(c)}.html">${escapeHtml(titleCase(c))}</a>`,
   ).join("");
-  const decorativeCol = (title: string, items: string[]): string =>
-    `<div>
-        <div class="footer__col-title">${title}</div>
-        ${items.map((i) => `<span class="footer__link">${i}</span>`).join("")}
-      </div>`;
   return `<footer class="footer">
     <div class="container footer__inner">
       <div class="footer__brandwrap">
         <div class="footer__brand">${studs("studs--7")}<span class="footer__wordmark">brickfeed</span></div>
-        <div class="footer__motto">Totvs Mvndvs Ex Lateribvs</div>
+        <div class="footer__motto">All the stories, brick by brick</div>
       </div>
       <div class="footer__cols">
         <div>
           <div class="footer__col-title">Sections</div>
           ${sectionLinks}
         </div>
-        ${decorativeCol("The Paper", ["What Is Brickfeed?", "Our Standards", "Corrections (none yet)", "Masthead"])}
-        ${decorativeCol("The Brickyard", ["Careers", "Advertise", "The Ethics of Bricks", "Tip the Newsroom"])}
-        ${decorativeCol("Follow", ["By Pigeon", "By Post", "By Osmosis"])}
       </div>
       <div class="footer__disclaimer">
         brickfeed.news is a work of moulded fiction. All persons depicted are minifigures. Any resemblance to actual bricks &mdash; living, interlocking, or otherwise &mdash; is purely structural.
