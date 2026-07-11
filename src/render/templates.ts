@@ -113,18 +113,23 @@ export function masthead(): string {
 }
 
 /**
- * The sticky section nav. Links are generated from CATEGORIES (imported), so the nav is
- * always in sync with the taxonomy. `active` underlines the current section on its page.
+ * The sticky section nav. Section links are generated from CATEGORIES (imported) so the nav
+ * stays in sync with the taxonomy, minus OPINION (hidden here — it has no content — and its
+ * slot given to About instead). `active` underlines the current section on its page. About is
+ * a standalone page, never a category, so it never takes the active state.
  */
 export function sectionNav(active?: Category): string {
-  const links = CATEGORIES.map((c) => {
-    const cls = c === active ? "nav__link nav__link--active" : "nav__link";
-    return `<a class="${cls}" href="${sectionSlug(c)}.html">${escapeHtml(titleCase(c))}</a>`;
-  }).join("");
+  const links = CATEGORIES.filter((c) => c !== "OPINION")
+    .map((c) => {
+      const cls = c === active ? "nav__link nav__link--active" : "nav__link";
+      return `<a class="${cls}" href="${sectionSlug(c)}.html">${escapeHtml(titleCase(c))}</a>`;
+    })
+    .join("");
+  const aboutNavLink = `<a class="nav__link" href="about.html">About</a>`;
   return `<div class="nav">
     <div class="container nav__inner">
       <a class="nav__brand" href="index.html">${studs("")}brickfeed</a>
-      <nav class="nav__links">${links}</nav>
+      <nav class="nav__links">${links}${aboutNavLink}</nav>
     </div>
   </div>`;
 }
@@ -229,7 +234,7 @@ export function adBanner(ads: AdView[]): string {
  * outside the manifest, so age-out never touches it.
  */
 export const ABOUT_PORTRAIT_URL =
-  "https://7fjkp0rhcwadfro9.public.blob.vercel-storage.com/images/about-portrait.jpg";
+  "https://7fjkp0rhcwadfro9.public.blob.vercel-storage.com/images/about-portrait-91deb1d497.jpg";
 
 /** One external profile link on the About page — always opens in a new tab. */
 function aboutLink(href: string, label: string): string {
@@ -277,9 +282,12 @@ export function renderAbout(dateStr: string, edition: string, banner: string): s
 
 /** The footer: wordmark + tagline, the live Sections links, disclaimer. */
 export function footer(): string {
-  const sectionLinks = CATEGORIES.map(
-    (c) => `<a class="footer__link" href="${sectionSlug(c)}.html">${escapeHtml(titleCase(c))}</a>`,
-  ).join("");
+  // OPINION is omitted (no content); every other section is listed, as before.
+  const sectionLinks = CATEGORIES.filter((c) => c !== "OPINION")
+    .map(
+      (c) => `<a class="footer__link" href="${sectionSlug(c)}.html">${escapeHtml(titleCase(c))}</a>`,
+    )
+    .join("");
   return `<footer class="footer">
     <div class="container footer__inner">
       <div class="footer__brandwrap">
