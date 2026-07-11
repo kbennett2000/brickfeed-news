@@ -32,11 +32,18 @@ export class GrokTerminalGenerator implements Generator {
   private readonly command: string;
   private readonly args: string[];
   private readonly runner: TerminalTextRunner;
+  private readonly timeoutMs?: number;
 
-  constructor(opts: { command: string; args: string[]; runner?: TerminalTextRunner }) {
+  constructor(opts: {
+    command: string;
+    args: string[];
+    runner?: TerminalTextRunner;
+    timeoutMs?: number;
+  }) {
     this.command = opts.command;
     this.args = opts.args;
     this.runner = opts.runner ?? defaultTextRunner;
+    this.timeoutMs = opts.timeoutMs;
   }
 
   async generate(input: GenerationInput): Promise<GeneratorOutput | null> {
@@ -44,7 +51,12 @@ export class GrokTerminalGenerator implements Generator {
 
     let result: { stdout: string; code: number };
     try {
-      result = await this.runner({ command: this.command, args: this.args, prompt });
+      result = await this.runner({
+        command: this.command,
+        args: this.args,
+        prompt,
+        timeoutMs: this.timeoutMs,
+      });
     } catch {
       // Spawn/transport failure — never propagate.
       return null;
@@ -75,8 +87,8 @@ export function extractGrokText(stdout: string): string {
   return stdout;
 }
 
-/** How long a single headless grok text turn may run before it is SIGKILLed. */
-const TEXT_TIMEOUT_MS = 180_000;
+/** Default budget for a single headless grok text turn before it is SIGKILLed (measured ~5s). */
+export const DEFAULT_TEXT_TIMEOUT_MS = 120_000;
 
 /**
  * Default runner: invoke the configured CLI headlessly and collect its stdout. Matching the
@@ -87,7 +99,7 @@ const TEXT_TIMEOUT_MS = 180_000;
  * reading it (secrets.ts is the only env reader). A spawn error or timeout resolves as a
  * non-zero code so generate() degrades to null.
  */
-export const defaultTextRunner: TerminalTextRunner = ({ command, args, prompt }) =>
+export const defaultTextRunner: TerminalTextRunner = ({ command, args, prompt, timeoutMs }) =>
   new Promise((resolve) => {
     const workDir = mkdtempSync(join(tmpdir(), "brickfeed-gen-"));
     let settled = false;
@@ -111,7 +123,7 @@ export const defaultTextRunner: TerminalTextRunner = ({ command, args, prompt })
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       finish({ stdout, code: 1 });
-    }, TEXT_TIMEOUT_MS);
+    }, timeoutMs ?? DEFAULT_TEXT_TIMEOUT_MS);
 
     let stdout = "";
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));

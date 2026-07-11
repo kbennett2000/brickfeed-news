@@ -62,6 +62,21 @@ describe("GrokTerminalGenerator.generate — happy path", () => {
     expect(runner.calls[0].args).toEqual(["gen"]);
     expect(runner.calls[0].prompt).toContain(INPUT.title);
   });
+
+  it("passes a configured timeoutMs through to the runner (undefined when unset)", async () => {
+    const withTimeout = fakeTerminalTextRunner({ stdout: JSON.stringify(INNER) });
+    await new GrokTerminalGenerator({
+      command: "grok",
+      args: [],
+      timeoutMs: 90_000,
+      runner: withTimeout,
+    }).generate(INPUT);
+    expect(withTimeout.calls[0].timeoutMs).toBe(90_000);
+
+    const noTimeout = fakeTerminalTextRunner({ stdout: JSON.stringify(INNER) });
+    await gen(noTimeout).generate(INPUT);
+    expect(noTimeout.calls[0].timeoutMs).toBeUndefined();
+  });
 });
 
 describe("GrokTerminalGenerator.generate — never-throw failure modes", () => {

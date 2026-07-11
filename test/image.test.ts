@@ -185,4 +185,26 @@ describe("generateImages", () => {
     expect(provider.calls).toHaveLength(1);
     expect(result.stored).toHaveLength(1);
   });
+
+  it("runs with concurrency, preserves manifest order, and logs per-story progress", async () => {
+    const logs: string[] = [];
+    // "b" fails at the provider so we exercise both the ok and pending log lines.
+    const provider = fakeImageProvider({
+      impl: (p) => (p === "TEST-STYLE Scene: b" ? null : bytes(`img:${p}`)),
+    });
+    const storage = fakeStorageProvider();
+    const result = await generateImages(
+      config,
+      manifestOf(eligible("a"), eligible("b"), eligible("c")),
+      { provider, storage, now: fixedNow(NOW), log: (m) => logs.push(m) },
+      { concurrency: 3 },
+    );
+
+    // Output order follows the manifest, independent of task finish order.
+    expect(result.stored).toEqual(["a", "c"]);
+    expect(result.failed).toBe(1);
+    expect(logs).toHaveLength(3);
+    expect(logs.filter((l) => / ok \(/.test(l))).toHaveLength(2);
+    expect(logs.some((l) => /^image 2\/3 b: pending \(/.test(l))).toBe(true);
+  });
 });

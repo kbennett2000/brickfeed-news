@@ -1,4 +1,5 @@
 import type { Config } from "./config.js";
+import { mapWithConcurrency } from "./pool.js";
 import type { ImageDeps, Manifest, ManifestRecord } from "./types.js";
 
 /** Content-type the pipeline stores images as (Grok Imagine / local imagegen return PNG). */
@@ -43,76 +44,79 @@ export function hasImage(record: ManifestRecord): boolean {
  *    the run continues with the rest.
  *  - opts.limit caps how many eligible records are ATTEMPTED (keeps live runs cheap),
  *    matching generateAll's semantics.
+ *  - opts.concurrency runs that many gen→store passes at once (each grok image call is
+ *    ~90% idle waiting on the server). Default 1 (serial). Results apply in manifest
+ *    order, so output is independent of finish order.
+ *  - deps.log, when present, is called once per attempted story with progress + timing.
  */
 export async function generateImages(
   _config: Config,
   startingManifest: Manifest,
   deps: ImageDeps,
-  opts: { limit?: number } = {},
+  opts: { limit?: number; concurrency?: number } = {},
 ): Promise<ImageResult> {
   const manifest: Manifest = {
     version: startingManifest.version,
     stories: { ...startingManifest.stories },
   };
+  const log = deps.log ?? (() => {});
 
-  const stored: string[] = [];
+  // Select records that have a wrappedPrompt and no image yet, in manifest order, capped
+  // by opts.limit. Already-stored and not-yet-generated records are skipped (not attempted).
   let skipped = 0;
-  let failed = 0;
-  let attempted = 0;
-
+  const eligible: string[] = [];
   for (const id of Object.keys(manifest.stories)) {
     const record = manifest.stories[id];
-
-    if (hasImage(record)) {
-      skipped++; // already stored — idempotent, never re-generate or re-upload
+    if (hasImage(record) || !record.wrappedPrompt) {
+      skipped++; // already stored (idempotent) or not generated yet — nothing to render
       continue;
     }
+    if (opts.limit != null && eligible.length >= opts.limit) continue;
+    eligible.push(id);
+  }
 
-    if (!record.wrappedPrompt) {
-      skipped++; // not generated yet — nothing to render
-      continue;
-    }
-
-    if (opts.limit != null && attempted >= opts.limit) {
-      // Beyond the attempt cap: leave remaining eligible records untouched.
-      continue;
-    }
-    attempted++;
+  const total = eligible.length;
+  const outcomes = await mapWithConcurrency(eligible, opts.concurrency ?? 1, async (id, i) => {
+    const record = manifest.stories[id];
+    const t0 = deps.now().getTime();
 
     let bytes;
     try {
-      bytes = await deps.provider.generate(record.wrappedPrompt);
+      bytes = await deps.provider.generate(record.wrappedPrompt as string);
     } catch {
       // A provider should return null on failure, but treat any throw as a miss.
       bytes = null;
     }
 
-    if (bytes == null) {
-      failed++;
-      continue; // no image this run; retried next run
+    let url: string | null = null;
+    if (bytes != null) {
+      // Storage never throws (returns null on failure), but guard anyway.
+      try {
+        url = await deps.storage.put(record.id, bytes, IMAGE_CONTENT_TYPE);
+      } catch {
+        url = null;
+      }
     }
 
-    // Storage never throws (returns null on failure), but guard anyway.
-    let url: string | null;
-    try {
-      url = await deps.storage.put(record.id, bytes, IMAGE_CONTENT_TYPE);
-    } catch {
-      url = null;
-    }
-
+    const secs = ((deps.now().getTime() - t0) / 1000).toFixed(1);
     if (url == null) {
-      failed++; // bytes arrived but storage failed — leave pending, retry next run
+      log(`image ${i + 1}/${total} ${id}: pending (${secs}s)`);
+      return { id, url: null as string | null, storedAt: null as string | null };
+    }
+    log(`image ${i + 1}/${total} ${id}: ok (${secs}s)`);
+    return { id, url, storedAt: deps.now().toISOString() as string | null };
+  });
+
+  // Apply in manifest (input) order so output is deterministic regardless of finish order.
+  const stored: string[] = [];
+  let failed = 0;
+  for (const { id, url, storedAt } of outcomes) {
+    if (url == null || storedAt == null) {
+      failed++; // provider or storage failed — leave pending, retry next run
       continue;
     }
-
-    // All-or-nothing write: only now do we persist the image fields together.
-    const updated: ManifestRecord = {
-      ...record,
-      imageUrl: url,
-      imageStoredAt: deps.now().toISOString(),
-    };
-    manifest.stories[id] = updated;
-    stored.push(record.id);
+    manifest.stories[id] = { ...manifest.stories[id], imageUrl: url, imageStoredAt: storedAt };
+    stored.push(id);
   }
 
   return { stored, skipped, failed, manifest };

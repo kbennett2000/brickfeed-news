@@ -100,6 +100,8 @@ export function makeConfig(over: Partial<Config> = {}): Config {
     },
     maxAgeHours: 72,
     publishedPath: "unused-published.json",
+    concurrency: 4,
+    maxStoriesPerCycle: 20,
     render: { outputDir: "site", secondaryStoryCount: 4 },
     deploy: { command: "vercel --prod --yes", cwd: "site", enabled: true },
     ...over,
@@ -359,14 +361,22 @@ export function fakeGrokRunner(opts: {
   };
 }
 
+/** A single recorded call to a fake terminal runner (grok-terminal text/image). */
+export interface RecordedTerminalCall {
+  command: string;
+  args: string[];
+  prompt: string;
+  timeoutMs?: number;
+}
+
 /** A fake TerminalTextRunner returning canned stdout/exit code, for grok-terminal text tests. */
 export function fakeTerminalTextRunner(opts: {
   stdout?: string;
   code?: number;
   throws?: boolean;
-}): TerminalTextRunner & { calls: { command: string; args: string[]; prompt: string }[] } {
-  const calls: { command: string; args: string[]; prompt: string }[] = [];
-  const runner = async (a: { command: string; args: string[]; prompt: string }) => {
+}): TerminalTextRunner & { calls: RecordedTerminalCall[] } {
+  const calls: RecordedTerminalCall[] = [];
+  const runner = async (a: RecordedTerminalCall) => {
     calls.push(a);
     if (opts.throws) throw new Error("simulated spawn failure");
     return { stdout: opts.stdout ?? "", code: opts.code ?? 0 };
@@ -379,9 +389,9 @@ export function fakeTerminalImageRunner(opts: {
   bytes?: Uint8Array;
   code?: number;
   throws?: boolean;
-}): TerminalImageRunner & { calls: { command: string; args: string[]; prompt: string }[] } {
-  const calls: { command: string; args: string[]; prompt: string }[] = [];
-  const runner = async (a: { command: string; args: string[]; prompt: string }) => {
+}): TerminalImageRunner & { calls: RecordedTerminalCall[] } {
+  const calls: RecordedTerminalCall[] = [];
+  const runner = async (a: RecordedTerminalCall) => {
     calls.push(a);
     if (opts.throws) throw new Error("simulated spawn failure");
     return { bytes: opts.bytes ?? new Uint8Array(0), code: opts.code ?? 0 };
