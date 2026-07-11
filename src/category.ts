@@ -13,7 +13,7 @@ export const CATEGORIES = [
   "BUSINESS",
   "TECHNOLOGY",
   "SCIENCE",
-  "SPORT",
+  "SPORTS",
   "CULTURE",
   "OPINION",
 ] as const;

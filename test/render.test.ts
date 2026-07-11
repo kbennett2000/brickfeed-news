@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "../src/category.js";
 import { renderSite } from "../src/render/index.js";
 import {
+  buildLinkedInIntentUrl,
   buildXIntentUrl,
   bylineFor,
   editionForHour,
@@ -208,7 +209,7 @@ describe("renderSite — section pages", () => {
   });
 
   it("a section with no stories renders a valid empty state, not a crash", () => {
-    const sport = files["sport.html"];
+    const sport = files["sports.html"];
     expect(sport).toContain("All the stories, brick by brick"); // chrome still present
     expect(sport).toContain("Nothing to brick, just now.");
   });
@@ -652,6 +653,45 @@ describe("renderSite — X share sheet", () => {
   it("never contains the trademark in the share sheet", () => {
     expect(sheet.toLowerCase()).not.toContain("lego");
   });
+
+  it("has one LinkedIn share link per publishable story, alongside the X links", () => {
+    const count = sheet.match(/https:\/\/www\.linkedin\.com\/feed\/\?/g)?.length ?? 0;
+    expect(count).toBe(records.length);
+    expect(sheet).toContain("Post to LinkedIn");
+  });
+
+  it("prefills each LinkedIn link with the headline and the absolute landing URL", () => {
+    // The feed/shareActive text param carries the headline + the page URL (percent-encoded).
+    expect(sheet).toContain("shareActive=true");
+    expect(sheet).toContain(encodeURIComponent(`${SITE_BASE_URL}/s/lead.html`));
+  });
+
+  it("tags each row with its section for client-side filtering", () => {
+    for (const c of CATEGORIES) {
+      // Every category present on a story should appear as a data-category on some row.
+      if (sheet.includes(`data-category="${c}"`)) {
+        expect(sheet).toContain(`data-filter="${c}"`); // …and get a matching filter chip
+      }
+    }
+    expect(sheet).toContain('data-filter="ALL"');
+  });
+
+  it("puts local articles in their own section pinned above the feed stories", () => {
+    const article = art({ id: "article-01", headline: "Top Local Story" });
+    const withLocal = renderSite(records, { ...OPTS, articles: [article] })["share.html"];
+    const localHeadingPos = withLocal.indexOf("Local articles");
+    const feedHeadingPos = withLocal.indexOf("From the feed");
+    const localStoryPos = withLocal.indexOf("Top Local Story");
+    expect(localHeadingPos).toBeGreaterThan(-1);
+    expect(localHeadingPos).toBeLessThan(feedHeadingPos);
+    expect(localStoryPos).toBeGreaterThan(localHeadingPos);
+    expect(localStoryPos).toBeLessThan(feedHeadingPos);
+  });
+
+  it("omits the local-articles section when there are none", () => {
+    expect(sheet).not.toContain("Local articles");
+    expect(sheet).toContain("From the feed");
+  });
 });
 
 describe("share format helpers", () => {
@@ -671,6 +711,17 @@ describe("share format helpers", () => {
     expect(url).toContain("url=https%3A%2F%2Fwww.brickfeed.news%2Fs%2Fid.html");
     expect(url).not.toContain("via=");
     expect(url).not.toContain("hashtags=");
+  });
+
+  it("builds a LinkedIn share URL prefilling headline + landing URL, with the OG card coming from the page", () => {
+    const url = buildLinkedInIntentUrl({
+      headline: "Markets rise & fall",
+      pageUrl: "https://www.brickfeed.news/s/id.html",
+    });
+    expect(url.startsWith("https://www.linkedin.com/feed/?")).toBe(true);
+    expect(url).toContain("shareActive=true");
+    const text = new URL(url).searchParams.get("text") ?? "";
+    expect(text).toBe("Markets rise & fall\n\nhttps://www.brickfeed.news/s/id.html");
   });
 
   it("adds via (no @) and comma-joined hashtags (no #) when provided", () => {

@@ -10,7 +10,14 @@
  */
 import type { AdView } from "../ads.js";
 import { CATEGORIES, type Category } from "../category.js";
-import { buildXIntentUrl, escapeAttr, escapeHtml, sectionSlug, titleCase } from "./format.js";
+import {
+  buildLinkedInIntentUrl,
+  buildXIntentUrl,
+  escapeAttr,
+  escapeHtml,
+  sectionSlug,
+  titleCase,
+} from "./format.js";
 
 /** The view model a template consumes — a ManifestRecord already reduced to display fields. */
 export interface StoryView {
@@ -47,7 +54,7 @@ export const SECTION_BLURBS: Record<Category, string> = {
   BUSINESS: "Markets, monitored so that you need not be.",
   TECHNOLOGY: "The future, again, and at a premium.",
   SCIENCE: "Findings, offered provisionally.",
-  SPORT: "Effort, and its many consequences.",
+  SPORTS: "Effort, and its many consequences.",
   CULTURE: "Things, and what they are presumed to mean.",
   OPINION: "Views, firmly and comfortably held.",
 };
@@ -464,52 +471,119 @@ export interface ShareRow {
   pageUrl: string;
 }
 
-/**
- * The assisted-manual X share sheet (ADR-0009): one row per publishable story — image thumb +
- * headline + a "Post to X" button linking to the story's Web Intent URL (buildXIntentUrl). A
- * human opens this private page and clicks to post; there is no API, key, or scheduler. It
- * carries `robots noindex` (via pageShell) and is NOT linked from the site nav/footer, so it
- * stays an unindexed operator tool. Root page, so it needs no asset prefix.
- */
-export function renderShareSheet(
-  rows: ShareRow[],
-  opts: { handle?: string; hashtags?: string[] } = {},
+/** One row on the share sheet: image thumb + kicker + headline + a Post-to-X / Post-to-LinkedIn
+ * action pair. Carries `data-category` so the client-side filter can show/hide it by section. */
+function shareRow(
+  view: StoryView,
+  pageUrl: string,
+  opts: { handle?: string; hashtags?: string[] },
 ): string {
-  const items = rows
-    .map(({ view, pageUrl }) => {
-      const href = buildXIntentUrl({
-        headline: view.headline,
-        pageUrl,
-        handle: opts.handle,
-        hashtags: opts.hashtags,
-      });
-      const thumb = view.imageUrl
-        ? `<img class="sharesheet__thumb" src="${escapeAttr(view.imageUrl)}" alt="${escapeAttr(view.headline)}" loading="lazy">`
-        : `<div class="sharesheet__thumb sharesheet__thumb--empty">${studs("studs--6", true)}</div>`;
-      return `<li class="sharesheet__row">
+  const xHref = buildXIntentUrl({
+    headline: view.headline,
+    pageUrl,
+    handle: opts.handle,
+    hashtags: opts.hashtags,
+  });
+  const liHref = buildLinkedInIntentUrl({ headline: view.headline, pageUrl });
+  const thumb = view.imageUrl
+    ? `<img class="sharesheet__thumb" src="${escapeAttr(view.imageUrl)}" alt="${escapeAttr(view.headline)}" loading="lazy">`
+    : `<div class="sharesheet__thumb sharesheet__thumb--empty">${studs("studs--6", true)}</div>`;
+  return `<li class="sharesheet__row" data-category="${escapeAttr(view.kicker)}">
         <div class="sharesheet__thumbwrap">${thumb}</div>
         <div class="sharesheet__body">
           <div class="kicker kicker--sm">${escapeHtml(view.kicker)}</div>
           <h2 class="sharesheet__headline">${escapeHtml(view.headline)}</h2>
         </div>
-        <a class="sharesheet__post" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">Post to X</a>
+        <div class="sharesheet__actions">
+          <a class="sharesheet__post" href="${escapeAttr(xHref)}" target="_blank" rel="noopener noreferrer">Post to X</a>
+          <a class="sharesheet__post sharesheet__post--linkedin" href="${escapeAttr(liHref)}" target="_blank" rel="noopener noreferrer">Post to LinkedIn</a>
+        </div>
       </li>`;
-    })
-    .join("");
+}
+
+/** A titled group of share rows (e.g. "Local articles", "From the feed"). The `data-section`
+ * wrapper lets the filter script hide the whole group — heading included — when no visible row
+ * remains under the active filter. Returns "" when the group is empty so no stray heading shows. */
+function shareSection(title: string, rows: ShareRow[], opts: { handle?: string; hashtags?: string[] }): string {
+  if (!rows.length) return "";
+  const items = rows.map(({ view, pageUrl }) => shareRow(view, pageUrl, opts)).join("");
+  return `<section class="sharesheet__section" data-section>
+      <h2 class="sharesheet__section-title">${escapeHtml(title)}</h2>
+      <ul class="sharesheet__list">${items}</ul>
+    </section>`;
+}
+
+/**
+ * The assisted-manual share sheet (ADR-0009 + ADR-0010): one row per publishable story — image
+ * thumb + headline + "Post to X" and "Post to LinkedIn" buttons, each linking to that platform's
+ * composer prefilled with the story's landing-page URL (whose OG tags carry the brick image). A
+ * human opens this private page and clicks to post; there is no API, key, or scheduler.
+ *
+ * Locally hosted articles (`view.local`) are pulled into their own section pinned to the top,
+ * ahead of the feed stories, regardless of the order rows arrive in. A client-side filter bar
+ * lets the operator narrow the sheet to a single section. The page carries `robots noindex` (via
+ * pageShell) and is NOT linked from the site nav/footer, so it stays an unindexed operator tool.
+ * Root page, so it needs no asset prefix.
+ */
+export function renderShareSheet(
+  rows: ShareRow[],
+  opts: { handle?: string; hashtags?: string[] } = {},
+): string {
+  const localRows = rows.filter((r) => r.view.local);
+  const feedRows = rows.filter((r) => !r.view.local);
+
+  // Filter chips: "All" plus each category actually present, in the canonical CATEGORIES order.
+  const present = new Set(rows.map((r) => r.view.kicker));
+  const chips = [
+    `<button type="button" class="sharesheet__chip is-active" data-filter="ALL">All</button>`,
+    ...CATEGORIES.filter((c) => present.has(c)).map(
+      (c) => `<button type="button" class="sharesheet__chip" data-filter="${escapeAttr(c)}">${escapeHtml(titleCase(c))}</button>`,
+    ),
+  ].join("");
+
+  const sections =
+    shareSection("Local articles", localRows, opts) + shareSection("From the feed", feedRows, opts);
 
   const content = rows.length
-    ? `<ul class="sharesheet__list">${items}</ul>`
+    ? `<div class="sharesheet__filters" role="group" aria-label="Filter by section">${chips}</div>${sections}`
     : emptyState("No stories are ready to post yet. Check back once the presses roll.");
 
   const body = `<div class="standalone sharesheet">
     ${standaloneBrand("index.html")}
     <main class="container sharesheet__main">
-      <h1 class="sharesheet__title">Post to X</h1>
-      <p class="sharesheet__note">A private worksheet: click a button to open X with a story prefilled, then post it by hand. ${rows.length} ${rows.length === 1 ? "story" : "stories"} ready.</p>
+      <h1 class="sharesheet__title">Post to X or LinkedIn</h1>
+      <p class="sharesheet__note">A private worksheet: click a button to open X or LinkedIn with a story prefilled, then post it by hand. ${rows.length} ${rows.length === 1 ? "story" : "stories"} ready.</p>
       ${content}
     </main>
-  </div>`;
-  return pageShell("Post to X — brickfeed", body, {
+  </div>
+  <script>${SHARESHEET_FILTER_JS}</script>`;
+  return pageShell("Post to X or LinkedIn — brickfeed", body, {
     headExtra: `<meta name="robots" content="noindex">`,
   });
 }
+
+/** Client-side section filter for the share sheet: clicking a chip shows only rows whose
+ * `data-category` matches (or all rows for "ALL"), then hides any section left with no visible
+ * row so its heading doesn't linger. Vanilla JS, no deps; runs only on this noindex operator page. */
+const SHARESHEET_FILTER_JS = `(function(){
+  var chips = document.querySelectorAll('.sharesheet__chip');
+  var rows = document.querySelectorAll('.sharesheet__row');
+  var sections = document.querySelectorAll('[data-section]');
+  function apply(filter){
+    rows.forEach(function(row){
+      var show = filter === 'ALL' || row.getAttribute('data-category') === filter;
+      row.hidden = !show;
+    });
+    sections.forEach(function(sec){
+      var any = sec.querySelector('.sharesheet__row:not([hidden])');
+      sec.hidden = !any;
+    });
+  }
+  chips.forEach(function(chip){
+    chip.addEventListener('click', function(){
+      chips.forEach(function(c){ c.classList.remove('is-active'); });
+      chip.classList.add('is-active');
+      apply(chip.getAttribute('data-filter'));
+    });
+  });
+})();`;

@@ -1,5 +1,34 @@
 # Handoff
 
+## Share sheet: LinkedIn button + section split + filtering, and `Sport`→`Sports` (branch `feat/share-linkedin-sections-filter`)
+
+Operator-facing changes to the private `share.html` worksheet plus a taxonomy rename. All in the
+pure render core (`src/render/*`) + data/tests/docs; no pipeline or config changes.
+
+1. **"Post to LinkedIn" button per row.** New `buildLinkedInIntentUrl` in `format.ts` →
+   `https://www.linkedin.com/feed/?shareActive=true&text=<headline>%0A%0A<pageUrl>`. Prefills the
+   post body like X; LinkedIn resolves the landing page's OG tags to auto-attach the brick-image
+   card (best-effort). No 280 budget / no via/hashtags — deliberately simpler than the X builder.
+   Each row now renders both buttons inside a `.sharesheet__actions` group.
+2. **Local articles pinned to their own top section.** `renderShareSheet` partitions rows by
+   `view.local` into a **"Local articles"** section (top) then **"From the feed"**; empty sections
+   (and their headings) are omitted. Ordering is now independent of push order in `index.ts` — no
+   `index.ts` change.
+3. **Client-side section filter.** A chip bar (`All` + one chip per category present, in
+   `CATEGORIES` order, `titleCase` labels) with a small vanilla-JS IIFE that shows/hides rows by
+   `data-category` and hides any section left empty. Fine on this `noindex` operator-only page.
+4. **`Sport` → `Sports`.** Enum value `SPORT`→`SPORTS` in `src/category.ts` (label, `sports.html`
+   slug, nav, prompt all derive from it); `SECTION_BLURBS` key renamed; migrated the 40 stored
+   `"category": "SPORT"` values in `data/manifest.json` (25) + `data/published.json` (15) so
+   `normalizeCategory` doesn't silently remap them to WORLD. Old `sport.html` bookmarks 404 (fine
+   for a rotating hobby site; no redirect). Docs updated (`docs/ARTICLES.md`, this file).
+
+Verified: `npx tsc --noEmit` clean; **`npm test` 399 passing, 32 files**; local `npm run render`
+emits `share.html` with 140 X + 140 LinkedIn links, 8 filter chips (incl. SPORTS), and `sports.html`.
+Deploy: per operator request this branch is merged to `master` (Vercel auto-deploys `brickfeed.news`).
+
+---
+
 ## Docs refresh — ads + articles + stale-doc cleanup (branch `docs/refresh-ads-articles`)
 
 Current state as of this entry:
@@ -410,7 +439,7 @@ changes.
 Slice 6 — the Generator normalized output goes from `{headline, description, imagePrompt}`
 to `{headline, description, imagePrompt, category, caption}`:
 - `src/category.ts` — NEW single source of truth: the fixed 8-section nav
-  `CATEGORIES = [WORLD, POLITICS, BUSINESS, TECHNOLOGY, SCIENCE, SPORT, CULTURE, OPINION]`,
+  `CATEGORIES = [WORLD, POLITICS, BUSINESS, TECHNOLOGY, SCIENCE, SPORTS, CULTURE, OPINION]`,
   `type Category`, `DEFAULT_CATEGORY = "WORLD"`, and `normalizeCategory(v)` (trim+upcase,
   invalid/missing → WORLD, never throws). A CODE CONSTANT (not config) so the pure
   `prompt.ts`/`parse.ts` seams import it directly.

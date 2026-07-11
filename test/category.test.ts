@@ -9,7 +9,7 @@ describe("category taxonomy (Slice 6)", () => {
       "BUSINESS",
       "TECHNOLOGY",
       "SCIENCE",
-      "SPORT",
+      "SPORTS",
       "CULTURE",
       "OPINION",
     ]);
@@ -45,6 +45,6 @@ describe("normalizeCategory", () => {
     expect(normalizeCategory(null)).toBe("WORLD");
     expect(normalizeCategory(42)).toBe("WORLD");
     expect(normalizeCategory(["POLITICS"])).toBe("WORLD");
-    expect(normalizeCategory({ category: "SPORT" })).toBe("WORLD");
+    expect(normalizeCategory({ category: "SPORTS" })).toBe("WORLD");
   });
 });
