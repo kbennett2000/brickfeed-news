@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ADS_DIR, loadAds } from "./ads.js";
 import { ageOut } from "./ageout.js";
+import { ARTICLES_DIR, loadArticles } from "./articles.js";
 import type { Config } from "./config.js";
 import { deploy, type DeployResult } from "./deploy.js";
 import { generateAll, isGenerated } from "./generate.js";
@@ -186,6 +187,9 @@ export async function runCycle(
     // Banner ads: upload any local ad images and pass the resulting URLs to the render.
     // Tolerant by construction (bad/absent ads yield []), so it never fails the cycle.
     const ads = await deps.io.loadAds(ADS_DIR, deps.storage);
+    // Locally hosted articles (ADR-0010): upload their images and merge them into the render.
+    // Also tolerant (bad/absent articles yield []), so it never fails the cycle.
+    const articles = await deps.io.loadArticles(ARTICLES_DIR, deps.storage);
     files = renderSite(records, {
       now: now(),
       secondaryStoryCount: config.render.secondaryStoryCount,
@@ -193,6 +197,7 @@ export async function runCycle(
       siteBaseUrl: config.render.siteBaseUrl,
       share: config.render.share,
       ads,
+      articles,
     });
     await deps.io.writeSite(config.render.outputDir, files);
     stages.render =
@@ -252,4 +257,5 @@ export const defaultCycleIo: CycleIo = {
     }
   },
   loadAds,
+  loadArticles,
 };

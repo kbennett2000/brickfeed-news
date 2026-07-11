@@ -12,6 +12,7 @@ import {
   storyPageUrl,
   truncateForTweet,
 } from "../src/render/format.js";
+import type { Article } from "../src/articles.js";
 import type { ManifestRecord } from "../src/types.js";
 
 /** A fully publishable fixture record. */
@@ -210,6 +211,126 @@ describe("renderSite — section pages", () => {
     const sport = files["sport.html"];
     expect(sport).toContain("All the stories, brick by brick"); // chrome still present
     expect(sport).toContain("Nothing to brick, just now.");
+  });
+});
+
+/** A local-article fixture (ADR-0010). Defaults to an unexpired Technology article. */
+function art(over: Partial<Article> & { id: string }): Article {
+  return {
+    headline: `Article ${over.id}`,
+    byline: "By our local desk",
+    description: `Teaser for ${over.id}.`,
+    category: "TECHNOLOGY",
+    mainRank: 0,
+    subRank: 0,
+    bodyMarkdown: "A **local** body with a [link](https://brickfeed.news).",
+    imageUrl: `https://cdn.test/articles/${over.id}.jpg`,
+    ...over,
+  };
+}
+
+describe("renderSite — local articles (ADR-0010)", () => {
+  it("places a Main Page Rank 2 article as the second cover story", () => {
+    const article = art({ id: "article-01", headline: "Locally Hosted Scoop", mainRank: 2 });
+    const files = renderSite(records, { ...OPTS, articles: [article] });
+    const index = files["index.html"];
+    // The lead is still the newest feed story; the article sits right after it.
+    const leadPos = index.indexOf("Summit Ends With a Handshake and a Communique");
+    const articlePos = index.indexOf("Locally Hosted Scoop");
+    const secondFeedPos = index.indexOf("Investors Await Guidance They Suspect They Have");
+    expect(leadPos).toBeGreaterThan(-1);
+    expect(articlePos).toBeGreaterThan(leadPos);
+    expect(articlePos).toBeLessThan(secondFeedPos);
+  });
+
+  it("links a cover article to its internal s/<id>.html page in the same tab (no target=_blank)", () => {
+    const article = art({ id: "article-01", headline: "Same Tab Please", mainRank: 1 });
+    const index = renderSite(records, { ...OPTS, articles: [article] })["index.html"];
+    // The lead link points at the internal page…
+    expect(index).toContain('href="s/article-01.html"');
+    // …and the anchor around the article headline is not a new-tab outbound link.
+    const anchor = index.slice(index.indexOf('href="s/article-01.html"') - 40, index.indexOf("Same Tab Please"));
+    expect(anchor).not.toContain("target=");
+  });
+
+  it("clamps a rank beyond the story count to the last position", () => {
+    const article = art({ id: "article-01", headline: "Way Down Here", mainRank: 999 });
+    const index = renderSite(records, { ...OPTS, articles: [article] })["index.html"];
+    const articlePos = index.indexOf("Way Down Here");
+    // It lands after the last feed story (the CULTURE placeholder one).
+    const lastFeedPos = index.indexOf("Museum Unveils Exhibit Nobody Could Explain");
+    expect(articlePos).toBeGreaterThan(lastFeedPos);
+  });
+
+  it("places a SubPage Rank 1 article first on its section page only", () => {
+    const article = art({ id: "article-01", headline: "Tech Desk Exclusive", category: "TECHNOLOGY", subRank: 1 });
+    const files = renderSite(records, { ...OPTS, articles: [article] });
+    const tech = files["technology.html"];
+    const articlePos = tech.indexOf("Tech Desk Exclusive");
+    const feedTechPos = tech.indexOf("Startup Unveils Plan to Disrupt Thing You Own");
+    expect(articlePos).toBeGreaterThan(-1);
+    expect(articlePos).toBeLessThan(feedTechPos);
+    // It must not leak onto an unrelated section page.
+    expect(files["business.html"]).not.toContain("Tech Desk Exclusive");
+  });
+
+  it("renders the markdown body on the article's own s/<id>.html page, with no outbound CTA", () => {
+    const article = art({ id: "article-01", headline: "The Body Renders" });
+    const page = renderSite(records, { ...OPTS, articles: [article] })["s/article-01.html"];
+    expect(page).toContain("The Body Renders");
+    expect(page).toContain("By our local desk");
+    // Markdown converted to HTML (bold + link).
+    expect(page).toContain("<strong>local</strong>");
+    expect(page).toContain('href="https://brickfeed.news"');
+    // No "read at source" CTA on a locally hosted article.
+    expect(page).not.toContain("Read the full story at the source");
+  });
+
+  it("excludes an expired article from every page", () => {
+    const expired = art({
+      id: "article-01",
+      headline: "Yesterdays News",
+      mainRank: 1,
+      subRank: 1,
+      expires: new Date("2026-07-09T23:59:59.999Z"), // before NOW (2026-07-10)
+    });
+    const files = renderSite(records, { ...OPTS, articles: [expired] });
+    expect(files["index.html"]).not.toContain("Yesterdays News");
+    expect(files["technology.html"]).not.toContain("Yesterdays News");
+    expect(files["s/article-01.html"]).toBeUndefined();
+  });
+
+  it("keeps an article whose expiry is later today (inclusive through the expiry day)", () => {
+    const article = art({
+      id: "article-01",
+      headline: "Still Live Today",
+      mainRank: 1,
+      expires: new Date("2026-07-10T23:59:59.999Z"), // same day as NOW
+    });
+    const index = renderSite(records, { ...OPTS, articles: [article] })["index.html"];
+    expect(index).toContain("Still Live Today");
+  });
+
+  it("places a rank-0 article deterministically for a fixed clock (no crash, always present)", () => {
+    const article = art({ id: "article-01", headline: "Wherever It Lands", mainRank: 0 });
+    const a = renderSite(records, { ...OPTS, articles: [article] })["index.html"];
+    const b = renderSite(records, { ...OPTS, articles: [article] })["index.html"];
+    expect(a).toBe(b); // deterministic for a pinned now
+    expect(a).toContain("Wherever It Lands");
+  });
+
+  it("adds the article to the share sheet", () => {
+    const article = art({ id: "article-01", headline: "Shareable Local" });
+    const share = renderSite(records, { ...OPTS, articles: [article] })["share.html"];
+    expect(share).toContain("Shareable Local");
+    // The X-intent url= param is percent-encoded, so the page path appears as ...%2Farticle-01.html.
+    expect(share).toContain("article-01.html");
+  });
+
+  it("leaves the site unchanged when no articles are supplied", () => {
+    const withEmpty = renderSite(records, { ...OPTS, articles: [] });
+    const without = renderSite(records, OPTS);
+    expect(withEmpty["index.html"]).toBe(without["index.html"]);
   });
 });
 

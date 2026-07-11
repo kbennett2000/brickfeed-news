@@ -14,7 +14,10 @@ import { buildXIntentUrl, escapeAttr, escapeHtml, sectionSlug, titleCase } from 
 
 /** The view model a template consumes — a ManifestRecord already reduced to display fields. */
 export interface StoryView {
-  /** Outbound article URL (the real source attribution); links open in a new tab. */
+  /**
+   * The story's link target. For a feed story this is the outbound source URL (opens in a new
+   * tab); for a local article (`local: true`) it is the internal `s/<id>.html` page (same tab).
+   */
   url: string;
   /** Section kicker, e.g. WORLD (already uppercase). */
   kicker: Category;
@@ -24,10 +27,17 @@ export interface StoryView {
   caption: string;
   /** Decorative byline, e.g. "By the World Desk". */
   byline: string;
-  /** Relative time label, e.g. "2 hr ago". */
+  /** Relative time label, e.g. "2 hr ago". Empty for local articles (no timestamp). */
   ago: string;
   /** Durable image URL; absent → the brick placeholder frame is rendered instead. */
   imageUrl?: string;
+  /**
+   * True for a locally hosted article (ADR-0010): links are internal/same-tab, and the landing
+   * page renders `bodyHtml` instead of an outbound "read at source" CTA.
+   */
+  local?: boolean;
+  /** Rendered HTML of the article body (local articles only); shown on the landing page. */
+  bodyHtml?: string;
 }
 
 /** Italic descriptor shown under a section masthead. Preserves the design's deadpan tone. */
@@ -84,9 +94,22 @@ function figure(view: StoryView, variant: FigureVariant): string {
       </figure>`;
 }
 
-/** Common attributes for a story link — opens the source article in a new tab. */
-function storyLinkAttrs(url: string, className: string): string {
-  return `class="${className}" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer"`;
+/**
+ * Common attributes for a story link. A feed story opens its source in a new tab; a local
+ * article (`local`) links to its own hosted `s/<id>.html` page in the SAME tab (internal
+ * navigation), so no `target`/`rel` is emitted.
+ */
+function storyLinkAttrs(url: string, className: string, local = false): string {
+  const target = local ? "" : ` target="_blank" rel="noopener noreferrer"`;
+  return `class="${className}" href="${escapeAttr(url)}"${target}`;
+}
+
+/**
+ * The " · 2 hr ago" tail appended after a byline. Local articles carry no timestamp (`ago`
+ * is ""), so the separator + time are omitted entirely rather than rendering a dangling "· ".
+ */
+function bylineTail(ago: string): string {
+  return ago ? ` &middot; ${escapeHtml(ago)}` : "";
 }
 
 /** The utility strip: dateline + time-of-day edition (no Search / Subscribe / Today's Paper). */
@@ -136,20 +159,20 @@ export function sectionNav(active?: Category): string {
 
 /** The single large lead story. */
 export function leadStory(view: StoryView): string {
-  return `<a ${storyLinkAttrs(view.url, "lead")}>
+  return `<a ${storyLinkAttrs(view.url, "lead", view.local)}>
       ${figure(view, "lead")}
       <div class="lead__body">
         <div class="kicker">${escapeHtml(view.kicker)}</div>
         <h2 class="lead__headline">${escapeHtml(view.headline)}</h2>
         <p class="dek">${escapeHtml(view.description)}</p>
-        <div class="byline byline--lead">${escapeHtml(view.byline)} &middot; ${escapeHtml(view.ago)}</div>
+        <div class="byline byline--lead">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>
       </div>
     </a>`;
 }
 
 /** One secondary (rail) story: photo, kicker, headline, dek, byline. */
 export function railStory(view: StoryView): string {
-  return `<a ${storyLinkAttrs(view.url, "rail__item")}>
+  return `<a ${storyLinkAttrs(view.url, "rail__item", view.local)}>
         ${figure(view, "rail")}
         <div class="kicker kicker--sm">${escapeHtml(view.kicker)}</div>
         <h3 class="rail__headline">${escapeHtml(view.headline)}</h3>
@@ -160,13 +183,13 @@ export function railStory(view: StoryView): string {
 
 /** One grid card (home "Across the Brickyard" + section grids). */
 export function card(view: StoryView): string {
-  return `<a ${storyLinkAttrs(view.url, "card")}>
+  return `<a ${storyLinkAttrs(view.url, "card", view.local)}>
         ${figure(view, "card")}
         <div class="card__body">
           <div class="kicker kicker--sm">${escapeHtml(view.kicker)}</div>
           <h3 class="card__headline">${escapeHtml(view.headline)}</h3>
           <p class="dek">${escapeHtml(view.description)}</p>
-          <div class="byline">${escapeHtml(view.byline)} &middot; ${escapeHtml(view.ago)}</div>
+          <div class="byline">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>
         </div>
       </a>`;
 }
@@ -390,10 +413,14 @@ function standaloneBrand(homeHref: string): string {
 /**
  * A per-story landing page (ADR-0009): a standalone, social-card-bearing page at
  * `s/<id>.html`. The card (see cardMeta) points at our brick image; the body shows the image,
- * kicker, headline, dek, caption + "/ BRICKFEED STUDIO" (via the shared figure), and a
- * prominent outbound link to the source article. Self-contained on purpose — it lives in the
- * `s/` subdir, so it uses a "../" asset prefix and a brand header instead of the root-relative
- * masthead/nav/footer.
+ * kicker, headline, and byline (via the shared figure). Self-contained on purpose — it lives
+ * in the `s/` subdir, so it uses a "../" asset prefix and a brand header instead of the
+ * root-relative masthead/nav/footer.
+ *
+ * Two flavours share this shell (ADR-0010): a FEED story shows its dek and a prominent
+ * outbound link to the source article (the card draws readers in with our art, the page sends
+ * them on); a LOCAL article (`view.local`) is itself the destination, so it renders the
+ * article body HTML in place of the dek + outbound CTA.
  */
 export function renderLandingPage(
   view: StoryView,
@@ -406,6 +433,14 @@ export function renderLandingPage(
     imageUrl: view.imageUrl,
     twitterSite: opts.twitterSite,
   });
+  // Local article: byline then its own hosted body, no outbound CTA. Feed story: dek, byline,
+  // then a prominent read-at-source link (unchanged from ADR-0009).
+  const tail = view.local
+    ? `<div class="byline byline--lead">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>
+        <div class="landing__body">${view.bodyHtml ?? ""}</div>`
+    : `<p class="dek landing__dek">${escapeHtml(view.description)}</p>
+        <div class="byline byline--lead">${escapeHtml(view.byline)} &middot; ${escapeHtml(view.ago)}</div>
+        <a class="landing__cta" href="${escapeAttr(view.url)}" target="_blank" rel="noopener noreferrer">Read the full story at the source &rarr;</a>`;
   const body = `<div class="standalone landing">
     ${standaloneBrand("../index.html")}
     <main class="container landing__main">
@@ -413,9 +448,7 @@ export function renderLandingPage(
         ${figure(view, "lead")}
         <div class="kicker">${escapeHtml(view.kicker)}</div>
         <h1 class="landing__headline">${escapeHtml(view.headline)}</h1>
-        <p class="dek landing__dek">${escapeHtml(view.description)}</p>
-        <div class="byline byline--lead">${escapeHtml(view.byline)} &middot; ${escapeHtml(view.ago)}</div>
-        <a class="landing__cta" href="${escapeAttr(view.url)}" target="_blank" rel="noopener noreferrer">Read the full story at the source &rarr;</a>
+        ${tail}
       </article>
     </main>
   </div>`;
