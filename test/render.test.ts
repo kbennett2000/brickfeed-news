@@ -102,6 +102,10 @@ describe("renderSite — cover page", () => {
     expect(index).toContain('class="figure__zoom" aria-hidden="true"');
     // The stylesheet carries the hover rule.
     expect(files["styles.css"]).toContain(".figure__zoom");
+    // Hover-intent: the reveal rule holds ~1s before fading the preview in.
+    const revealRule =
+      files["styles.css"].match(/\.figure__frame:hover \+ \.figure__zoom\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(revealRule).toContain("1s");
   });
 
   it("emits no zoom preview for an image-less (placeholder) story", () => {
