@@ -94,6 +94,22 @@ describe("renderSite — cover page", () => {
     expect(index).toContain("Brick Photo");
   });
 
+  it("emits a hover full-size preview reusing the image URL for imaged stories", () => {
+    expect(index).toContain('class="figure__zoom"');
+    // The preview reuses the same (already-downloaded) URL → the lead src appears twice.
+    expect(index.match(/src="https:\/\/cdn\.test\/lead\.png"/g)?.length).toBe(2);
+    // Decorative duplicate is hidden from assistive tech.
+    expect(index).toContain('class="figure__zoom" aria-hidden="true"');
+    // The stylesheet carries the hover rule.
+    expect(files["styles.css"]).toContain(".figure__zoom");
+  });
+
+  it("emits no zoom preview for an image-less (placeholder) story", () => {
+    const placeholderOnly = renderSite([rec({ id: "np", imageUrl: undefined })], OPTS);
+    expect(placeholderOnly["index.html"]).toContain("figure__placeholder");
+    expect(placeholderOnly["index.html"]).not.toContain("figure__zoom");
+  });
+
   it("shows the masthead date from the injected clock and the tagline", () => {
     expect(index).toContain("FRIDAY, JULY 10, 2026");
     expect(index).toContain("All the stories, brick by brick");
