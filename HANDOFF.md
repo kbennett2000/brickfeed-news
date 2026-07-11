@@ -1,10 +1,24 @@
 # Handoff
 
-## Fix `--bare` blocking Claude text generation + verified live harness (branch `feat/claude-generator-live-check`)
+## Switch text generation to Claude/Haiku (images stay on Grok) + the `--bare` fix that unblocks it (branch `fix/claude-bare-not-logged-in`, PR #44)
+
+**Text** generation now runs on the **`claude` provider with Haiku** (`claude-haiku-4-5-20251001`);
+**image** generation stays on **Grok** (`grok-terminal`). Grok is images-only now. Recorded as
+**ADR-0011**. The switch is applied to the live (git-ignored) `config.json` and mirrored in the
+committed `config.example.json`; the code-level default when the provider is omitted stays
+`grok-terminal` (ADR-0007). Verified end-to-end: real `config.json` → `createGenerator` selects
+`SubscriptionGenerator` → Haiku returns all five artifacts (~26s cold). CLAUDE.md's runtime-topology
+/ pipeline / pluggable-generator notes updated to reflect the split.
+
+> Operator note (from the switch request): the Grok subscription can run out of credit — when it
+> does, **image** generation fails and stories sit unpublished until an image lands. Text (Claude)
+> is unaffected. `image.provider` intentionally has no `claude` option.
+
+This branch also carries the bug fix that made the switch possible at all:
 
 Groundwork for moving **text** generation from `grok-terminal` to `claude` (Haiku by default) —
-**image generation stays on Grok**. No config flip yet. This cycle adds the opt-in test the operator
-asked for **and fixes a real bug that was blocking the switch entirely.**
+**image generation stays on Grok**. This **fixes a real bug that was blocking the switch entirely**
+and lands the opt-in live test the operator asked for.
 
 **The bug (fixed).** `src/generator/subscription.ts` spawned `claude -p --bare --output-format json`.
 `--bare` ("minimal mode: skip hooks, LSP, plugin") also skips loading the stored subscription login,
