@@ -21,19 +21,54 @@ export function escapeAttr(value: string): string {
 }
 
 /**
- * The masthead dateline, e.g. `FRIDAY, JULY 10, 2026`. Formatted in UTC so the output is
- * deterministic for a given clock regardless of the host timezone (the render is hermetic
- * and CI runs anywhere), then uppercased to the broadsheet style.
+ * The masthead dateline, e.g. `FRIDAY, JULY 10, 2026`. Formatted in an explicit `timeZone`
+ * (default UTC) so the output is deterministic for a given clock regardless of the host
+ * timezone (the render is hermetic and CI runs anywhere), then uppercased to the broadsheet
+ * style. The render passes the configured `render.timeZone` so the date + edition agree.
  */
-export function formatMastheadDate(now: Date): string {
+export function formatMastheadDate(now: Date, timeZone = "UTC"): string {
   const formatted = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
-    timeZone: "UTC",
+    timeZone,
   }).format(now);
   return formatted.toUpperCase();
+}
+
+/** The six 4-hour edition names, indexed by `floor(hour / 4)`. */
+const EDITION_NAMES = [
+  "Midnight", // 00:00–03:59
+  "Sunrise", //  04:00–07:59
+  "Morning", //  08:00–11:59
+  "Afternoon", // 12:00–15:59
+  "Evening", //  16:00–19:59
+  "Night", //    20:00–23:59
+] as const;
+
+/**
+ * The edition label for a 24-hour hour, e.g. `9` → `Morning Edition`. The day is split into
+ * six 4-hour windows so the masthead reflects roughly when the run happened. Pure; the hour is
+ * clamped into range so an out-of-band value can never index past the table.
+ */
+export function editionForHour(hour: number): string {
+  const idx = Math.min(EDITION_NAMES.length - 1, Math.max(0, Math.floor(hour / 4)));
+  return `${EDITION_NAMES[idx]} Edition`;
+}
+
+/**
+ * The edition label for a clock, computed in `timeZone` (default UTC) so it matches the
+ * wall-clock the cron ran on. Extracts the 0–23 hour via Intl (same mechanism as the dateline),
+ * keeping the render deterministic for a given clock + zone.
+ */
+export function editionLabel(now: Date, timeZone = "UTC"): string {
+  const hourStr = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    hourCycle: "h23",
+    timeZone,
+  }).format(now);
+  return editionForHour(Number(hourStr) % 24);
 }
 
 /**

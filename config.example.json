@@ -51,10 +51,11 @@
   "maxAgeHours": 72,
   "publishedPath": "data/published.json",
   "concurrency": 4,
-  "maxStoriesPerCycle": 20,
+  "maxStoriesPerCycle": 40,
   "render": {
     "outputDir": "site",
-    "secondaryStoryCount": 4
+    "secondaryStoryCount": 4,
+    "timeZone": "UTC"
   },
   "deploy": {
     "command": "vercel --prod --yes",

@@ -71,11 +71,12 @@ export function hasImage(record: ManifestRecord): boolean {
  *    NEVER persisted with a missing/half image.
  *  - Resilient: a null/throwing provider or a null from storage fails just that record;
  *    the run continues with the rest.
- *  - opts.limit caps how many eligible records are ATTEMPTED (keeps live runs cheap),
- *    matching generateAll's semantics.
+ *  - Eligible records are ordered NEWEST-FIRST by firstSeen, then opts.limit caps how many
+ *    are ATTEMPTED (keeps live runs cheap) — so the freshest stories are imaged first and a
+ *    growing backlog can't starve today's news of a picture (and thus the lead).
  *  - opts.concurrency runs that many gen→store passes at once (each grok image call is
- *    ~90% idle waiting on the server). Default 1 (serial). Results apply in manifest
- *    order, so output is independent of finish order.
+ *    ~90% idle waiting on the server). Default 1 (serial). Results apply in eligibility
+ *    (newest-first) order, so output is independent of finish order.
  *  - deps.log, when present, is called once per attempted story with progress + timing.
  */
 export async function generateImages(
@@ -114,18 +115,31 @@ export async function generateImages(
     log(`image: recleared ${recleared} stale image reference(s) — will re-image this run`);
   }
 
-  // Select records that have a wrappedPrompt and no image yet, in manifest order, capped
-  // by opts.limit. Already-stored and not-yet-generated records are skipped (not attempted).
+  // Select records that have a wrappedPrompt and no image yet. Order them NEWEST-FIRST by
+  // firstSeen (the same key the render sorts by, publish.ts) BEFORE applying opts.limit, so
+  // the freshest stories get an image — and thus the lead — first. Imaging capacity is finite
+  // (limit + provider throughput), and ingest can outpace it; ordering oldest-first would let
+  // the imaging frontier crawl through stale stories while today's news never gets a picture.
+  // Older un-imaged stragglers left beyond the cap simply age out unpublished (no dangling img).
   let skipped = 0;
-  const eligible: string[] = [];
+  const candidates: string[] = [];
   for (const id of Object.keys(manifest.stories)) {
     const record = manifest.stories[id];
     if (hasImage(record) || !record.wrappedPrompt) {
       skipped++; // already stored (idempotent) or not generated yet — nothing to render
       continue;
     }
-    if (opts.limit != null && eligible.length >= opts.limit) continue;
-    eligible.push(id);
+    candidates.push(id);
+  }
+  candidates.sort((a, b) =>
+    manifest.stories[b].firstSeen.localeCompare(manifest.stories[a].firstSeen),
+  );
+  const eligible =
+    opts.limit != null ? candidates.slice(0, opts.limit) : candidates;
+  if (opts.limit != null && candidates.length > eligible.length) {
+    log(
+      `image: ${candidates.length} eligible, imaging the ${eligible.length} newest this run (${candidates.length - eligible.length} deferred)`,
+    );
   }
 
   const total = eligible.length;
@@ -161,7 +175,7 @@ export async function generateImages(
     return { id, url, storedAt: deps.now().toISOString() as string | null };
   });
 
-  // Apply in manifest (input) order so output is deterministic regardless of finish order.
+  // Apply in eligibility (newest-first) order so output is deterministic regardless of finish order.
   const stored: string[] = [];
   let failed = 0;
   for (const { id, url, storedAt } of outcomes) {

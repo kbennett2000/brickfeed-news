@@ -206,6 +206,23 @@ describe("generateImages", () => {
     expect(result.manifest.stories.a.imageUrl).toBeUndefined();
   });
 
+  it("images newest-first by firstSeen when capped, deferring older stories", async () => {
+    const provider = fakeImageProvider({});
+    const storage = fakeStorageProvider();
+    const older = { ...eligible("old"), firstSeen: "2025-07-01T00:00:00.000Z" };
+    const mid = { ...eligible("mid"), firstSeen: "2025-07-05T00:00:00.000Z" };
+    const newer = { ...eligible("new"), firstSeen: "2025-07-09T00:00:00.000Z" };
+    // Insert oldest-first so it's the firstSeen sort — not insertion order — that decides.
+    const manifest = manifestOf(older, mid, newer);
+
+    const result = await generateImages(config, manifest, depsWith(provider, storage), { limit: 2 });
+
+    // The two NEWEST are imaged, applied newest-first; the oldest is deferred (stays pending).
+    expect(provider.calls).toEqual(["TEST-STYLE Scene: new", "TEST-STYLE Scene: mid"]);
+    expect(result.stored).toEqual(["new", "mid"]);
+    expect(result.manifest.stories.old.imageUrl).toBeUndefined();
+  });
+
   it("caps attempts with opts.limit (eligible records beyond the cap untouched)", async () => {
     const provider = fakeImageProvider({});
     const storage = fakeStorageProvider();
