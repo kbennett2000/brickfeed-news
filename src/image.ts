@@ -90,6 +90,30 @@ export async function generateImages(
   };
   const log = deps.log ?? (() => {});
 
+  // Reconcile stale image references FIRST (owner decision: clear + re-image). A record
+  // whose imageUrl no longer resolves in the CURRENT store — deleted, zero-length, or a
+  // stale scheme after a provider switch (e.g. a local `images/…` URL under Blob) — has its
+  // imageUrl cleared here, so the eligibility scan below re-images it into this store. A
+  // record cleared but not re-imaged this run (beyond the cap) simply stays unpublished
+  // (no dangling <img>) and retries next run.
+  const withImage = Object.keys(manifest.stories).filter((id) => hasImage(manifest.stories[id]));
+  const resolved = await mapWithConcurrency(withImage, opts.concurrency ?? 1, (id) =>
+    deps.storage.exists(id, manifest.stories[id].imageUrl),
+  );
+  let recleared = 0;
+  withImage.forEach((id, i) => {
+    if (!resolved[i]) {
+      const rec = { ...manifest.stories[id] };
+      delete rec.imageUrl;
+      delete rec.imageStoredAt;
+      manifest.stories[id] = rec;
+      recleared++;
+    }
+  });
+  if (recleared > 0) {
+    log(`image: recleared ${recleared} stale image reference(s) — will re-image this run`);
+  }
+
   // Select records that have a wrappedPrompt and no image yet, in manifest order, capped
   // by opts.limit. Already-stored and not-yet-generated records are skipped (not attempted).
   let skipped = 0;

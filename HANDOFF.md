@@ -1,5 +1,51 @@
 # Handoff
 
+## brickfeed is LIVE on real Vercel Blob — image-existence gate + fail-loud preflight (issue #28, PR pending)
+
+**brickfeed now serves a live, fully-imaged page.** Live URL: **https://brickfeed-teal.vercel.app**
+(Vercel project `brickfeed`, `site/` linked). Three things landed:
+
+1. **Image-existence gate (no more broken frames).** `isPublishable` only checked that the
+   `imageUrl` STRING was present — never that the artifact existed. Result before this cycle:
+   **40 of 78 `<img>` were broken** (39 records carried stale local-scheme URLs; only 19 files
+   existed). New never-throw **`StorageProvider.exists(id, imageUrl?)`** verifies the artifact the
+   render will actually emit — local: `stat` size>0; blob: HEAD the exact stored URL → 200,
+   short-circuiting a stale relative/foreign URL. `verifiedPublishableRecords` (src/publish.ts)
+   layers it onto the pure field-gate and is the authoritative page source at
+   `src/cycle.ts` render (and `writePublished`, threaded a `storage`). No dangling `<img>` renders.
+2. **Clear + re-image (owner decision).** `generateImages` reconciles FIRST: any record whose
+   `imageUrl` no longer resolves in the CURRENT store is cleared, so it re-images into that store
+   (bounded by `maxStoriesPerCycle`). Heals provider switches (local→blob) and deleted/zero files.
+3. **Deterministic, fail-loud, non-interactive preflight.** New **`StorageProvider.preflight()`**
+   (a provider method — colocated with the provider, keeps the cycle tests hermetic) runs ONCE at
+   the top of `runCycle`. Blob requires BOTH `BLOB_READ_WRITE_TOKEN` (env) and
+   `storage.blob.publicBaseUrl` (config); local requires a writable dir. On failure the cycle
+   ABORTS before ingest/generate with a single actionable stderr message + non-zero exit — never
+   pays for images it can't store, never prompts. The old advisory warn in `createStorageProvider`
+   was removed (superseded). `src/storage/index.ts` no longer reads env.
+
+**Files:** `src/types.ts` (StorageProvider gains `exists`+`preflight`; `StorageFs` gains `stat`;
+`StorageHttpRunner` method adds `"HEAD"`; `CycleIo.writePublished` gains optional `storage`),
+`src/storage/{blob,local,index}.ts`, `src/publish.ts`, `src/image.ts`, `src/cycle.ts`,
+`src/{image,ageout}-cli.ts`, plus test helpers + new tests. **Tests 308 passing (+20).** Gates
+clean (`process.env` only in `secrets.ts`; no lego; `tsc --noEmit` clean).
+
+**PROVEN end-to-end (not mocks):**
+- **token UNSET →** `npm run cycle` aborts at `storage-preflight` with the exact fix message,
+  exit 1, zero prompts, no generation.
+- **token SET →** real keyless cycle (grok-terminal generation, no generation API keys):
+  `ingest 12 new`, `generate 12`, `image: recleared 39 stale refs → 20 stored to real Blob, 0 failed`,
+  `render 20 publishable`, `deploy: deployed (exit 0)` via `vercel --prod --yes` — **zero prompts**.
+- **live site:** every `<img>` across all 9 pages resolves — **40/40 → 200 with non-zero bytes,
+  0 broken** (images are honest `.jpg` on the Blob CDN). Was 40 broken of 78.
+
+**Box config (gitignored, on-box):** `storage` block set to `provider:"blob"`,
+`blob.publicBaseUrl:"https://7fjkp0rhcwadfro9.public.blob.vercel-storage.com"` (local block kept).
+**A real run needs only `BLOB_READ_WRITE_TOKEN` in env** (the `vercel_blob_rw_…` secret — never
+committed; put it in the box shell profile / cron env). `site/.vercel` links to the `brickfeed`
+project; `vercel` is authenticated as `kbennett2000` (`vercel login` done). `vercel --prod --yes`
++ stdin-ignored deploy runner = non-interactive.
+
 ## Local storage now writes images INTO site/ with a resolving URL (issue #26, PR pending)
 
 **Bug:** with `storage.provider=local`, a keyless run produced a `site/` where every `<img>` was

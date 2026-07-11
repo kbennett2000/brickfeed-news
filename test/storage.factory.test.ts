@@ -25,11 +25,13 @@ describe("createStorageProvider", () => {
     expect(createStorageProvider(config)).toBeInstanceOf(LocalStorageProvider);
   });
 
-  it("warns (advisory, non-blocking) when blob is selected without a token", () => {
+  it("does NOT warn or prompt when blob is selected without a token (preflight enforces it)", () => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const provider = createStorageProvider(makeConfig());
+    // Construction is silent — the hard, actionable check is BlobStorageProvider.preflight(),
+    // called once up front by the cycle. The factory never warns and never prompts.
     expect(provider).toBeInstanceOf(BlobStorageProvider);
-    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).not.toHaveBeenCalled();
   });
 });

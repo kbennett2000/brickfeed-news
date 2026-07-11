@@ -1,5 +1,5 @@
 import { promises as nodeFs } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { StorageFs, StorageProvider } from "../types.js";
 import { extForContentType, IMAGE_FILE_EXTENSIONS } from "./blob.js";
 
@@ -65,6 +65,44 @@ export class LocalStorageProvider implements StorageProvider {
       }
     }
   }
+
+  async exists(id: string, imageUrl?: string): Promise<boolean> {
+    // Candidate filenames: the exact stored file named by the URL if known, else every
+    // extension put can produce. Present AND non-zero on disk = a resolvable <img src>.
+    const names = imageUrl
+      ? [basename(imageUrl)]
+      : IMAGE_FILE_EXTENSIONS.map((ext) => `${id}${ext}`);
+    for (const name of names) {
+      try {
+        const st = await this.fs.stat(join(this.dir, name));
+        if (st.size > 0) return true;
+      } catch {
+        // Missing / unreadable candidate — try the next one; any error means "not present".
+      }
+    }
+    return false;
+  }
+
+  async preflight(): Promise<{ ok: true } | { ok: false; message: string }> {
+    // Prove the dir is writable up front (create it, write+remove a probe) so a run never
+    // discovers it can't store AFTER generating images. Never interactive.
+    const probe = join(this.dir, ".brickfeed-preflight");
+    try {
+      await this.fs.mkdir(this.dir, { recursive: true });
+      await this.fs.writeFile(probe, new Uint8Array(0));
+      await this.fs.unlink(probe);
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        message:
+          `storage preflight FAILED: provider "local" cannot write to storage.local.dir ` +
+          `"${this.dir}" (${err instanceof Error ? err.message : String(err)}). Create the ` +
+          `directory or fix its permissions, or set storage.local.dir in config.json. ` +
+          `Aborting before generating images.`,
+      };
+    }
+  }
 }
 
 function trimTrailingSlash(s: string): string {
@@ -77,4 +115,5 @@ export const defaultStorageFs: StorageFs = {
   writeFile: (path, data) => nodeFs.writeFile(path, data),
   rename: (from, to) => nodeFs.rename(from, to),
   unlink: (path) => nodeFs.unlink(path),
+  stat: (path) => nodeFs.stat(path),
 };

@@ -3,8 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
-import { isPublishable, publishableRecords, writePublished } from "../src/publish.js";
+import {
+  isPublishable,
+  publishableRecords,
+  verifiedPublishableRecords,
+  writePublished,
+} from "../src/publish.js";
 import type { Manifest, ManifestRecord } from "../src/types.js";
+import { fakeStorageProvider } from "./helpers.js";
 
 /** A fully publishable record (headline + description + imageUrl + category + caption). */
 function full(id: string, firstSeen: string): ManifestRecord {
@@ -83,6 +89,43 @@ describe("publishableRecords", () => {
       stories: { p: { ...full("p", "2025-07-01T00:00:00.000Z"), imageUrl: undefined } },
     };
     expect(publishableRecords(manifest)).toEqual([]);
+  });
+});
+
+describe("verifiedPublishableRecords — excludes records whose image does not resolve", () => {
+  it("keeps only field-publishable records whose image really exists in storage", async () => {
+    const manifest: Manifest = {
+      version: 1,
+      stories: {
+        present: full("present", "2025-07-05T00:00:00.000Z"),
+        missing: full("missing", "2025-07-04T00:00:00.000Z"), // dangling imageUrl → excluded
+        pending: { ...full("pending", "2025-07-09T00:00:00.000Z"), imageUrl: undefined },
+      },
+    };
+    // Only "present" resolves; "missing" fails existence; "pending" never reaches the check.
+    const storage = fakeStorageProvider({ exists: (id) => id === "present" });
+
+    const ids = (await verifiedPublishableRecords(manifest, storage)).map((r) => r.id);
+    expect(ids).toEqual(["present"]);
+    // "pending" was field-gated out before any existence check.
+    expect(storage.existsCalls.sort()).toEqual(["missing", "present"]);
+  });
+
+  it("writePublished(storage) writes only the verified records", async () => {
+    const path = join(tmpdir(), "brickfeed-published-verified.json");
+    const manifest: Manifest = {
+      version: 1,
+      stories: {
+        ok: full("ok", "2025-07-05T00:00:00.000Z"),
+        gone: full("gone", "2025-07-04T00:00:00.000Z"),
+      },
+    };
+    const storage = fakeStorageProvider({ exists: (id) => id === "ok" });
+    await writePublished(path, manifest, storage);
+    const written = JSON.parse(await readFile(path, "utf8")) as ManifestRecord[];
+    await rm(path, { force: true });
+
+    expect(written.map((r) => r.id)).toEqual(["ok"]);
   });
 });
 

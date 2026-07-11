@@ -1,5 +1,4 @@
 import type { Config } from "../config.js";
-import { getBlobReadWriteToken } from "../secrets.js";
 import type { StorageFs, StorageHttpRunner, StorageProvider } from "../types.js";
 import { BlobStorageProvider } from "./blob.js";
 import { LocalStorageProvider } from "./local.js";
@@ -27,14 +26,9 @@ export function createStorageProvider(
     });
   }
 
-  // Default: Vercel Blob. Advisory preflight only — a missing token fails safe (put
-  // returns null so the story stays unpublished) rather than crashing the run.
-  if (!getBlobReadWriteToken()) {
-    console.warn(
-      "warning: BLOB_READ_WRITE_TOKEN is not set; Blob storage will skip every story " +
-        "(they stay unpublished). Set BLOB_READ_WRITE_TOKEN to enable it.",
-    );
-  }
+  // Default: Vercel Blob. Preconditions (token + publicBaseUrl) are enforced up front by
+  // BlobStorageProvider.preflight(), which the cycle calls before doing any work — so a
+  // misconfigured run fails LOUD with an actionable message rather than silently.
   return new BlobStorageProvider({
     pathPrefix: blob.pathPrefix,
     publicBaseUrl: blob.publicBaseUrl,

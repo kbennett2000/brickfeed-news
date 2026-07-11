@@ -31,7 +31,7 @@ async function main(): Promise<void> {
 
   const result = await generateImages(config, startingManifest, deps, { limit });
   await writeManifest(config.manifestPath, result.manifest);
-  await writePublished(config.publishedPath, result.manifest);
+  await writePublished(config.publishedPath, result.manifest, deps.storage);
 
   const at = deps.now().toISOString();
   console.log(

@@ -96,6 +96,62 @@ export class BlobStorageProvider implements StorageProvider {
     }
   }
 
+  async exists(id: string, imageUrl?: string): Promise<boolean> {
+    // Verify the EXACT URL render will emit. Only a URL that is absolute AND under this
+    // store's public host can be an object here; a stale relative/foreign URL (e.g. after
+    // a provider switch) is treated as not-present so the record is cleared and re-imaged.
+    const base = trimTrailingSlash(this.publicBaseUrl);
+    let target: string;
+    if (imageUrl === undefined) {
+      target = this.publicUrl(storageKey(this.pathPrefix, id, "image/png"));
+    } else if (/^https?:\/\//i.test(imageUrl) && imageUrl.startsWith(`${base}/`)) {
+      target = imageUrl;
+    } else {
+      return false;
+    }
+    try {
+      const resp = await this.runner({ url: target, method: "HEAD", headers: {} });
+      return resp.status === 200; // a stored Blob object is non-zero by construction
+    } catch {
+      return false; // transport or any other failure — never propagate
+    }
+  }
+
+  async preflight(): Promise<{ ok: true } | { ok: false; message: string }> {
+    const hasToken = !!getBlobReadWriteToken();
+    const hasUrl = this.publicBaseUrl.trim() !== "";
+    if (!hasToken && !hasUrl) {
+      return {
+        ok: false,
+        message:
+          'storage preflight FAILED: provider "blob" needs BOTH the BLOB_READ_WRITE_TOKEN ' +
+          "environment variable (currently unset) and storage.blob.publicBaseUrl in config.json " +
+          "(currently empty). Set the token (e.g. `export BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...`) " +
+          'and the URL (e.g. "https://<store-id>.public.blob.vercel-storage.com"). ' +
+          "Aborting before generating images.",
+      };
+    }
+    if (!hasToken) {
+      return {
+        ok: false,
+        message:
+          'storage preflight FAILED: provider "blob" needs the BLOB_READ_WRITE_TOKEN ' +
+          "environment variable (currently unset). Set it, e.g. " +
+          "`export BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...`. Aborting before generating images.",
+      };
+    }
+    if (!hasUrl) {
+      return {
+        ok: false,
+        message:
+          'storage preflight FAILED: provider "blob" needs storage.blob.publicBaseUrl in ' +
+          'config.json (currently empty). Set it to your store host, e.g. ' +
+          '"https://<store-id>.public.blob.vercel-storage.com". Aborting before generating images.',
+      };
+    }
+    return { ok: true };
+  }
+
   private publicUrl(key: string): string {
     return `${trimTrailingSlash(this.publicBaseUrl)}/${key}`;
   }

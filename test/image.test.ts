@@ -122,6 +122,37 @@ describe("generateImages", () => {
     expect(result.manifest.stories.a.imageUrl).toBe("https://cdn.test/a.png");
   });
 
+  it("reclears a stale imageUrl (not in storage) and re-images it; a resolving one is left alone", async () => {
+    const provider = fakeImageProvider({});
+    // "a" no longer resolves in the store (stale after a provider switch); "b" still does.
+    const storage = fakeStorageProvider({ exists: (id) => id === "b" });
+    const manifest = manifestOf(stored("a"), stored("b"));
+
+    const result = await generateImages(config, manifest, depsWith(provider, storage));
+
+    // "a" was recleared → re-imaged into the current store; "b" was skipped (still present).
+    expect(result.stored).toEqual(["a"]);
+    expect(result.skipped).toBe(1);
+    expect(provider.calls).toEqual(["TEST-STYLE Scene: a"]);
+    expect(storage.puts.map((p) => p.id)).toEqual(["a"]);
+    expect(result.manifest.stories.a.imageUrl).toBe("https://cdn.test/a.png");
+    expect(result.manifest.stories.b.imageUrl).toBe("https://cdn.test/b.png"); // untouched
+  });
+
+  it("a stale record recleared but not re-imaged this run ends with NO imageUrl (never dangling)", async () => {
+    // Provider fails to regenerate → the record must not keep its dangling URL.
+    const provider = fakeImageProvider({ impl: () => null });
+    const storage = fakeStorageProvider({ exists: () => false });
+    const manifest = manifestOf(stored("a"));
+
+    const result = await generateImages(config, manifest, depsWith(provider, storage));
+
+    expect(result.stored).toEqual([]);
+    expect(result.failed).toBe(1);
+    expect(result.manifest.stories.a.imageUrl).toBeUndefined();
+    expect(result.manifest.stories.a.imageStoredAt).toBeUndefined();
+  });
+
   it("all-or-nothing: provider returns null → no put, no imageUrl, record stays pending", async () => {
     const provider = fakeImageProvider({
       impl: (p) => (p === "TEST-STYLE Scene: a" ? null : bytes(`img:${p}`)),

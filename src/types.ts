@@ -186,10 +186,19 @@ export type ImageHttpRunner = (args: {
  *    retried next run.
  *  - `delete` removes a stored artifact for real (age-out). Failure is non-fatal and
  *    logged; it never throws, so a failed delete never blocks dropping the record.
+ *  - `exists` verifies the artifact behind a stored `imageUrl` is really present (and
+ *    non-zero) in THIS provider — the publish gate uses it so no dangling `<img>` renders,
+ *    and the image stage uses it to clear a stale URL and re-image. Never throws: any
+ *    failure (missing file, non-2xx, foreign/relative URL, transport error) → `false`.
+ *  - `preflight` validates this provider's preconditions ONCE up front (blob: token + a
+ *    public base URL; local: a writable dir) so a misconfigured cron run fails LOUD before
+ *    generating anything, with an actionable message — never interactively, never mid-run.
  */
 export interface StorageProvider {
   put(id: string, bytes: Uint8Array, contentType: string): Promise<string | null>;
   delete(id: string): Promise<void>;
+  exists(id: string, imageUrl?: string): Promise<boolean>;
+  preflight(): Promise<{ ok: true } | { ok: false; message: string }>;
 }
 
 /**
@@ -201,7 +210,7 @@ export interface StorageProvider {
  */
 export type StorageHttpRunner = (args: {
   url: string;
-  method: "PUT" | "POST";
+  method: "PUT" | "POST" | "HEAD";
   headers?: Record<string, string>;
   body?: Uint8Array | string;
 }) => Promise<{ ok: boolean; status: number; body: string }>;
@@ -215,6 +224,7 @@ export interface StorageFs {
   writeFile(path: string, data: Uint8Array): Promise<void>;
   rename(from: string, to: string): Promise<void>;
   unlink(path: string): Promise<void>;
+  stat(path: string): Promise<{ size: number }>;
 }
 
 /**
@@ -271,7 +281,12 @@ export type DeployRunner = (args: {
 export interface CycleIo {
   readManifest(path: string): Promise<Manifest>;
   writeManifest(path: string, manifest: Manifest): Promise<void>;
-  writePublished(path: string, manifest: Manifest): Promise<void>;
+  /**
+   * Write the derived published.json. When a `storage` is passed the list is
+   * existence-verified (matching the rendered page); without it, it falls back to the
+   * pure field-gated list.
+   */
+  writePublished(path: string, manifest: Manifest, storage?: StorageProvider): Promise<void>;
   writeSite(outputDir: string, files: Record<string, string>): Promise<void>;
 }
 

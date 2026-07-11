@@ -97,6 +97,74 @@ describe("BlobStorageProvider.delete", () => {
   });
 });
 
+describe("BlobStorageProvider.exists — HEAD the exact stored URL", () => {
+  it("returns true on a 200 HEAD of a URL under the store host", async () => {
+    const runner = fakeStorageRunner({ routes: { [`HEAD ${PUBLIC_URL}`]: { ok: true, status: 200 } } });
+    expect(await provider(runner).exists(ID, PUBLIC_URL)).toBe(true);
+    expect(runner.calls[0].method).toBe("HEAD");
+    expect(runner.calls[0].url).toBe(PUBLIC_URL);
+  });
+
+  it("returns false on a 404 HEAD", async () => {
+    const runner = fakeStorageRunner({ routes: { [`HEAD ${PUBLIC_URL}`]: { ok: false, status: 404 } } });
+    expect(await provider(runner).exists(ID, PUBLIC_URL)).toBe(false);
+  });
+
+  it("short-circuits a stale/foreign/relative URL to false WITHOUT any request", async () => {
+    const runner = fakeStorageRunner({ routes: { [`HEAD ${PUBLIC_URL}`]: { ok: true, status: 200 } } });
+    // A relative local-scheme URL (e.g. after a provider switch) can't be an object here.
+    expect(await provider(runner).exists(ID, "images/abc123.png")).toBe(false);
+    expect(await provider(runner).exists(ID, "https://other.example.com/x.png")).toBe(false);
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  it("with no imageUrl, HEADs the deterministic default key", async () => {
+    const runner = fakeStorageRunner({ routes: { [`HEAD ${PUBLIC_URL}`]: { ok: true, status: 200 } } });
+    expect(await provider(runner).exists(ID)).toBe(true);
+    expect(runner.calls[0].url).toBe(PUBLIC_URL); // images/abc123.png under the store host
+  });
+
+  it("is never-throw: a throwing runner yields false", async () => {
+    const runner = fakeStorageRunner({ throws: true });
+    expect(await provider(runner).exists(ID, PUBLIC_URL)).toBe(false);
+  });
+});
+
+describe("BlobStorageProvider.preflight — deterministic, fail-loud, non-interactive", () => {
+  const runner = fakeStorageRunner({});
+
+  it("is ok when the token (env) and publicBaseUrl (config) are both present", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "test-token");
+    expect(await provider(runner).preflight()).toEqual({ ok: true });
+  });
+
+  it("fails naming BLOB_READ_WRITE_TOKEN when the token is missing", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "");
+    const result = await provider(runner).preflight();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("BLOB_READ_WRITE_TOKEN");
+  });
+
+  it("fails naming storage.blob.publicBaseUrl when the URL is empty", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "test-token");
+    const p = new BlobStorageProvider({ pathPrefix: PREFIX, publicBaseUrl: "", runner });
+    const result = await p.preflight();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("storage.blob.publicBaseUrl");
+  });
+
+  it("names BOTH when token and URL are missing", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "");
+    const p = new BlobStorageProvider({ pathPrefix: PREFIX, publicBaseUrl: "", runner });
+    const result = await p.preflight();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("BLOB_READ_WRITE_TOKEN");
+      expect(result.message).toContain("storage.blob.publicBaseUrl");
+    }
+  });
+});
+
 describe("storage key helpers", () => {
   it("builds a deterministic key from prefix + id + extension", () => {
     expect(storageKey("images/", "xyz", "image/png")).toBe("images/xyz.png");
