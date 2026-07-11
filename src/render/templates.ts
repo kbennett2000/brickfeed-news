@@ -61,14 +61,24 @@ const FIGURE_META: Record<FigureVariant, { frame: string; studs: string; label: 
  * present, else the design's studded placeholder frame (graceful degrade — the page never
  * shows a publisher's photo, only our art or a placeholder). The caption always carries the
  * static "/ BRICKFEED STUDIO" credit.
+ *
+ * When an image is present it also emits a decorative, hover-revealed full-size preview
+ * (`.figure__zoom`) as a sibling of the cropped frame. The frame crops via `object-fit:cover`,
+ * so this CSS-only lightbox lets a reader see the whole image at full resolution on hover. It
+ * reuses the same URL (already downloaded for the thumbnail — no extra network) and is
+ * `aria-hidden` so screen readers aren't told about the same picture twice.
  */
 function figure(view: StoryView, variant: FigureVariant): string {
   const meta = FIGURE_META[variant];
   const inner = view.imageUrl
     ? `<img class="figure__img" src="${escapeAttr(view.imageUrl)}" alt="${escapeAttr(view.headline)}" loading="lazy">`
     : `<div class="figure__placeholder">${studs(meta.studs, true)}<span class="figure__label">${meta.label}</span></div>`;
+  const zoom = view.imageUrl
+    ? `<span class="figure__zoom" aria-hidden="true"><img class="figure__zoom-img" src="${escapeAttr(view.imageUrl)}" alt=""></span>`
+    : "";
   return `<figure class="figure">
         <div class="figure__frame ${meta.frame}">${inner}</div>
+        ${zoom}
         <figcaption class="figcaption">${escapeHtml(view.caption)} <span class="figcaption__credit">/ BRICKFEED STUDIO</span></figcaption>
       </figure>`;
 }
