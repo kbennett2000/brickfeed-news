@@ -170,6 +170,48 @@ describe("renderSite — section pages", () => {
   });
 });
 
+describe("renderSite — about page", () => {
+  const files = renderSite(records, OPTS);
+  const about = files["about.html"];
+
+  it("emits about.html alongside the cover and section pages", () => {
+    expect(about).toBeTruthy();
+  });
+
+  it("carries the creator bio copy", () => {
+    expect(about).toContain(
+      "Brickfeed News was created by an unemployed software developer on a Friday afternoon.",
+    );
+    expect(about).toContain("possibly even employ him");
+  });
+
+  it("links out to the creator's LinkedIn, GitHub, and Twelve Rocks, opening the source", () => {
+    expect(about).toContain('href="https://www.linkedin.com/in/kbennett2000/"');
+    expect(about).toContain('href="https://github.com/kbennett2000"');
+    expect(about).toContain('href="https://www.twelverocks.com/"');
+    expect(about).toContain('target="_blank"');
+    expect(about).toContain('rel="noopener noreferrer"');
+  });
+
+  it("shows the toy-brick portrait from Blob storage", () => {
+    expect(about).toContain(
+      'src="https://7fjkp0rhcwadfro9.public.blob.vercel-storage.com/images/about-portrait.jpg"',
+    );
+  });
+
+  it("reuses the shared chrome and shell", () => {
+    expect(about).toContain("All the stories, brick by brick"); // masthead motto
+    expect(about).toContain("<title>About — brickfeed</title>");
+    expect(about).toContain('href="index.html"'); // nav brand back to cover
+  });
+
+  it("is linked from the footer on every page (cover, section, about itself)", () => {
+    expect(files["index.html"]).toContain('href="about.html"');
+    expect(files["world.html"]).toContain('href="about.html"');
+    expect(about).toContain('href="about.html"');
+  });
+});
+
 describe("renderSite — robustness", () => {
   it("empty published.json → a valid, non-empty index page (no throw)", () => {
     const files = renderSite([], OPTS);

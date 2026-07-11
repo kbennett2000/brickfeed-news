@@ -30,6 +30,7 @@ import {
   masthead,
   pageShell,
   railStory,
+  renderAbout,
   sectionHead,
   sectionNav,
   utilityStrip,
@@ -154,6 +155,7 @@ export function renderSite(
 
   const files: Record<string, string> = {
     "index.html": renderCover(views, dateStr, edition, opts.secondaryStoryCount, banner),
+    "about.html": renderAbout(dateStr, edition, banner),
     "styles.css": STYLES + adAnimationCss(ads.length),
   };
   for (const category of CATEGORIES) {
