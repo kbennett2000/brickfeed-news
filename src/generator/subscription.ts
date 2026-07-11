@@ -13,6 +13,15 @@ import { parseGeneratorOutput } from "./parse.js";
 export { extractJsonObject, parseGeneratorOutput } from "./parse.js";
 
 /**
+ * Headless args for the Claude CLI. Exported so a test can pin them — in
+ * particular that `--bare` is NEVER present (it skips the subscription login and
+ * makes every generation fail with "Not logged in"; see defaultRunner).
+ */
+export function buildClaudeArgs(model: string): string[] {
+  return ["-p", "--output-format", "json", "--model", model];
+}
+
+/**
  * Subscription generator (ADR decision #6): shells out to the Claude CLI with
  * `claude -p --output-format json`. Single-shot text only — no tools, no
  * permissions. NEVER THROWS: any failure (spawn error, non-zero exit, unparseable
@@ -80,14 +89,18 @@ export function extractResultText(stdout: string): string | null {
  * CLAUDE_CODE_OAUTH_TOKEN when set — without this module ever touching the
  * environment directly (secrets.ts is the only env reader). A spawn error resolves
  * as a non-zero exit code so generate() degrades to null rather than rejecting.
+ *
+ * Do NOT add `--bare` here. Minimal mode skips loading the stored subscription
+ * login, so `claude -p --bare` returns is_error:true "Not logged in · Please run
+ * /login" even on an authenticated box — every story would come back null. The
+ * working headless invocation (mirroring photo-wrangler's launcher_core.build_claude_argv)
+ * is plain `-p --output-format json --model <m>`.
  */
 const defaultRunner: ClaudeRunner = ({ model, prompt }) =>
   new Promise((resolve) => {
-    const child = spawn(
-      "claude",
-      ["-p", "--bare", "--output-format", "json", "--model", model],
-      { stdio: ["pipe", "pipe", "pipe"] },
-    );
+    const child = spawn("claude", buildClaudeArgs(model), {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
 
     let stdout = "";
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));

@@ -120,7 +120,10 @@ Three independent seams. The recommended **keyless** production combination is i
 - **`grok-terminal`** (text & image) authenticates via a one-time interactive `grok` CLI
   login and reads no API key at run time. This is the live production path.
 - **`grok`** uses the xAI HTTP API and requires `XAI_API_KEY`.
-- **`claude`** uses the Claude subscription CLI (`claude -p`) and requires `CLAUDE_CODE_OAUTH_TOKEN`.
+- **`claude`** uses the Claude subscription CLI (`claude -p --output-format json`) and
+  authenticates via the CLI's stored subscription login (or `CLAUDE_CODE_OAUTH_TOKEN`).
+  It is invoked **without** `--bare`: minimal mode skips loading that login, so `claude -p
+  --bare` returns "Not logged in" and every story comes back null.
 - **`local`** (image) posts to a LAN imagegen microservice; no API key, style forced to `base`.
 - **`blob`** (storage) is the durable default; **`local`** writes bytes into `site/images` so
   they ship inside the static site (handy for a fully self-hosted, keyless setup).
@@ -142,7 +145,12 @@ npm run check:claude -- --model=claude-sonnet-5   # try another model
 It drives the real `claude -p` CLI (not a mock — so it's kept out of `npm test`) over a
 handful of diverse stories and prints each `headline` / `description` / `imagePrompt` /
 `category` / `caption` alongside pass/fail checks. It needs the `claude` CLI logged in
-(`CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, or a stored login) and exits non-zero
-if any story fails to produce all artifacts. A green run is the go-ahead to set
-`generator.provider` to `"claude"` and `generator.model` to the Haiku id, leaving
+(a stored subscription login, or `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`) and
+exits non-zero if any story fails to produce all artifacts. A green run is the go-ahead to
+set `generator.provider` to `"claude"` and `generator.model` to the Haiku id, leaving
 `image.provider` on Grok.
+
+> **Gotcha (fixed):** the subscription runner must invoke `claude -p` **without** `--bare`.
+> Minimal mode skips loading the stored subscription login, so `claude -p --bare` returns
+> `is_error:true` "Not logged in" and every story comes back null even on an authenticated
+> box. See `src/generator/subscription.ts` (`buildClaudeArgs`).
