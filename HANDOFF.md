@@ -1,5 +1,27 @@
 # Handoff
 
+## Docs refresh — ads + articles + stale-doc cleanup (branch `docs/refresh-ads-articles`)
+
+Current state as of this entry:
+
+- **Live** on **https://www.brickfeed.news** (the old `brickfeed-teal.vercel.app` URL in these
+  docs was stale and has been corrected). Deploys are direct `vercel --prod --yes` from the box
+  (ADR-0006), not git-push-triggered.
+- **ADR-0009** (per-story `s/<id>.html` landing pages + X share sheet) is landed/Accepted.
+- **ADR-0010 — locally hosted articles** is landed (branch `feat/local-articles`, PR #40):
+  on-site original stories from `assets/articles/` with section, cover/section rank, expiry, and
+  a hosted body page reusing `s/<id>.html`. Adds the `marked` dependency. Documented in
+  `docs/ARTICLES.md`.
+- **Banner ads** (`src/ads.ts`, `assets/ads/`) are now documented in the new `docs/ADS.md` (they
+  had no docs before).
+- Reference docs reconciled to the code: `docs/CONFIGURATION.md` (added `render.timeZone`/
+  `siteBaseUrl`/`share`, fixed `maxStoriesPerCycle` default 20→40), `docs/ARCHITECTURE.md`
+  (added `ads.ts`/`articles.ts`/`render/markdown.ts`, per-story + share output, 393-test count),
+  `README.md` (URL, `marked` dep, docs index), `CLAUDE.md` (keyless `grok-terminal` default,
+  CLI-direct deploy). Suite: **393 tests, 32 files**.
+
+---
+
 ## Per-story landing pages + assisted-manual X share sheet (ADR-0009, PR pending)
 
 Sharing a brickfeed story on X used to paste the **outbound source URL**, so X rendered the

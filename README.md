@@ -5,7 +5,7 @@ original headline + short description, generates a toy-brick–styled image per 
 renders a static newspaper-style cover page that links out to the source article. It's a
 personal, non-commercial hobby service.
 
-Live: **https://brickfeed-teal.vercel.app**
+Live: **https://www.brickfeed.news**
 
 > **Legal guardrails (hard rules).** No "LEGO" or LEGO trademarks anywhere — not the name,
 > domain, code, prompts, or output. Brick styling is generic ("plastic toy-brick minifigure
@@ -41,10 +41,17 @@ without a resolvable image, and a bad run can never overwrite the live site (the
 refuses an empty render). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full
 module map and data flow.
 
+The render also emits a per-story [`s/<id>.html`](docs/adr/0009-per-story-pages-and-x-share.md)
+landing page for social sharing (plus a `share.html` X sheet), and folds in two
+operator-managed content sources dropped into `assets/`: **banner ads**
+([docs/ADS.md](docs/ADS.md)) and **locally hosted articles** — on-site original stories with a
+section, rank, and their own hosted page ([docs/ARTICLES.md](docs/ARTICLES.md)).
+
 ## Tech stack & conventions
 
 - **TypeScript run directly via `tsx`** — no build step (`tsconfig` is `noEmit`), ES modules.
-- **Minimal deps** — the only runtime dependency is `fast-xml-parser` (RSS parsing).
+- **Minimal deps** — two runtime dependencies: `fast-xml-parser` (RSS parsing) and `marked`
+  (rendering local-article markdown bodies, [docs/ARTICLES.md](docs/ARTICLES.md)).
 - **ADR-first** — significant decisions are recorded in [docs/adr/](docs/adr/) before code.
 - **Text-only repo** — the manifest (JSON) and rendered HTML are the only artifacts; images
   live in object storage referenced by URL, never committed (so "delete an image" is a real
@@ -61,7 +68,7 @@ git clone https://github.com/kbennett2000/brickfeed-news.git
 cd brickfeed-news
 npm install
 cp config.example.json config.json     # then edit — see docs/CONFIGURATION.md
-npm test                                # vitest, fully mocked; ~308 tests
+npm test                                # vitest, fully mocked; ~393 tests
 ```
 
 Run the pipeline without deploying (nothing is touched with `--dry-run`; `--no-deploy` runs
@@ -112,6 +119,8 @@ the environment-variable table.
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — current-state module map, data flow, and invariants.
 - **[docs/INSTALL.md](docs/INSTALL.md)** — Ubuntu server install, configuration, first run, and cron scheduling.
 - **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** — every `config.json` field and environment variable.
+- **[docs/ADS.md](docs/ADS.md)** — authoring the banner ads (drop-in files under `assets/ads/`).
+- **[docs/ARTICLES.md](docs/ARTICLES.md)** — authoring locally hosted articles (drop-in files under `assets/articles/`).
 - **[docs/adr/](docs/adr/)** — Architecture Decision Records (the *why* behind each decision).
 - **[CLAUDE.md](CLAUDE.md)** — how automated cycles operate on this repo and the project contract.
 - **[HANDOFF.md](HANDOFF.md)** — running log of recent cycles and current state.

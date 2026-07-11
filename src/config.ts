@@ -29,7 +29,7 @@ export interface Config {
   concurrency: number;
   /**
    * Max stories the generate + image stages ATTEMPT per cycle, so a big backlog is spread
-   * across cron ticks instead of one very long run. Default 20.
+   * across cron ticks instead of one very long run. Default 40 (DEFAULT_MAX_STORIES_PER_CYCLE).
    */
   maxStoriesPerCycle: number;
   /** Static cover-page render settings (Slice 7). */

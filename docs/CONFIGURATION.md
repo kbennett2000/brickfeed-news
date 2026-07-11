@@ -29,7 +29,7 @@ minimal config is valid. Only **`feedUrls`** and **`manifestPath`** are strictly
 | `publishedPath` | string | `data/published.json` | Path to the newest-first publishable slice the renderer reads. |
 | `maxAgeHours` | number | `72` | Records whose `lastSeen` is older than this are aged out and their images deleted. |
 | `concurrency` | number | `4` | Parallel stories processed in the generate and image stages. |
-| `maxStoriesPerCycle` | number | `20` | Cap on new stories imaged per cycle, so a backlog spreads over several cron ticks. |
+| `maxStoriesPerCycle` | number | `40` | Cap on new stories imaged per cycle, so a backlog spreads over several cron ticks. |
 | `brickStyle.styleLanguage` | string | — (**required**) | The toy-brick style text wrapped around every image prompt. Kept in config, never hardcoded; generic bricks only (no trademark). |
 
 ### `generator` — text generation
@@ -79,6 +79,10 @@ minimal config is valid. Only **`feedUrls`** and **`manifestPath`** are strictly
 | --- | --- | --- | --- |
 | `render.outputDir` | string | `site` | Directory the rendered site is written to (the deploy artifact). |
 | `render.secondaryStoryCount` | number | `4` | Number of secondary "rail" stories after the lead on the cover page. |
+| `render.timeZone` | string | `UTC` | IANA time zone the masthead dateline + time-of-day edition label are computed in (ADR-0008). Production uses `America/Denver`. |
+| `render.siteBaseUrl` | string | `https://www.brickfeed.news` | Absolute site origin (no trailing slash) used to build each per-story landing page's absolute `og:url` and the X share URLs (ADR-0009). Must be `http(s)://…`. |
+| `render.share.handle` | string | (unset) | Site X (Twitter) handle **without** a leading `@`; feeds `via=` on share links and `twitter:site` on landing cards. Omit to emit neither. |
+| `render.share.hashtags` | string[] | (unset) | Default hashtags for share links, each **without** a leading `#`. Omit for none. |
 
 ### `deploy`
 
