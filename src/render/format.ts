@@ -186,6 +186,24 @@ export function buildXIntentUrl(args: {
 }
 
 /**
+ * Build a LinkedIn share URL (companion to buildXIntentUrl) that opens LinkedIn's composer
+ * prefilled with a story: `https://www.linkedin.com/feed/?shareActive=true&text=…`. The text
+ * is the headline followed by the story's absolute landing-page URL on its own line; because
+ * that URL is present in the body, LinkedIn resolves the page's OG tags and auto-attaches the
+ * brick-image card — the same landing page X reads, so both platforms show our art.
+ *
+ * Unlike X there is no 280-char budget (LinkedIn posts are long-form) and no `via`/`hashtags`
+ * params, so this stays deliberately simpler: no truncation. Encoded via URLSearchParams so the
+ * newline and any punctuation in the headline are escaped correctly.
+ */
+export function buildLinkedInIntentUrl(args: { headline: string; pageUrl: string }): string {
+  const params = new URLSearchParams();
+  params.set("shareActive", "true");
+  params.set("text", `${args.headline}\n\n${args.pageUrl}`);
+  return `https://www.linkedin.com/feed/?${params.toString()}`;
+}
+
+/**
  * Truncate a headline to fit `max` characters, appending a single "…" when it was cut (the
  * ellipsis counts toward `max`). Never throws; a `max` of 0 yields "".
  */

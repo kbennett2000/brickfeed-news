@@ -14,8 +14,9 @@ assets/articles/article-01.md     # metadata + body
 ```
 
 Both halves are required — an article with no image is skipped (the same "never publish
-without an image" rule the feed follows). Images are uploaded to storage and referenced by
-URL; they are never committed to git (`assets/` is git-ignored).
+without an image" rule the feed follows). Accepted image extensions: **`.png`, `.jpg`,
+`.jpeg`, `.webp`**. Images are uploaded to storage and referenced by URL; they are never
+committed to git (`assets/` is git-ignored).
 
 ## The `.md` format
 
@@ -43,7 +44,7 @@ This is a test. For more information please visit [brickfeed.news](https://brick
 | `Headline`       | **yes**  | The article headline. A file with no headline is skipped. |
 | `Byline`         | no       | Shown verbatim (not the decorative "By the … Desk"). |
 | `Description`    | no       | Short teaser shown on cards. Blank if omitted. |
-| `Section`        | no       | One of the site sections (World, Politics, Business, Technology, Science, Sport, Culture, Opinion). Unknown/empty → World. |
+| `Section`        | no       | One of the site sections (World, Politics, Business, Technology, Science, Sports, Culture, Opinion). Unknown/empty → World. |
 | `Main Page Rank` | no       | Position on the **cover**. `1` = first story, `2` = second, … A rank past the story count lands last. `0` (default) = unranked. |
 | `SubPage Rank`   | no       | Position on the article's **section page**, same rules as Main Page Rank. Also accepts the spelling `Sub Page Rank`. |
 | `Expires`        | no       | Take-down date, `MM.DD.YYYY`. The article shows through the end of that day, then disappears everywhere. Omit (or use an invalid date) for no expiry. |
@@ -66,3 +67,8 @@ Field keys are case-insensitive and tolerate extra spaces. Blank lines between f
 Bodies are rendered with [`marked`](https://marked.js.org/) (GitHub-flavored, soft line
 breaks). Use a full URL in links (`[text](https://…)`) so they resolve off-site. Bodies are
 trusted operator content and are **not** sanitized — don't paste untrusted HTML into one.
+
+---
+
+For a simple sponsor/link **banner** (not a story), use a banner ad instead — see
+[ADS.md](ADS.md).

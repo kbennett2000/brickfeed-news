@@ -55,9 +55,9 @@ describe("parseArticle", () => {
   });
 
   it("matches keys case-insensitively and tolerates extra whitespace", () => {
-    const a = parseArticle("HEADLINE:  H \n  section :  sport \n\nBody:\nb", "x");
+    const a = parseArticle("HEADLINE:  H \n  section :  sports \n\nBody:\nb", "x");
     expect(a!.headline).toBe("H");
-    expect(a!.category).toBe("SPORT");
+    expect(a!.category).toBe("SPORTS");
   });
 
   it("defaults ranks to 0 and clamps negative/invalid to 0", () => {
