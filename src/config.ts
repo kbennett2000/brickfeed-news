@@ -199,8 +199,12 @@ export const DEFAULT_IMAGE_LOCAL_STYLE = "base";
 export const DEFAULT_STORAGE_PROVIDER: StorageConfig["provider"] = "blob";
 export const DEFAULT_STORAGE_BLOB_PATH_PREFIX = "images/";
 export const DEFAULT_STORAGE_BLOB_PUBLIC_BASE_URL = "";
-export const DEFAULT_STORAGE_LOCAL_DIR = "data/blob";
-export const DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL = "http://localhost:8189/blob";
+// Local storage writes INTO the render output dir so images ship with the site (Vercel
+// serves `site/` statically). `dir` is `site/images` and the public base is the RELATIVE
+// path `images`, so `put` returns `images/<id>.<ext>` — exactly what render emits as the
+// `<img src>` and what resolves under the served site root. (Overridable in config.)
+export const DEFAULT_STORAGE_LOCAL_DIR = "site/images";
+export const DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL = "images";
 
 /** Defaults for the age-out + publish outputs (Slice 4). */
 export const DEFAULT_MAX_AGE_HOURS = 72;

@@ -57,7 +57,7 @@ describe("BlobStorageProvider.put", () => {
 });
 
 describe("BlobStorageProvider.delete", () => {
-  it("POSTs the reconstructed public URL to the delete endpoint", async () => {
+  it("POSTs a delete for every candidate extension (id-only ⇒ can't know the stored ext)", async () => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "test-token");
     const runner = fakeStorageRunner({ routes: { [`POST ${DELETE_URL}`]: { ok: true } } });
 
@@ -67,7 +67,14 @@ describe("BlobStorageProvider.delete", () => {
     expect(call.method).toBe("POST");
     expect(call.url).toBe(DELETE_URL);
     expect(call.headers?.authorization).toBe("Bearer test-token");
-    expect(JSON.parse(call.body as string)).toEqual({ urls: [PUBLIC_URL] });
+    // All extensions put can produce, so a .jpg image is removed, not orphaned.
+    expect(JSON.parse(call.body as string)).toEqual({
+      urls: [
+        `${PUBLIC_BASE}/${PREFIX}${ID}.png`,
+        `${PUBLIC_BASE}/${PREFIX}${ID}.jpg`,
+        `${PUBLIC_BASE}/${PREFIX}${ID}.webp`,
+      ],
+    });
   });
 
   it("is non-fatal: a delete failure does not throw", async () => {

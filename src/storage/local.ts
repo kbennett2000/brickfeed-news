@@ -1,18 +1,22 @@
 import { promises as nodeFs } from "node:fs";
 import { join } from "node:path";
 import type { StorageFs, StorageProvider } from "../types.js";
-import { extForContentType } from "./blob.js";
+import { extForContentType, IMAGE_FILE_EXTENSIONS } from "./blob.js";
 
 /**
- * Local storage provider — the switchable alternative to Vercel Blob, for LAN /
- * self-hosted serving. Writes image bytes into a configured directory and returns a
- * public URL formed from a configured base URL + filename (whatever process serves
- * `dir` at `publicBaseUrl`).
+ * Local storage provider — the switchable alternative to Vercel Blob, and the keyless
+ * path. Writes image bytes into a configured directory and returns a public URL formed
+ * from a configured base URL + filename. The defaults put images INSIDE the render output
+ * (`dir: site/images`, `publicBaseUrl: images`), so `put` returns the RELATIVE URL
+ * `images/<id>.<ext>` — exactly what render emits as `<img src>` and what resolves under
+ * the served site root (Vercel serves `site/` statically; the images ship with it).
  *
  * `put` writes atomically (temp file + rename, mirroring writeManifest) so a crash
- * mid-write can't leave a half-written image. NEVER THROWS: any FS error returns null
- * so the story stays unpublished. `delete` unlinks the file; a missing file or any
- * other error is non-fatal (logged), so age-out can always drop the record.
+ * mid-write can't leave a half-written image, and derives the file extension from the
+ * content-type so a JPEG isn't misnamed `.png`. NEVER THROWS: any FS error returns null
+ * so the story stays unpublished. `delete` unlinks the stored file for real — trying every
+ * extension put can produce, since it only gets the id; a missing file or any other error
+ * is non-fatal (logged), so age-out can always drop the record.
  *
  * The filesystem boundary is injected (defaults to node:fs/promises) so tests can drive
  * failure paths without a real disk; happy-path round-trips use a real temp dir.
@@ -43,19 +47,21 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   async delete(id: string): Promise<void> {
-    // Reconstruct the default (.png) filename — the orchestrator stores png images.
-    const filename = `${id}${extForContentType("image/png")}`;
-    const path = join(this.dir, filename);
-    try {
-      await this.fs.unlink(path);
-    } catch (err) {
-      // Missing file (already gone) or any other error is non-fatal.
-      const code = (err as { code?: string }).code;
-      if (code !== "ENOENT") {
-        console.warn(
-          `local delete failed for ${id}:`,
-          err instanceof Error ? err.message : err,
-        );
+    // delete() gets only the id, not the stored content-type, so try every extension put
+    // can produce and remove whichever file actually exists (grok stores .jpg). A missing
+    // candidate (ENOENT) is expected and silent; any other error is non-fatal (logged).
+    for (const ext of IMAGE_FILE_EXTENSIONS) {
+      const path = join(this.dir, `${id}${ext}`);
+      try {
+        await this.fs.unlink(path);
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code !== "ENOENT") {
+          console.warn(
+            `local delete failed for ${id}${ext}:`,
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
     }
   }
