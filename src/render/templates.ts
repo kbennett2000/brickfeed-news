@@ -8,6 +8,7 @@
  * the single source of truth — never a re-listed local copy. The wordmark is always
  * "brickfeed"; no trademarked brand name appears anywhere.
  */
+import type { AdView } from "../ads.js";
 import { CATEGORIES, type Category } from "../category.js";
 import { escapeAttr, escapeHtml, sectionSlug, titleCase } from "./format.js";
 
@@ -112,18 +113,23 @@ export function masthead(): string {
 }
 
 /**
- * The sticky section nav. Links are generated from CATEGORIES (imported), so the nav is
- * always in sync with the taxonomy. `active` underlines the current section on its page.
+ * The sticky section nav. Section links are generated from CATEGORIES (imported) so the nav
+ * stays in sync with the taxonomy, minus OPINION (hidden here — it has no content — and its
+ * slot given to About instead). `active` underlines the current section on its page. About is
+ * a standalone page, never a category, so it never takes the active state.
  */
 export function sectionNav(active?: Category): string {
-  const links = CATEGORIES.map((c) => {
-    const cls = c === active ? "nav__link nav__link--active" : "nav__link";
-    return `<a class="${cls}" href="${sectionSlug(c)}.html">${escapeHtml(titleCase(c))}</a>`;
-  }).join("");
+  const links = CATEGORIES.filter((c) => c !== "OPINION")
+    .map((c) => {
+      const cls = c === active ? "nav__link nav__link--active" : "nav__link";
+      return `<a class="${cls}" href="${sectionSlug(c)}.html">${escapeHtml(titleCase(c))}</a>`;
+    })
+    .join("");
+  const aboutNavLink = `<a class="nav__link" href="about.html">About</a>`;
   return `<div class="nav">
     <div class="container nav__inner">
       <a class="nav__brand" href="index.html">${studs("")}brickfeed</a>
-      <nav class="nav__links">${links}</nav>
+      <nav class="nav__links">${links}${aboutNavLink}</nav>
     </div>
   </div>`;
 }
@@ -197,12 +203,38 @@ export function emptyState(message: string): string {
 }
 
 /**
+ * The rotating leaderboard banner, drawn once per page below the nav. Each ad is a link to
+ * its outbound URL wrapping our own image (never a publisher's). With one ad it's static;
+ * with several, the stylesheet's crossfade (see adAnimationCss in styles.ts) cycles them.
+ * Returns "" for an empty list, so a site with no ads simply renders no banner.
+ *
+ * `rel="noopener sponsored nofollow"` marks these as paid/creator links per web conventions;
+ * `target="_blank"` opens them in a new tab like the story links do.
+ */
+export function adBanner(ads: AdView[]): string {
+  if (ads.length === 0) return "";
+  const slides = ads
+    .map(
+      (ad) =>
+        `<a class="adbanner__slide" href="${escapeAttr(ad.href)}" target="_blank" rel="noopener sponsored nofollow">` +
+        `<img class="adbanner__img" src="${escapeAttr(ad.imageUrl)}" alt="${escapeAttr(ad.alt)}"></a>`,
+    )
+    .join("");
+  return `<div class="container">
+    <aside class="adbanner" aria-label="Advertisement">
+      <div class="adbanner__label">Advertisement</div>
+      <div class="adbanner__frame">${slides}</div>
+    </aside>
+  </div>`;
+}
+
+/**
  * The creator portrait for the About page — our own generated toy-brick art, hosted in Blob
  * alongside the story images (the repo stays text-only; only this URL is committed). Keyed
  * outside the manifest, so age-out never touches it.
  */
 export const ABOUT_PORTRAIT_URL =
-  "https://7fjkp0rhcwadfro9.public.blob.vercel-storage.com/images/about-portrait.jpg";
+  "https://7fjkp0rhcwadfro9.public.blob.vercel-storage.com/images/about-portrait-91deb1d497.jpg";
 
 /** One external profile link on the About page — always opens in a new tab. */
 function aboutLink(href: string, label: string): string {
@@ -210,12 +242,13 @@ function aboutLink(href: string, label: string): string {
 }
 
 /**
- * The standalone About page: the same chrome + shell as every other page, a framed toy-brick
- * portrait of the creator, a short deadpan bio, and the outbound profile links. Static copy is
- * written as literal HTML (like the footer disclaimer); only the URLs are escaped.
+ * The standalone About page: the same chrome + shell as every other page, the site-wide
+ * banner, a framed toy-brick portrait of the creator, a short deadpan bio, and the outbound
+ * profile links. Static copy is written as literal HTML (like the footer disclaimer); only
+ * the URLs are escaped.
  */
-export function renderAbout(dateStr: string, edition: string): string {
-  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav();
+export function renderAbout(dateStr: string, edition: string, banner: string): string {
+  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav() + banner;
   const body =
     chrome +
     `<main>
@@ -249,9 +282,12 @@ export function renderAbout(dateStr: string, edition: string): string {
 
 /** The footer: wordmark + tagline, the live Sections links, disclaimer. */
 export function footer(): string {
-  const sectionLinks = CATEGORIES.map(
-    (c) => `<a class="footer__link" href="${sectionSlug(c)}.html">${escapeHtml(titleCase(c))}</a>`,
-  ).join("");
+  // OPINION is omitted (no content); every other section is listed, as before.
+  const sectionLinks = CATEGORIES.filter((c) => c !== "OPINION")
+    .map(
+      (c) => `<a class="footer__link" href="${sectionSlug(c)}.html">${escapeHtml(titleCase(c))}</a>`,
+    )
+    .join("");
   return `<footer class="footer">
     <div class="container footer__inner">
       <div class="footer__brandwrap">

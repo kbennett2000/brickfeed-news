@@ -61,13 +61,16 @@ describe("renderSite — cover page", () => {
     expect(index).toContain("Summit Ends With a Handshake and a Communique");
   });
 
-  it("renders the section nav from the CATEGORIES enum (not a hardcoded list)", () => {
+  it("renders the section nav from the CATEGORIES enum (minus Opinion), plus an About link", () => {
     for (const c of CATEGORIES) {
-      // Title-cased nav label + slugged href for every enum member.
+      if (c === "OPINION") continue; // hidden from the nav — no content; About takes its slot
+      // Title-cased nav label + slugged href for every other enum member.
       const label = c.charAt(0) + c.slice(1).toLowerCase();
       expect(index).toContain(`>${label}</a>`);
       expect(index).toContain(`href="${sectionSlug(c)}.html"`);
     }
+    expect(index).not.toContain(">Opinion</a>"); // Opinion is not linked anywhere on the page
+    expect(index).toContain('href="about.html">About</a>'); // About sits in the nav now
   });
 
   it("renders category kickers", () => {
@@ -195,7 +198,7 @@ describe("renderSite — about page", () => {
 
   it("shows the toy-brick portrait from Blob storage", () => {
     expect(about).toContain(
-      'src="https://7fjkp0rhcwadfro9.public.blob.vercel-storage.com/images/about-portrait.jpg"',
+      'src="https://7fjkp0rhcwadfro9.public.blob.vercel-storage.com/images/about-portrait-91deb1d497.jpg"',
     );
   });
 
@@ -219,8 +222,9 @@ describe("renderSite — robustness", () => {
     expect(index).toContain("brickfeed");
     expect(index).toContain("All the stories, brick by brick");
     expect(index).toContain("Nothing to brick, just now.");
-    // Nav still renders from the enum even with no stories.
+    // Nav still renders from the enum (minus Opinion) even with no stories.
     for (const c of CATEGORIES) {
+      if (c === "OPINION") continue;
       expect(index).toContain(`href="${sectionSlug(c)}.html"`);
     }
   });
@@ -276,5 +280,74 @@ describe("format helpers", () => {
     expect(editionLabel(t, "UTC")).toBe("Midnight Edition"); // 02:00 UTC
     expect(editionLabel(t, "America/Denver")).toBe("Night Edition"); // 20:00 local
     expect(editionLabel(new Date("2026-07-10T12:00:00.000Z"))).toBe("Afternoon Edition"); // default UTC
+  });
+});
+
+const AD_A = {
+  imageUrl: "https://cdn.test/ads/ad-01.png",
+  href: "https://github.com/kbennett2000/slopify",
+  alt: "Advertisement — github.com",
+};
+const AD_B = {
+  imageUrl: "https://cdn.test/ads/ad-02.jpg",
+  href: 'https://example.com/two?q="x"', // quote must be escaped in the href attribute
+  alt: "Advertisement — example.com",
+};
+
+describe("renderSite — banner ads", () => {
+  it("omits the banner entirely when there are no ads", () => {
+    const files = renderSite(records, OPTS);
+    expect(files["index.html"]).not.toContain("adbanner");
+    expect(files[`${sectionSlug("WORLD")}.html`]).not.toContain("adbanner");
+    expect(files["styles.css"]).not.toContain("@keyframes adbannerfade");
+  });
+
+  it("also omits the banner when ads is an empty array", () => {
+    const files = renderSite(records, { ...OPTS, ads: [] });
+    expect(files["index.html"]).not.toContain("adbanner");
+  });
+
+  describe("with two ads", () => {
+    const files = renderSite(records, { ...OPTS, ads: [AD_A, AD_B] });
+    const index = files["index.html"];
+
+    it("renders the banner site-wide (cover + every section)", () => {
+      expect(index).toContain('class="adbanner"');
+      for (const c of CATEGORIES) {
+        expect(files[`${sectionSlug(c)}.html`]).toContain('class="adbanner"');
+      }
+    });
+
+    it("places the banner above the main content (below the nav)", () => {
+      expect(index.indexOf("adbanner")).toBeLessThan(index.indexOf("<main"));
+    });
+
+    it("links each ad out in a new tab, marked sponsored, with escaped href", () => {
+      expect(index).toContain(`href="${AD_A.href}"`);
+      expect(index).toContain('rel="noopener sponsored nofollow"');
+      expect(index).toContain('target="_blank"');
+      // The quote in AD_B's href is escaped — no attribute break-out.
+      expect(index).toContain("https://example.com/two?q=&quot;x&quot;");
+      expect(index).not.toContain('href="https://example.com/two?q="x""');
+    });
+
+    it("renders our own image and an Advertisement label (never a publisher photo)", () => {
+      expect(index).toContain(`src="${AD_A.imageUrl}"`);
+      expect(index).toContain(`alt="${AD_A.alt}"`);
+      expect(index).toContain("Advertisement");
+    });
+
+    it("emits the generated crossfade keyframes into styles.css for >1 ad", () => {
+      const css = files["styles.css"];
+      expect(css).toContain("@keyframes adbannerfade");
+      expect(css).toContain(".adbanner__slide:nth-child(2)");
+      expect(css).toContain("prefers-reduced-motion");
+    });
+  });
+
+  it("renders a single ad statically — no crossfade keyframes", () => {
+    const files = renderSite(records, { ...OPTS, ads: [AD_A] });
+    expect(files["index.html"]).toContain('class="adbanner"');
+    expect(files["styles.css"]).not.toContain("@keyframes adbannerfade");
   });
 });

@@ -2,6 +2,7 @@
  * Shared types for the ingestion backbone (Slice 1) and the Claude generation
  * layer (Slice 2), per docs/adr/0001-brickfeed-architecture.md.
  */
+import type { AdView } from "./ads.js";
 import type { Category } from "./category.js";
 
 /** A single item parsed from an RSS feed, before link resolution / identity. */
@@ -288,6 +289,12 @@ export interface CycleIo {
    */
   writePublished(path: string, manifest: Manifest, storage?: StorageProvider): Promise<void>;
   writeSite(outputDir: string, files: Record<string, string>): Promise<void>;
+  /**
+   * Read local banner ads from `dir`, upload their images via `storage`, and return the
+   * publishable ad views for the render. A disk read, so it lives on this IO boundary —
+   * tests stub it to stay hermetic; production wires the real loadAds.
+   */
+  loadAds(dir: string, storage: StorageProvider): Promise<AdView[]>;
 }
 
 /**
