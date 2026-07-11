@@ -233,6 +233,8 @@ img { max-width: 100%; display: block; }
   .container { padding: 0 24px; }
   .utility__inner, .masthead, .footer__inner { padding-left: 24px; padding-right: 24px; }
   .hero { grid-template-columns: 1fr; gap: 34px; }
+  /* On narrow screens give the ad clear air below it so it doesn't crowd the lead image. */
+  .adbanner { margin-top: 26px; margin-bottom: 26px; }
   .rail { border-left: 0; padding-left: 0; border-top: 1px solid var(--rule-color); padding-top: 30px; }
   .cards { grid-template-columns: repeat(2, 1fr); }
   .cards--section { grid-template-columns: repeat(2, 1fr); }
