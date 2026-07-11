@@ -44,8 +44,8 @@
       "publicBaseUrl": "https://your-store-id.public.blob.vercel-storage.com"
     },
     "local": {
-      "dir": "data/blob",
-      "publicBaseUrl": "http://localhost:8189/blob"
+      "dir": "site/images",
+      "publicBaseUrl": "images"
     }
   },
   "maxAgeHours": 72,

@@ -42,6 +42,28 @@ describe("LocalStorageProvider — real filesystem round-trip", () => {
     const provider = new LocalStorageProvider({ dir, publicBaseUrl: `${PUBLIC_BASE}/` });
     expect(await provider.put("abc", PNG, "image/png")).toBe(`${PUBLIC_BASE}/abc.png`);
   });
+
+  it("stores JPEG bytes under a .jpg name and deletes them (extension follows content-type)", async () => {
+    const dir = await tempDir();
+    const provider = new LocalStorageProvider({ dir, publicBaseUrl: PUBLIC_BASE });
+    const jpeg = bytes("\xff\xd8\xff...jpeg...");
+
+    const url = await provider.put("xyz", jpeg, "image/jpeg");
+    expect(url).toBe(`${PUBLIC_BASE}/xyz.jpg`);
+    expect(new Uint8Array(await readFile(join(dir, "xyz.jpg")))).toEqual(jpeg);
+
+    // delete only gets the id, yet still removes the real .jpg artifact.
+    await provider.delete("xyz");
+    await expect(readFile(join(dir, "xyz.jpg"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("returns a RELATIVE url when publicBaseUrl is a relative path (resolves under the served site)", async () => {
+    // The keyless default: dir inside site/, base "images" → src="images/<id>.jpg" that
+    // resolves against the site root when Vercel serves site/ statically.
+    const dir = await tempDir();
+    const provider = new LocalStorageProvider({ dir, publicBaseUrl: "images" });
+    expect(await provider.put("story7", PNG, "image/png")).toBe("images/story7.png");
+  });
 });
 
 describe("LocalStorageProvider — never-throw failure modes", () => {

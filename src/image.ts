@@ -2,8 +2,37 @@ import type { Config } from "./config.js";
 import { mapWithConcurrency } from "./pool.js";
 import type { ImageDeps, Manifest, ManifestRecord } from "./types.js";
 
-/** Content-type the pipeline stores images as (Grok Imagine / local imagegen return PNG). */
-const IMAGE_CONTENT_TYPE = "image/png";
+/**
+ * Detect an image's content-type from its leading magic bytes. Grok Imagine emits JPEG;
+ * local imagegen may emit PNG/WebP. Sniffing the bytes (rather than trusting a hardcoded
+ * type) keeps the stored file's EXTENSION honest, so the served `<img>` and the delete-key
+ * both match what was actually written. Unknown/short input falls back to PNG.
+ */
+export function detectImageContentType(bytes: Uint8Array): string {
+  // JPEG: FF D8 FF
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return "image/png";
+  }
+  // WebP: "RIFF" .... "WEBP"
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  return "image/png"; // unknown — default matches the historical assumption
+}
 
 export interface ImageResult {
   /** Story IDs whose image was generated, stored, and persisted this run. */
@@ -90,9 +119,10 @@ export async function generateImages(
 
     let url: string | null = null;
     if (bytes != null) {
-      // Storage never throws (returns null on failure), but guard anyway.
+      // Storage never throws (returns null on failure), but guard anyway. The content-type
+      // is sniffed from the bytes so the stored extension is correct (grok emits JPEG).
       try {
-        url = await deps.storage.put(record.id, bytes, IMAGE_CONTENT_TYPE);
+        url = await deps.storage.put(record.id, bytes, detectImageContentType(bytes));
       } catch {
         url = null;
       }

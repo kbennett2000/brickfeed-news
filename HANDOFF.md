@@ -1,5 +1,37 @@
 # Handoff
 
+## Local storage now writes images INTO site/ with a resolving URL (issue #26, PR pending)
+
+**Bug:** with `storage.provider=local`, a keyless run produced a `site/` where every `<img>` was
+broken. Root causes: (1) the local default `dir` was `data/blob` — git-ignored and *outside* the
+`site/` deploy artifact — with an absolute `http://localhost:8189/blob` `publicBaseUrl` that
+doesn't resolve when Vercel serves `site/` statically (render emits `imageUrl` verbatim as the
+`<img src>`); (2) the image stage hardcoded `image/png`, but grok emits **JPEG**, so files carried
+the wrong extension; (3) `local.delete()` / `blob.delete()` reconstructed a hardcoded `.png` name,
+so age-out couldn't remove a `.jpg` — orphaned artifacts.
+
+**Fix:**
+- **`src/config.ts` + `config.example.json`** — local defaults now `dir: "site/images"`,
+  `publicBaseUrl: "images"`. `put` returns the RELATIVE URL `images/<id>.<ext>` — exactly what
+  render emits and what resolves under the served site root. Images ship inside `site/`, so
+  `vercel` (cwd `site/`) uploads them with the pages.
+- **`src/image.ts`** — new `detectImageContentType(bytes)` sniffs JPEG/PNG/WebP magic bytes and
+  passes the REAL content-type to `storage.put`, so the stored extension is honest (grok → `.jpg`).
+- **`src/storage/local.ts` + `src/storage/blob.ts`** — `delete(id)` (which only gets the id) now
+  targets every extension `put` can produce (`IMAGE_FILE_EXTENSIONS = .png/.jpg/.webp`): local
+  unlinks each candidate; blob POSTs all candidate URLs in one request. No orphaned `.jpg`.
+- Tests **288 passing** (+7): local JPEG round-trip + relative-URL shape, blob multi-ext delete,
+  `detectImageContentType` unit tests, JPEG-content-type-through-the-stage. Gates clean
+  (`process.env` only in `secrets.ts`; no lego).
+- **PROVEN keyless (no API keys), real grok-terminal + local storage, 3 stories** via a scratch
+  config through the real `runCycle` path (box `data/`/`site/` untouched): 3 generated + 3 stored
+  as **`.jpg`** (256–359 KB, all non-zero) under `site/images/`; rendered `<img src="images/<id>.jpg">`;
+  serving `site/` as web root, every image `GET` → **200 image/jpeg** with the exact byte count.
+- **Box `config.json` (gitignored, on-box edit):** added a `storage` block set to `provider:
+  "local"` with `dir: "site/images"`, `publicBaseUrl: "images"` (was: no storage block → defaulted
+  to blob, which needs a token = not keyless). A real `npm run cycle -- --no-deploy` on the box is
+  now keyless with zero manual edits.
+
 ## grok-terminal pipeline sped up: stage concurrency + cap + logging + timeout (issue #24, PR pending)
 
 The cycle was slow because `generate` then `image` ran one grok CLI call per story, **serially**

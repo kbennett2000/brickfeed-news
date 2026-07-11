@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateImages } from "../src/image.js";
+import { detectImageContentType, generateImages } from "../src/image.js";
 import type { ImageDeps, Manifest, ManifestRecord } from "../src/types.js";
 import { bytes, fakeImageProvider, fakeStorageProvider, fixedNow, makeConfig } from "./helpers.js";
 
@@ -79,6 +79,18 @@ describe("generateImages", () => {
     await generateImages(config, manifest, depsWith(provider, storage));
 
     expect(manifest.stories.a.imageUrl).toBeUndefined();
+  });
+
+  it("hands storage the content-type sniffed from the bytes (grok emits JPEG)", async () => {
+    // Real JPEG magic (FF D8 FF) → storage is told image/jpeg, so the file gets a .jpg name.
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+    const provider = fakeImageProvider({ impl: () => jpeg });
+    const storage = fakeStorageProvider();
+    const manifest = manifestOf(eligible("a"));
+
+    await generateImages(config, manifest, depsWith(provider, storage));
+
+    expect(storage.puts[0].contentType).toBe("image/jpeg");
   });
 
   it("skips records without a wrappedPrompt and never calls the provider or storage", async () => {
@@ -206,5 +218,29 @@ describe("generateImages", () => {
     expect(logs).toHaveLength(3);
     expect(logs.filter((l) => / ok \(/.test(l))).toHaveLength(2);
     expect(logs.some((l) => /^image 2\/3 b: pending \(/.test(l))).toBe(true);
+  });
+});
+
+describe("detectImageContentType", () => {
+  it("detects JPEG from FF D8 FF", () => {
+    expect(detectImageContentType(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe("image/jpeg");
+  });
+
+  it("detects PNG from the 8-byte signature", () => {
+    expect(
+      detectImageContentType(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+    ).toBe("image/png");
+  });
+
+  it("detects WebP from RIFF....WEBP", () => {
+    const webp = new Uint8Array([
+      0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+    ]);
+    expect(detectImageContentType(webp)).toBe("image/webp");
+  });
+
+  it("defaults to PNG for unknown or too-short input", () => {
+    expect(detectImageContentType(new Uint8Array([0x00, 0x01, 0x02]))).toBe("image/png");
+    expect(detectImageContentType(new Uint8Array(0))).toBe("image/png");
   });
 });

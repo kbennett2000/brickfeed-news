@@ -70,9 +70,10 @@ export class BlobStorageProvider implements StorageProvider {
       return;
     }
 
-    // We derive the extension the same way put does; ids only ever carry .png/.jpg
-    // images, and put defaults to .png, so reconstruct with the default contentType.
-    const key = storageKey(this.pathPrefix, id, "image/png");
+    // delete() gets only the id, not the stored content-type, so target every extension
+    // put can produce — one delete request removes whichever object actually exists
+    // (Blob ignores urls that aren't present), so a .jpg image is never orphaned.
+    const urls = IMAGE_FILE_EXTENSIONS.map((ext) => this.publicUrl(`${this.pathPrefix}${id}${ext}`));
     try {
       const resp = await this.runner({
         url: `${API_BASE}/delete`,
@@ -82,7 +83,7 @@ export class BlobStorageProvider implements StorageProvider {
           "x-api-version": API_VERSION,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ urls: [this.publicUrl(key)] }),
+        body: JSON.stringify({ urls }),
       });
       if (!resp.ok) {
         console.warn(`blob delete failed for ${id}: status ${resp.status}`);
@@ -112,6 +113,13 @@ export function extForContentType(contentType: string): string {
   if (ct.includes("webp")) return ".webp";
   return ".png";
 }
+
+/**
+ * Every extension `put` can produce (see extForContentType). `delete` only gets a story
+ * id — not the content-type it was stored with — so it targets ALL candidates to remove
+ * the real artifact regardless of which one was written (grok stores .jpg, older runs .png).
+ */
+export const IMAGE_FILE_EXTENSIONS = [".png", ".jpg", ".webp"] as const;
 
 function trimTrailingSlash(s: string): string {
   return s.endsWith("/") ? s.slice(0, -1) : s;
