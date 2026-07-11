@@ -123,23 +123,29 @@ img { max-width: 100%; display: block; }
 .figcaption__credit { font-style: normal; text-transform: uppercase; letter-spacing: 0.1em; font-size: 10px; color: var(--credit); }
 
 /* ---- image zoom-on-hover (CSS-only full-size preview) ---- */
-/* The frame crops via object-fit:cover; hovering it reveals the whole image at natural size,
-   centered over a flat scrim (no shadow, per the aesthetic). pointer-events:none so it never
-   blocks the underlying story link or other cards. Hidden on touch (no hover). */
+/* The frame crops via object-fit:cover; dwelling on it for ~1s reveals the whole image at
+   natural size, centered over a flat scrim (no shadow, per the aesthetic), fading in and out.
+   pointer-events:none so it never blocks the story link or other cards. Hidden on touch. */
 .figure__zoom {
   position: fixed; inset: 0; z-index: 100;
   display: flex; align-items: center; justify-content: center;
   padding: 4vmin;
   background: rgba(33, 29, 24, 0.55);
   opacity: 0; visibility: hidden; pointer-events: none;
-  transition: opacity .12s ease;
+  /* Leaving: fade out promptly (no delay), then flip hidden once fully faded. */
+  transition: opacity .3s ease, visibility 0s linear .3s;
 }
 .figure__zoom-img {
   max-width: 90vw; max-height: 90vh; width: auto; height: auto;
   border: 1px solid var(--photo-border);
 }
 @media (hover: hover) {
-  .figure__frame:hover + .figure__zoom { opacity: 1; visibility: visible; }
+  /* Entering: hover-intent — hold 1s, then reveal and fade in. Moving away before 1s shows
+     nothing (opacity is still 0 through the delay, so the leave transition is a no-op). */
+  .figure__frame:hover + .figure__zoom {
+    opacity: 1; visibility: visible;
+    transition: opacity .3s ease 1s, visibility 0s linear 1s;
+  }
 }
 
 /* ---- hero ---- */
