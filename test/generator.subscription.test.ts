@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SubscriptionGenerator,
+  buildClaudeArgs,
   extractJsonObject,
   extractResultText,
   parseGeneratorOutput,
@@ -134,6 +135,22 @@ describe("SubscriptionGenerator.generate — never-throw failure modes", () => {
       runner: fakeRunner({ stdout: "" }),
     });
     expect(await gen.generate(INPUT)).toBeNull();
+  });
+});
+
+describe("buildClaudeArgs — headless CLI invocation", () => {
+  it("uses -p --output-format json --model <model>", () => {
+    expect(buildClaudeArgs("claude-haiku-4-5-20251001")).toEqual([
+      "-p",
+      "--output-format",
+      "json",
+      "--model",
+      "claude-haiku-4-5-20251001",
+    ]);
+  });
+
+  it("never passes --bare (it skips the subscription login → 'Not logged in')", () => {
+    expect(buildClaudeArgs("any-model")).not.toContain("--bare");
   });
 });
 
