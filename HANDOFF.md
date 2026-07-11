@@ -1,5 +1,34 @@
 # Handoff
 
+## Live harness: verify the `claude` (Haiku) text provider before switching off Grok (branch `feat/claude-generator-live-check`)
+
+Groundwork for moving **text** generation from `grok-terminal` to `claude` (Haiku by default) —
+**image generation stays on Grok**. No config flip yet; this cycle only adds the opt-in test the
+operator asked for so they can confirm Claude produces all artifacts before switching.
+
+- **New `scripts/check-claude-generator.ts`** (`npm run check:claude`, `-- --model=<id>` to override;
+  default `claude-haiku-4-5-20251001`). Drives the **real** `claude -p` CLI through the production
+  `SubscriptionGenerator` (no injected runner) over 5 diverse stories, then prints each of the five
+  artifacts (headline/description/imagePrompt/category/caption) with HARD checks (non-null, all four
+  text fields non-empty, category in taxonomy) and SOFT quality warnings (verbatim-title, word
+  counts). Exits non-zero on any hard failure. Never greps for trademark strings (CLAUDE.md
+  guardrail) — brand/text-in-scene review is left to the eyeball.
+- **Not wired into `npm test`** (stays mock-first/offline). Added `scripts` to `tsconfig.json`
+  `include` so the harness is typechecked; noted usage in `docs/CONFIGURATION.md`.
+- The switch itself remains a config-only follow-up: the `claude` provider already shares the exact
+  prompt (`src/prompt.ts`) and parser (`src/generator/parse.ts`) with `grok-terminal`. Once the
+  harness passes on the box, set `generator.provider: "claude"` + `generator.model` to the Haiku id,
+  leaving `image.provider` on Grok.
+
+Verified: `npx tsc --noEmit` clean; **`npm test` 399 passing, 32 files**; the harness runs
+end-to-end and **fails safe correctly** — in this environment headless `claude -p` reported
+"Not logged in" (no `CLAUDE_CODE_OAUTH_TOKEN`, stored login not honored for `-p`), so it printed
+`0/5 · FAIL` with the `claude setup-token` hint and exited 1. **The real artifact-quality run is the
+operator's step:** authenticate headless `claude` (`claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`,
+or a `-p`-honored login), then re-run `npm run check:claude` and eyeball the Haiku output.
+
+---
+
 ## Share sheet: LinkedIn button + section split + filtering, and `Sport`→`Sports` (branch `feat/share-linkedin-sections-filter`)
 
 Operator-facing changes to the private `share.html` worksheet plus a taxonomy rename. All in the

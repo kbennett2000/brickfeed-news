@@ -127,3 +127,22 @@ Three independent seams. The recommended **keyless** production combination is i
 
 See [INSTALL.md](INSTALL.md) for setting these up on an Ubuntu server and
 [ARCHITECTURE.md](ARCHITECTURE.md) for how the seams fit into the pipeline.
+
+## Live-checking the `claude` text provider before switching
+
+Before moving text generation from `grok-terminal` to `claude` (Haiku by default) — image
+generation stays on Grok — run the opt-in live harness to confirm the real Claude CLI
+produces every text artifact:
+
+```
+npm run check:claude                          # Haiku (claude-haiku-4-5-20251001)
+npm run check:claude -- --model=claude-sonnet-5   # try another model
+```
+
+It drives the real `claude -p` CLI (not a mock — so it's kept out of `npm test`) over a
+handful of diverse stories and prints each `headline` / `description` / `imagePrompt` /
+`category` / `caption` alongside pass/fail checks. It needs the `claude` CLI logged in
+(`CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, or a stored login) and exits non-zero
+if any story fails to produce all artifacts. A green run is the go-ahead to set
+`generator.provider` to `"claude"` and `generator.model` to the Haiku id, leaving
+`image.provider` on Grok.

@@ -11,6 +11,7 @@
     "ageout": "tsx src/ageout-cli.ts",
     "render": "tsx src/render-cli.ts",
     "cycle": "tsx src/cycle-cli.ts",
+    "check:claude": "tsx scripts/check-claude-generator.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
