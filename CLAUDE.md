@@ -49,13 +49,13 @@ Every cycle ends in one of these two states, then stops. Never close the issue.
 
 brickfeed-news pulls stories from a news RSS feed (Google News / Drudge-style), rewrites each into an original headline + short description, generates a toy-brick-styled image per story, and renders a static cover page that links out to the source article. It's a personal, non-commercial hobby service.
 
-**Stack:** TypeScript / Node (via `tsx`), built-in `http` + `fetch`, minimal deps. Static output (HTML) is the deploy artifact; Vercel (Hobby tier) serves it, redeploying on push to this repo.
+**Stack:** TypeScript / Node (via `tsx`), built-in `http` + `fetch`, minimal deps (`fast-xml-parser` + `marked`). Static output (HTML under `site/`) is the deploy artifact; the cycle publishes it directly with `vercel --prod --yes` from the box (ADR-0006). `site/` is git-ignored, so a git push does **not** trigger the deploy.
 
-**Runtime topology:** the orchestrator runs on Kris's LAN server (dev PC during development). Image generation is a separate microservice (`imagegen-service`) reached over LAN at `http://<devpc>:8189` — brickfeed calls it, never imports it. Image generation is phased in LAST; build RSS parsing + the Claude generation layer first, with the imagegen call stubbed.
+**Runtime topology:** the orchestrator runs on Kris's LAN server (dev PC during development). Text and image generation both default to the **keyless `grok-terminal` provider** (the agentic `grok` CLI driven headlessly, authenticated by a one-time subscription login — ADR-0007); no generation API key is read at run time. The generator and image seams are pluggable (see `docs/CONFIGURATION.md`): alternatives include the xAI `grok` API, the Claude subscription CLI, and a `local` LAN imagegen microservice at `http://<devpc>:8189` (`image.provider: local`). Storage defaults to Vercel Blob (needs `BLOB_READ_WRITE_TOKEN`).
 
-**Pipeline (one run):** fetch RSS → canonicalize each story to a stable ID → drop already-seen stories → for each NEW story: generate headline + description + image prompt via Claude, wrap the prompt with configurable brick style language, request image from imagegen, persist artifacts → age out stories older than a configurable threshold (delete their artifacts for real) → render static page → commit text-only changes → push (triggers Vercel deploy).
+**Pipeline (one run):** fetch RSS → canonicalize each story to a stable ID → drop already-seen stories → for each NEW story: generate headline + description + image prompt (default `grok-terminal`), wrap the prompt with configurable brick style language, request the image, store it durably → age out stories older than a configurable threshold (delete their artifacts for real) → render the static site — folding in banner ads (`docs/ADS.md`) and locally hosted articles (`docs/ARTICLES.md`) from `assets/` — → deploy with `vercel --prod`.
 
-**Test command:** `npm test` (vitest). CI-safe and mock-first: no live network, no running imagegen, no GPU. Mock the RSS fetch, the Claude generator, and the imagegen HTTP call.
+**Test command:** `npm test` (vitest). CI-safe and mock-first: no live network, no running imagegen, no GPU. Mock the RSS fetch, the generator, and the imagegen/storage HTTP calls.
 
 **Conventions:**
 - ADR-first: `docs/adr/000N-*.md` is the authoritative contract for each slice. Build in vertical slices, smallest reviewable unit; open a GitHub issue per slice.

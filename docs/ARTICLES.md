@@ -14,8 +14,9 @@ assets/articles/article-01.md     # metadata + body
 ```
 
 Both halves are required — an article with no image is skipped (the same "never publish
-without an image" rule the feed follows). Images are uploaded to storage and referenced by
-URL; they are never committed to git (`assets/` is git-ignored).
+without an image" rule the feed follows). Accepted image extensions: **`.png`, `.jpg`,
+`.jpeg`, `.webp`**. Images are uploaded to storage and referenced by URL; they are never
+committed to git (`assets/` is git-ignored).
 
 ## The `.md` format
 
@@ -66,3 +67,8 @@ Field keys are case-insensitive and tolerate extra spaces. Blank lines between f
 Bodies are rendered with [`marked`](https://marked.js.org/) (GitHub-flavored, soft line
 breaks). Use a full URL in links (`[text](https://…)`) so they resolve off-site. Bodies are
 trusted operator content and are **not** sanitized — don't paste untrusted HTML into one.
+
+---
+
+For a simple sponsor/link **banner** (not a story), use a banner ad instead — see
+[ADS.md](ADS.md).

@@ -169,8 +169,31 @@ Optional overrides (environment variables read by the wrapper):
 
 - `BRICKFEED_LOCK` — lock file path (default `/tmp/brickfeed.lock`).
 - `BRICKFEED_LOG` — log file path (default `<repo>/cycle.log`).
+- `BRICKFEED_HEARTBEAT_SECS` — heartbeat interval, seconds (default `30`); the wrapper prints an
+  "still working" line this often so a long, quiet stage isn't mistaken for a hang.
+
+> **Where to put `BLOB_READ_WRITE_TOKEN` for cron.** Two mechanisms work; pick one. (a) Inline in
+> the crontab as shown above. (b) **Recommended:** put it in a git-ignored `cron.env` file at the
+> repo root (`BLOB_READ_WRITE_TOKEN=vercel_blob_rw_…`) — `scripts/cycle.sh` sources it
+> automatically (`set -a; . cron.env`), since cron does not read `~/.profile`. The `cron.env`
+> approach keeps the token out of the crontab and centralizes all cron secrets in one file.
 
 Check progress with `tail -f /home/kris/brickfeed-news/cycle.log`.
+
+## 8. Managing local content (ads & articles)
+
+Beyond the auto-generated feed stories, the operator can publish two kinds of hand-authored
+content by dropping files into `assets/` (git-ignored; images upload to storage on the next
+cycle, exactly like story images):
+
+- **Banner ads** — an image + a one-line click-through URL under `assets/ads/`. See
+  [ADS.md](ADS.md).
+- **Locally hosted articles** — an image + a structured markdown file under `assets/articles/`,
+  which become on-site stories with a section, cover/section rank, expiry, and their own hosted
+  page. See [ARTICLES.md](ARTICLES.md).
+
+No config or restart is needed — the next cycle (or a manual `npm run render`) picks them up. A
+malformed or half-present pair is silently skipped, never breaking the cycle.
 
 ## Troubleshooting
 

@@ -1,7 +1,10 @@
 # ADR-0003: Image provider layer
 
 ## Status
-Accepted
+Accepted — but the **default** image provider chosen here (Grok Imagine via the xAI API) was
+later superseded by the keyless `grok-terminal` default in
+[ADR-0007](0007-grok-terminal-keyless-default-and-real-cli-contract.md). The provider-seam
+design below still stands; only the default selection changed.
 
 ## Context
 ADR-0001 (#7/#8) framed image generation around a LAN imagegen microservice, with

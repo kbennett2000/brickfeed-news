@@ -35,9 +35,15 @@ storage.preflight()                        abort loud if misconfigured (non-dry-
 3. image     generateImages()  ImageProvider.generate → StorageProvider.put   (+ writePublished)
 4. ageout    ageOut()          drop stale records + StorageProvider.delete     (+ writePublished)
 ── after pipeline ──
-render:  verifiedPublishableRecords(manifest, storage) → renderSite() → io.writeSite(outputDir)
+render:  verifiedPublishableRecords(manifest, storage)
+         + loadAds(assets/ads) + loadArticles(assets/articles)   (operator content, uploaded to storage)
+         → renderSite() → io.writeSite(outputDir)
 deploy:  deploy(config, {files, publishableCount}) → shells `vercel --prod --yes`
 ```
+
+The render stage also folds in two operator-managed, git-ignored content sources loaded from
+disk: **banner ads** (`assets/ads/`, [ADS.md](ADS.md)) and **locally hosted articles**
+(`assets/articles/`, [ARTICLES.md](ARTICLES.md)) — see the render module rows below.
 
 - Every stage is **never-throw at the story level**: a single bad story is skipped and stays
   pending for a later cycle. A stage that genuinely *throws* (e.g. a disk write fails) aborts
@@ -161,10 +167,26 @@ provider needs.
 | File | Responsibility |
 | --- | --- |
 | [src/deploy.ts](../src/deploy.ts) | `deploy` — shells the configured command (default `vercel --prod --yes`, cwd `site/`); refuses an empty render (`refused-empty`); never throws. Statuses: `deployed`, `failed`, `refused-empty`, `skipped-flag`, `skipped-disabled` |
-| [src/render/index.ts](../src/render/index.ts) | `renderSite` — pure core: records + clock in, `index.html` + one `<slug>.html` per category + `styles.css` out; `toStoryView` reduces a record to display fields |
-| [src/render/templates.ts](../src/render/templates.ts) | HTML partials as template literals (masthead, nav, lead/rail/card, figure + placeholder, footer, page shell); nav/footer built from `CATEGORIES` |
-| [src/render/format.ts](../src/render/format.ts) | Pure formatters/escapers: `escapeHtml`/`escapeAttr`, `formatMastheadDate`, `relativeTime`, `sectionSlug`, `titleCase`, `bylineFor` |
-| [src/render/styles.ts](../src/render/styles.ts) | `STYLES` — the site's chrome CSS as a committed string constant |
+| [src/render/index.ts](../src/render/index.ts) | `renderSite` — pure core: records + ads + articles + clock in; emits `index.html`, one `<slug>.html` per category, a per-story `s/<id>.html` landing page each (ADR-0009), `share.html`, `about.html`, and `styles.css`. Merges local articles into the cover/section lists by rank (`insertRanked`) and drops expired ones. `toStoryView`/`articleToStoryView` reduce a record/article to display fields |
+| [src/render/templates.ts](../src/render/templates.ts) | HTML partials as template literals: masthead, nav, lead/rail/card, figure + placeholder, footer, page shell, plus `renderLandingPage` (per-story page + `cardMeta` OG/Twitter card), `renderShareSheet` (X share sheet), and `renderAbout`; nav/footer built from `CATEGORIES` |
+| [src/render/format.ts](../src/render/format.ts) | Pure formatters/escapers: `escapeHtml`/`escapeAttr`, `formatMastheadDate`, `editionLabel` (time-of-day edition, ADR-0008), `relativeTime`, `sectionSlug`, `titleCase`, `bylineFor`, `storyPageUrl` + `buildXIntentUrl` (ADR-0009), `hashString` (deterministic rank-0 article placement) |
+| [src/render/markdown.ts](../src/render/markdown.ts) | `renderMarkdown` — wraps `marked` to render a local article's markdown body to HTML (the one non-hand-rolled render path; ADR-0010) |
+| [src/render/styles.ts](../src/render/styles.ts) | `STYLES` — the site's chrome CSS as a committed string constant (+ ad-banner crossfade CSS) |
+
+### Operator content (ads & articles)
+
+Two git-ignored content sources the operator manages by dropping files into `assets/`, loaded
+at render time and uploaded to storage like story images. Both are tolerant/never-throw (a bad
+file drops just that item).
+
+| File | Responsibility |
+| --- | --- |
+| [src/ads.ts](../src/ads.ts) | `loadAds` + `ADS_DIR` — pair image + single-URL `.md` under `assets/ads/` by basename, upload each image under `ads/<base>`, return `AdView`s for the leaderboard banner. See [ADS.md](ADS.md) |
+| [src/articles.ts](../src/articles.ts) | `parseArticle` (pure) + `loadArticles` + `ARTICLES_DIR` — pair image + structured `.md` under `assets/articles/`, upload under `articles/<base>`, return `Article`s (headline/byline/section/rank/expiry/markdown body) merged into the render as on-site stories. See [ARTICLES.md](ARTICLES.md) and ADR-0010 |
+
+`assets/` layout: `assets/ads/` (banner ads), `assets/articles/` (local articles), and
+`assets/about-portrait.jpg` (the About-page portrait). The whole tree is git-ignored — images
+are uploaded to storage and referenced by URL, never committed.
 
 ### Utility
 
@@ -174,12 +196,13 @@ provider needs.
 
 ## Testing
 
-The suite is vitest, zero-config (no `vitest.config.*`), living in `test/` (~30 `*.test.ts`
-files with shared fakes in `test/helpers.ts` and `test/fixtures.ts`). Every boundary is
-injected, so tests are hermetic — no live network, no running imagegen, no GPU. Run with
-`npm test`. Coverage spans RSS parsing, URL resolution, ID hashing, dedup, every generator
-and image provider, storage (blob + local), the publish gate, age-out, concurrency, deploy,
-the render, and the full `runCycle` orchestrator.
+The suite is vitest, zero-config (no `vitest.config.*`), living in `test/` (32 `*.test.ts`
+files, ~393 tests, with shared fakes in `test/helpers.ts` and `test/fixtures.ts`). Every
+boundary is injected, so tests are hermetic — no live network, no running imagegen, no GPU. Run
+with `npm test`. Coverage spans RSS parsing, URL resolution, ID hashing, dedup, every generator
+and image provider, storage (blob + local), the publish gate, age-out, concurrency, deploy, the
+render (including per-story pages, the ad banner, and local-article parsing/ranking/expiry), and
+the full `runCycle` orchestrator.
 
 ## See also
 
@@ -187,3 +210,6 @@ the render, and the full `runCycle` orchestrator.
 - [adr/0003-image-provider.md](adr/0003-image-provider.md), [adr/0004-storage-and-publish.md](adr/0004-storage-and-publish.md) — the provider/storage seams.
 - [adr/0005-render.md](adr/0005-render.md) — the static render.
 - [adr/0006-orchestrator-and-deploy.md](adr/0006-orchestrator-and-deploy.md), [adr/0007-grok-terminal-keyless-default-and-real-cli-contract.md](adr/0007-grok-terminal-keyless-default-and-real-cli-contract.md) — the cycle orchestrator, deploy, and the keyless default.
+- [adr/0008-newest-first-imaging-and-edition-label.md](adr/0008-newest-first-imaging-and-edition-label.md) — newest-first imaging + the time-of-day edition label.
+- [adr/0009-per-story-pages-and-x-share.md](adr/0009-per-story-pages-and-x-share.md) — per-story `s/<id>.html` landing pages + the X share sheet.
+- [adr/0010-local-hosted-articles.md](adr/0010-local-hosted-articles.md) — locally hosted articles ([ARTICLES.md](ARTICLES.md)); banner ads are documented in [ADS.md](ADS.md).
