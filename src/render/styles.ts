@@ -149,8 +149,13 @@ img { max-width: 100%; display: block; }
 }
 
 /* ---- hero ---- */
-.hero { padding-top: 46px; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 44px; }
+/* Two columns: the lead + a few pulled-up overflow cards (.hero__main) beside the taller rail.
+   align-items:start keeps the shorter column top-aligned so any leftover space is a small trailing
+   gap at its bottom, never a void under the lead. */
+.hero { padding-top: 46px; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 44px; align-items: start; }
 .hero--solo { grid-template-columns: 1fr; }
+.hero__main { min-width: 0; }
+.hero__fill { margin-top: 40px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 34px 30px; }
 .lead { min-width: 0; }
 .lead__body { margin-top: 20px; }
 .lead__headline { cursor: pointer; margin: 11px 0 0; font-family: var(--display); font-weight: 600; font-size: clamp(33px, 3.6vw, 52px); line-height: 1.01; letter-spacing: -0.012em; transition: color .15s ease; }
@@ -245,6 +250,7 @@ img { max-width: 100%; display: block; }
 }
 @media (max-width: 560px) {
   .cards, .cards--section { grid-template-columns: 1fr; }
+  .hero__fill { grid-template-columns: 1fr; }
   .footer__cols { flex-direction: column; gap: 34px; }
   .nav__inner { height: auto; flex-direction: column; align-items: flex-start; gap: 10px; padding-top: 10px; padding-bottom: 10px; }
   .nav__link { padding: 4px 0; }

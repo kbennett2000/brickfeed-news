@@ -41,6 +41,13 @@ import {
   type StoryView,
 } from "./templates.js";
 
+/**
+ * How many overflow cards to lift into the lead's column (beside the rail) on the cover, so the
+ * left column fills the space under the lead instead of leaving a large desktop gap. Anything
+ * past the lead + rail + this many still flows into the full-width "Across the Brickyard" grid.
+ */
+const HERO_FILL_COUNT = 4;
+
 /** Injected inputs for a render pass. */
 export interface RenderOptions {
   /** "Now" — drives the masthead dateline, edition label, and relative timestamps. */
@@ -114,10 +121,18 @@ function renderCover(
 
   const [lead, ...rest] = views;
   const rail = rest.slice(0, secondaryStoryCount);
-  const overflow = rest.slice(secondaryStoryCount);
+  const afterRail = rest.slice(secondaryStoryCount);
+  // Pull a few overflow cards up into the lead's column so they fill the empty space beside the
+  // taller rail on desktop (no cavernous gap under the lead). The rest flow to the full-width
+  // "Across the Brickyard" grid below. HERO_FILL_COUNT is tuned to roughly balance the ~4-story rail.
+  const heroFill = afterRail.slice(0, HERO_FILL_COUNT);
+  const overflow = afterRail.slice(HERO_FILL_COUNT);
 
+  const fillGrid = heroFill.length
+    ? `<div class="hero__fill">${heroFill.map(card).join("")}</div>`
+    : "";
   const hero = rail.length
-    ? `<div class="container hero">${leadStory(lead)}<div class="rail">${rail
+    ? `<div class="container hero"><div class="hero__main">${leadStory(lead)}${fillGrid}</div><div class="rail">${rail
         .map(railStory)
         .join("")}</div></div>`
     : `<div class="container hero hero--solo">${leadStory(lead)}</div>`;
