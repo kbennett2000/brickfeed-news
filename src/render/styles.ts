@@ -188,6 +188,16 @@ img { max-width: 100%; display: block; }
 .section-head__meta { font: 500 10px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--fainter); margin-top: 8px; }
 .section-grid { padding-top: 38px; }
 
+/* ---- about page ---- */
+.about { padding-top: 42px; display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 48px; align-items: start; padding-bottom: 10px; }
+.about__portrait { margin: 0; }
+.about__frame { background-color: var(--photo-field); border: 1px solid var(--photo-border); }
+.about__img { width: 100%; height: auto; }
+.about__lead { font-family: var(--serif); font-size: 21px; line-height: 1.5; color: var(--ink-80); margin: 0; max-width: 60ch; }
+.about__links { display: flex; flex-wrap: wrap; gap: 12px 28px; margin-top: 30px; }
+.about__link { font: 600 12px/1 var(--serif); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); border-bottom: 1px solid var(--accent); padding-bottom: 4px; transition: color .15s ease, border-color .15s ease; }
+.about__link:hover { color: var(--ink); border-color: var(--ink); }
+
 /* ---- empty state ---- */
 .empty { padding: 90px 40px; text-align: center; }
 .empty__title { font-family: var(--display); font-weight: 600; font-style: italic; font-size: 30px; color: var(--ink); margin: 0; }
@@ -216,6 +226,8 @@ img { max-width: 100%; display: block; }
   .cards--section { grid-template-columns: repeat(2, 1fr); }
   .section-head__row { flex-direction: column; align-items: flex-start; }
   .section-head__aside { text-align: left; }
+  .about { grid-template-columns: 1fr; gap: 30px; }
+  .about__portrait { max-width: 320px; }
 }
 @media (max-width: 560px) {
   .cards, .cards--section { grid-template-columns: 1fr; }

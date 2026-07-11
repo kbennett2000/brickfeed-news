@@ -196,6 +196,57 @@ export function emptyState(message: string): string {
   </div>`;
 }
 
+/**
+ * The creator portrait for the About page — our own generated toy-brick art, hosted in Blob
+ * alongside the story images (the repo stays text-only; only this URL is committed). Keyed
+ * outside the manifest, so age-out never touches it.
+ */
+export const ABOUT_PORTRAIT_URL =
+  "https://7fjkp0rhcwadfro9.public.blob.vercel-storage.com/images/about-portrait.jpg";
+
+/** One external profile link on the About page — always opens in a new tab. */
+function aboutLink(href: string, label: string): string {
+  return `<a class="about__link" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+}
+
+/**
+ * The standalone About page: the same chrome + shell as every other page, a framed toy-brick
+ * portrait of the creator, a short deadpan bio, and the outbound profile links. Static copy is
+ * written as literal HTML (like the footer disclaimer); only the URLs are escaped.
+ */
+export function renderAbout(dateStr: string, edition: string): string {
+  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav();
+  const body =
+    chrome +
+    `<main>
+    <div class="container section-head">
+      <div class="kicker">Colophon</div>
+      <div class="section-head__row">
+        <h1 class="section-head__title">About</h1>
+        <div class="section-head__aside">
+          <div class="section-head__blurb">The mystery man behind the minifigures.</div>
+        </div>
+      </div>
+    </div>
+    <div class="container about">
+      <figure class="about__portrait">
+        <div class="about__frame"><img class="about__img" src="${escapeAttr(ABOUT_PORTRAIT_URL)}" alt="A plastic toy-brick minifigure portrait of Kris Bennett, bearded and in a grey suit on a city street"></div>
+        <figcaption class="figcaption">Kris Bennett <span class="figcaption__credit">/ BRICKFEED STUDIO</span></figcaption>
+      </figure>
+      <div class="about__body">
+        <p class="about__lead">Brickfeed News was created by an unemployed software developer on a Friday afternoon. If he can launch a global news outlet before bedtime, think what he could for you! To learn more about this mystery man, and possibly even employ him, check out these links.</p>
+        <div class="about__links">
+          ${aboutLink("https://www.linkedin.com/in/kbennett2000/", "LinkedIn")}
+          ${aboutLink("https://github.com/kbennett2000", "GitHub")}
+          ${aboutLink("https://www.twelverocks.com/", "Twelve Rocks")}
+        </div>
+      </div>
+    </div>
+  </main>` +
+    footer();
+  return pageShell("About — brickfeed", body);
+}
+
 /** The footer: wordmark + tagline, the live Sections links, disclaimer. */
 export function footer(): string {
   const sectionLinks = CATEGORIES.map(
@@ -211,6 +262,10 @@ export function footer(): string {
         <div>
           <div class="footer__col-title">Sections</div>
           ${sectionLinks}
+        </div>
+        <div>
+          <div class="footer__col-title">brickfeed</div>
+          <a class="footer__link" href="about.html">About</a>
         </div>
       </div>
       <div class="footer__disclaimer">
