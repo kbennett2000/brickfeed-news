@@ -159,6 +159,41 @@ describe("renderSite — cover page", () => {
   });
 });
 
+describe("renderSite — hero fills the space under the lead", () => {
+  it("lifts overflow cards into the lead's column (hero__main + hero__fill)", () => {
+    // OPTS: secondaryStoryCount 3 → rail = b1,t1,s1; afterRail = w2,c1 → both pulled into the fill.
+    const index = renderSite(records, OPTS)["index.html"];
+    expect(index).toContain('class="hero__main"');
+    expect(index).toContain('class="hero__fill"');
+    // A pulled-up (after-rail) story shows up in the fill region.
+    expect(index).toContain("Small Nation Enjoys Quiet, Uneventful Week");
+  });
+
+  it("keeps the full-width brickyard for stories beyond lead + rail + fill, with none dropped", () => {
+    // 1 lead + 3 rail + 4 fill = 8 placed in the hero; anything past that flows to the brickyard.
+    const many: ManifestRecord[] = Array.from({ length: 12 }, (_, i) =>
+      rec({ id: `m${i}`, headline: `Distinct Headline Number ${i}`, category: "WORLD" }),
+    );
+    const index = renderSite(many, OPTS)["index.html"];
+    expect(index).toContain('class="hero__fill"');
+    expect(index).toContain("Across the Brickyard"); // full-width overflow grid still present
+    // Every story appears exactly once — the split neither drops nor duplicates any card.
+    for (let i = 0; i < many.length; i++) {
+      const marker = `Distinct Headline Number ${i}<`;
+      expect(index.split(marker).length - 1).toBe(1);
+    }
+  });
+
+  it("omits the fill (and brickyard) when there are only a lead + rail", () => {
+    // 4 records, secondaryStoryCount 3 → rail = 3, afterRail = 0 → no fill, no brickyard.
+    const few = records.slice(0, 4);
+    const index = renderSite(few, OPTS)["index.html"];
+    expect(index).toContain('class="hero__main"');
+    expect(index).not.toContain('class="hero__fill"');
+    expect(index).not.toContain("Across the Brickyard");
+  });
+});
+
 describe("renderSite — section pages", () => {
   const files = renderSite(records, OPTS);
 
