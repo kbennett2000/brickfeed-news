@@ -1,0 +1,125 @@
+# Configuration reference
+
+brickfeed-news is configured by two separate things, kept strictly apart:
+
+- **`config.json`** — all app settings (feeds, providers, styling, thresholds, deploy).
+  Git-ignored; copy [../config.example.json](../config.example.json) to create it. Validated
+  and defaulted by [../src/config.ts](../src/config.ts) (`loadConfig` / `validateConfig`).
+- **Environment variables** — secrets only (API tokens). Read in exactly one module,
+  [../src/secrets.ts](../src/secrets.ts). **Never** placed in `config.json`, never committed.
+
+> The app does **not** load a `.env` file. Variables must be present in the process
+> environment (export them from a shell profile, a systemd unit, or the cron environment —
+> see [INSTALL.md](INSTALL.md) step 7).
+
+Omitted `config.json` fields are filled with the defaults below by `validateConfig`, so a
+minimal config is valid. Only **`feedUrls`** and **`manifestPath`** are strictly required
+(the validator throws if they're missing or empty).
+
+---
+
+## `config.json` fields
+
+### Top level
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `feedUrls` | string[] | — (**required**) | RSS feed URLs to ingest. Must be non-empty. |
+| `manifestPath` | string | — (**required**) | Path to the story-state JSON manifest (example: `data/manifest.json`). |
+| `publishedPath` | string | `data/published.json` | Path to the newest-first publishable slice the renderer reads. |
+| `maxAgeHours` | number | `72` | Records whose `lastSeen` is older than this are aged out and their images deleted. |
+| `concurrency` | number | `4` | Parallel stories processed in the generate and image stages. |
+| `maxStoriesPerCycle` | number | `20` | Cap on new stories imaged per cycle, so a backlog spreads over several cron ticks. |
+| `brickStyle.styleLanguage` | string | — (**required**) | The toy-brick style text wrapped around every image prompt. Kept in config, never hardcoded; generic bricks only (no trademark). |
+
+### `generator` — text generation
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `generator.provider` | enum | `grok-terminal` | One of `grok-terminal` \| `grok` \| `claude` \| `apikey`. See the provider matrix below. |
+| `generator.model` | string | `claude-sonnet-5` | Model for the `claude` (subscription) path. |
+| `generator.grok.baseUrl` | string | `https://api.x.ai/v1` | xAI API base URL (the `grok` provider). |
+| `generator.grok.model` | string | `grok-4.5` | Model for the `grok` (xAI API) path. |
+| `generator.grokTerminal.command` | string | `grok` | Executable for the keyless CLI path. |
+| `generator.grokTerminal.args` | string[] | `[]` | Extra args passed to the CLI. |
+| `generator.grokTerminal.timeoutMs` | number | `120000` | Per-story text timeout for the CLI path. |
+
+> **Back-compat alias:** a `generator.provider` of `"subscription"` is accepted and mapped to
+> `"claude"` with a one-time deprecation warning. Image and storage providers were never
+> renamed.
+
+### `image` — image generation
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `image.provider` | enum | `grok-terminal` | One of `grok-terminal` \| `grok` \| `local`. |
+| `image.grok.baseUrl` | string | `https://api.x.ai/v1` | xAI API base URL (the `grok` image path). |
+| `image.grok.model` | string | `grok-imagine-image-quality` | Model for the `grok` image path. |
+| `image.grok.aspectRatio` | string | `1:1` | Requested aspect ratio. |
+| `image.grok.resolution` | string | `1k` | Requested resolution. |
+| `image.local.url` | string | `http://localhost:8189` | LAN imagegen microservice base URL (the `local` provider). |
+| `image.local.style` | string | `base` | Style sent to the LAN service. `base` = prompt-only (deliberately avoids any brand-specific LoRA). |
+| `image.grokTerminal.command` | string | `grok` | Executable for the keyless CLI `/imagine` path. |
+| `image.grokTerminal.args` | string[] | `[]` | Extra args passed to the CLI. |
+| `image.grokTerminal.timeoutMs` | number | `180000` | Per-story image timeout for the CLI path. |
+
+### `storage` — durable image storage
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `storage.provider` | enum | `blob` | One of `blob` \| `local`. |
+| `storage.blob.pathPrefix` | string | `images/` | Key prefix for stored objects. |
+| `storage.blob.publicBaseUrl` | string | `""` | Public base URL of the Vercel Blob store (`https://<store-id>.public.blob.vercel-storage.com`). Required for real blob use — the preflight aborts if empty. |
+| `storage.local.dir` | string | `site/images` | Directory the `local` provider writes image bytes into (inside the deploy artifact). |
+| `storage.local.publicBaseUrl` | string | `images` | Relative URL prefix so locally stored images resolve when `site/` is served statically. |
+
+### `render` — static site
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `render.outputDir` | string | `site` | Directory the rendered site is written to (the deploy artifact). |
+| `render.secondaryStoryCount` | number | `4` | Number of secondary "rail" stories after the lead on the cover page. |
+
+### `deploy`
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `deploy.command` | string | `vercel --prod --yes` | Command shelled to publish the site. |
+| `deploy.cwd` | string | = `render.outputDir` (`site`) | Working directory the deploy command runs in (where `vercel link` was done). |
+| `deploy.enabled` | boolean | `true` | When `false`, the cycle renders but skips deploy (`skipped-disabled`). |
+
+---
+
+## Environment variables
+
+All read only in [../src/secrets.ts](../src/secrets.ts). None are needed for the keyless
+default path except the Blob token.
+
+| Variable | Read by | Needed when |
+| --- | --- | --- |
+| `BLOB_READ_WRITE_TOKEN` | `getBlobReadWriteToken` — Vercel Blob provider | **Always, with the default `storage.provider: blob`.** The Blob preflight aborts the cycle if it's missing. |
+| `XAI_API_KEY` | `getXaiApiKey` — Grok (xAI) generator/image | Only if `generator.provider` or `image.provider` is `grok` (the xAI **API** path). Not needed for `grok-terminal`. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `getSubscriptionToken` — subscription generator | Only if `generator.provider` is `claude` (the subscription `claude -p` path). |
+| `ANTHROPIC_API_KEY` | `getApiKey` — API-key generator | Reserved for the `apikey` generator (a documented stub; not implemented). |
+| `VERCEL_TOKEN` | `getVercelToken` — deploy runner | Only for CI-like/headless deploy. The LAN box normally relies on a one-time `vercel login` and leaves this unset. |
+
+## Provider selection matrix
+
+Three independent seams. The recommended **keyless** production combination is in bold.
+
+| Seam | Config key | Options | Keyless default | Needs at run time |
+| --- | --- | --- | --- | --- |
+| Text | `generator.provider` | `grok-terminal`, `grok`, `claude`, `apikey` | **`grok-terminal`** | Nothing (CLI subscription login) |
+| Image | `image.provider` | `grok-terminal`, `grok`, `local` | **`grok-terminal`** | Nothing (CLI subscription login) |
+| Storage | `storage.provider` | `blob`, `local` | **`blob`** | `BLOB_READ_WRITE_TOKEN` + `storage.blob.publicBaseUrl` |
+
+- **`grok-terminal`** (text & image) authenticates via a one-time interactive `grok` CLI
+  login and reads no API key at run time. This is the live production path.
+- **`grok`** uses the xAI HTTP API and requires `XAI_API_KEY`.
+- **`claude`** uses the Claude subscription CLI (`claude -p`) and requires `CLAUDE_CODE_OAUTH_TOKEN`.
+- **`local`** (image) posts to a LAN imagegen microservice; no API key, style forced to `base`.
+- **`blob`** (storage) is the durable default; **`local`** writes bytes into `site/images` so
+  they ship inside the static site (handy for a fully self-hosted, keyless setup).
+
+See [INSTALL.md](INSTALL.md) for setting these up on an Ubuntu server and
+[ARCHITECTURE.md](ARCHITECTURE.md) for how the seams fit into the pipeline.
