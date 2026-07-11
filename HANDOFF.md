@@ -1,31 +1,40 @@
 # Handoff
 
-## Live harness: verify the `claude` (Haiku) text provider before switching off Grok (branch `feat/claude-generator-live-check`)
+## Fix `--bare` blocking Claude text generation + verified live harness (branch `feat/claude-generator-live-check`)
 
 Groundwork for moving **text** generation from `grok-terminal` to `claude` (Haiku by default) —
-**image generation stays on Grok**. No config flip yet; this cycle only adds the opt-in test the
-operator asked for so they can confirm Claude produces all artifacts before switching.
+**image generation stays on Grok**. No config flip yet. This cycle adds the opt-in test the operator
+asked for **and fixes a real bug that was blocking the switch entirely.**
 
+**The bug (fixed).** `src/generator/subscription.ts` spawned `claude -p --bare --output-format json`.
+`--bare` ("minimal mode: skip hooks, LSP, plugin") also skips loading the stored subscription login,
+so headless `claude -p --bare` returns `is_error:true` "Not logged in · Please run /login" **even on
+a fully authenticated box** — `SubscriptionGenerator` then returns null for every story. So switching
+`generator.provider: "claude"` would have silently left every story pending. (My previous handoff
+wrongly blamed the environment / missing `CLAUDE_CODE_OAUTH_TOKEN`; that was wrong — the box is
+authenticated; our own `--bare` flag was the problem. The working `photo-wrangler` app invokes
+headless `claude` without `--bare`.)
+
+- **Fix:** dropped `--bare`; the runner now uses `["-p", "--output-format", "json", "--model", m]`,
+  extracted into an exported `buildClaudeArgs(model)` with a regression test asserting `--bare` is
+  never present (`test/generator.subscription.test.ts`).
 - **New `scripts/check-claude-generator.ts`** (`npm run check:claude`, `-- --model=<id>` to override;
   default `claude-haiku-4-5-20251001`). Drives the **real** `claude -p` CLI through the production
-  `SubscriptionGenerator` (no injected runner) over 5 diverse stories, then prints each of the five
+  `SubscriptionGenerator` (no injected runner) over 5 diverse stories, prints each of the five
   artifacts (headline/description/imagePrompt/category/caption) with HARD checks (non-null, all four
   text fields non-empty, category in taxonomy) and SOFT quality warnings (verbatim-title, word
   counts). Exits non-zero on any hard failure. Never greps for trademark strings (CLAUDE.md
   guardrail) — brand/text-in-scene review is left to the eyeball.
-- **Not wired into `npm test`** (stays mock-first/offline). Added `scripts` to `tsconfig.json`
-  `include` so the harness is typechecked; noted usage in `docs/CONFIGURATION.md`.
-- The switch itself remains a config-only follow-up: the `claude` provider already shares the exact
-  prompt (`src/prompt.ts`) and parser (`src/generator/parse.ts`) with `grok-terminal`. Once the
-  harness passes on the box, set `generator.provider: "claude"` + `generator.model` to the Haiku id,
-  leaving `image.provider` on Grok.
+- **Not wired into `npm test`** (stays mock-first/offline). `scripts` is in `tsconfig.json` `include`
+  so the harness is typechecked; usage + the `--bare` gotcha noted in `docs/CONFIGURATION.md`.
+- The remaining switch is now genuinely config-only: the `claude` provider shares the exact prompt
+  (`src/prompt.ts`) and parser (`src/generator/parse.ts`) with `grok-terminal`. Set
+  `generator.provider: "claude"` + `generator.model` to the Haiku id, leaving `image.provider` on Grok.
 
-Verified: `npx tsc --noEmit` clean; **`npm test` 399 passing, 32 files**; the harness runs
-end-to-end and **fails safe correctly** — in this environment headless `claude -p` reported
-"Not logged in" (no `CLAUDE_CODE_OAUTH_TOKEN`, stored login not honored for `-p`), so it printed
-`0/5 · FAIL` with the `claude setup-token` hint and exited 1. **The real artifact-quality run is the
-operator's step:** authenticate headless `claude` (`claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`,
-or a `-p`-honored login), then re-run `npm run check:claude` and eyeball the Haiku output.
+Verified on the box (authenticated `claude` CLI): `npx tsc --noEmit` clean; **`npm test` 401 passing,
+32 files** (2 new `buildClaudeArgs` tests); **`npm run check:claude` → 5/5 passed · 0 quality
+warnings** with genuinely good Haiku output (original rewrites, correct categories, brick-diorama
+image prompts, ~14–22s/story warm). Operator step: eyeball that output, then flip the config.
 
 ---
 
