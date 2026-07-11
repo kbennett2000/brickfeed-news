@@ -231,16 +231,24 @@ export function fakeStorageProvider(opts: {
   put?: (id: string, bytes: Uint8Array, contentType: string) => string | null;
   throwOnPut?: Set<string>;
   throwOnDelete?: Set<string>;
-} = {}): StorageProvider & { puts: RecordedPut[]; deletes: string[] } {
+  /** Whether a stored image "exists" for the gate/reconcile. Default: everything exists. */
+  exists?: (id: string, imageUrl?: string) => boolean;
+  /** Preflight result. Default: ok (a fake provider has no real preconditions). */
+  preflight?: () => { ok: true } | { ok: false; message: string };
+} = {}): StorageProvider & { puts: RecordedPut[]; deletes: string[]; existsCalls: string[] } {
   const puts: RecordedPut[] = [];
   const deletes: string[] = [];
+  const existsCalls: string[] = [];
   const putImpl = opts.put ?? ((id) => `https://cdn.test/${id}.png`);
+  const existsImpl = opts.exists ?? (() => true);
+  const preflightImpl = opts.preflight ?? (() => ({ ok: true as const }));
   const throwOnPut = opts.throwOnPut ?? new Set<string>();
   const throwOnDelete = opts.throwOnDelete ?? new Set<string>();
 
   return {
     puts,
     deletes,
+    existsCalls,
     async put(id: string, bytes: Uint8Array, contentType: string): Promise<string | null> {
       puts.push({ id, bytes, contentType });
       if (throwOnPut.has(id)) throw new Error(`simulated put failure for ${id}`);
@@ -250,13 +258,20 @@ export function fakeStorageProvider(opts: {
       deletes.push(id);
       if (throwOnDelete.has(id)) throw new Error(`simulated delete failure for ${id}`);
     },
+    async exists(id: string, imageUrl?: string): Promise<boolean> {
+      existsCalls.push(id);
+      return existsImpl(id, imageUrl);
+    },
+    async preflight(): Promise<{ ok: true } | { ok: false; message: string }> {
+      return preflightImpl();
+    },
   };
 }
 
 /** A single recorded outbound request from a fakeStorageRunner. */
 export interface RecordedStorageCall {
   url: string;
-  method: "PUT" | "POST";
+  method: "PUT" | "POST" | "HEAD";
   headers?: Record<string, string>;
   body?: Uint8Array | string;
 }
@@ -275,7 +290,7 @@ export function fakeStorageRunner(opts: {
 
   const runner = async (args: {
     url: string;
-    method: "PUT" | "POST";
+    method: "PUT" | "POST" | "HEAD";
     headers?: Record<string, string>;
     body?: Uint8Array | string;
   }): Promise<{ ok: boolean; status: number; body: string }> => {
@@ -328,6 +343,15 @@ export function fakeStorageFs(opts: {
         throw err;
       }
       files.delete(path);
+    },
+    async stat(path: string) {
+      const data = files.get(path);
+      if (data === undefined) {
+        const err = new Error("ENOENT") as Error & { code: string };
+        err.code = "ENOENT";
+        throw err;
+      }
+      return { size: data.length };
     },
   };
 }

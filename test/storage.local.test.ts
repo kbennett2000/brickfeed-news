@@ -66,6 +66,56 @@ describe("LocalStorageProvider — real filesystem round-trip", () => {
   });
 });
 
+describe("LocalStorageProvider.exists — the file must really be present and non-zero", () => {
+  it("returns true for a stored non-zero file (by its imageUrl), false after delete", async () => {
+    const dir = await tempDir();
+    const provider = new LocalStorageProvider({ dir, publicBaseUrl: "images" });
+    const url = await provider.put("abc", PNG, "image/png"); // "images/abc.png"
+
+    expect(await provider.exists("abc", url!)).toBe(true);
+
+    await provider.delete("abc");
+    expect(await provider.exists("abc", url!)).toBe(false);
+  });
+
+  it("returns false for a missing file and for a zero-length file", async () => {
+    const dir = await tempDir();
+    const provider = new LocalStorageProvider({ dir, publicBaseUrl: "images" });
+
+    expect(await provider.exists("nope", "images/nope.png")).toBe(false);
+
+    await provider.put("empty", new Uint8Array(0), "image/png");
+    expect(await provider.exists("empty", "images/empty.png")).toBe(false); // present but zero bytes
+  });
+
+  it("without an imageUrl, probes every candidate extension (finds the real .jpg)", async () => {
+    const dir = await tempDir();
+    const provider = new LocalStorageProvider({ dir, publicBaseUrl: "images" });
+    await provider.put("j", bytes("\xff\xd8\xff...jpeg..."), "image/jpeg"); // → j.jpg
+    expect(await provider.exists("j")).toBe(true);
+    expect(await provider.exists("absent")).toBe(false);
+  });
+});
+
+describe("LocalStorageProvider.preflight — deterministic, fail-loud dir check", () => {
+  it("is ok when the dir is writable", async () => {
+    const dir = await tempDir();
+    const provider = new LocalStorageProvider({ dir, publicBaseUrl: "images" });
+    expect(await provider.preflight()).toEqual({ ok: true });
+  });
+
+  it("fails with an actionable message when the dir is not writable", async () => {
+    const fs = fakeStorageFs({ failWrite: true });
+    const provider = new LocalStorageProvider({ dir: "/read-only", publicBaseUrl: "images", fs });
+    const result = await provider.preflight();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("/read-only");
+      expect(result.message).toContain("storage.local.dir");
+    }
+  });
+});
+
 describe("LocalStorageProvider — never-throw failure modes", () => {
   it("returns null when the write fails", async () => {
     const fs = fakeStorageFs({ failWrite: true });

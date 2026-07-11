@@ -33,6 +33,21 @@ function manifestOf(...records: ManifestRecord[]): Manifest {
   return { version: 1, stories };
 }
 
+/** A fully generated + stored record (all publish fields + imageUrl). */
+function fullRecord(id: string): ManifestRecord {
+  return {
+    ...pending(id),
+    headline: `Headline ${id}`,
+    description: "A description.",
+    imagePrompt: "a scene",
+    wrappedPrompt: `TEST-STYLE Scene: ${id}`,
+    category: "WORLD",
+    caption: `A neutral scene for ${id}.`,
+    imageUrl: `https://cdn.test/${id}.png`,
+    imageStoredAt: NOW,
+  };
+}
+
 /** Build CycleDeps with recording fakes + an in-memory IO seeded from `manifest`. */
 function makeDeps(
   manifest: Manifest,
@@ -168,8 +183,9 @@ describe("runCycle — flags", () => {
     expect(io.writes).toHaveLength(0);
     expect(deployRun.calls).toHaveLength(0);
     expect(result.deploy).toBeUndefined();
-    // Still reports intended actions per stage.
+    // Still reports intended actions per stage (incl. the up-front storage preflight).
     expect(Object.keys(result.stages)).toEqual([
+      "storage-preflight",
       "ingest",
       "generate",
       "image",
@@ -177,6 +193,7 @@ describe("runCycle — flags", () => {
       "render",
       "deploy",
     ]);
+    expect(result.stages["storage-preflight"]).toContain("ok");
   });
 
   it("deploy.enabled=false skips deploy (same as --no-deploy) even when requested", async () => {
@@ -190,5 +207,48 @@ describe("runCycle — flags", () => {
     expect(result.ok).toBe(true);
     expect(result.deploy?.status).toBe("skipped-disabled");
     expect(deployRun.calls).toHaveLength(0);
+  });
+});
+
+describe("runCycle — storage preflight (fail-loud) + existence-verified render", () => {
+  it("aborts up front when the preflight fails — no generation, no writes, no deploy, non-zero", async () => {
+    const config = makeConfig();
+    const storage = fakeStorageProvider({
+      preflight: () => ({
+        ok: false,
+        message: "storage preflight FAILED: needs BLOB_READ_WRITE_TOKEN",
+      }),
+    });
+    const { deps, generator, imageProvider, deployRun, io } = makeDeps(manifestOf(pending("a")), {
+      storage,
+    });
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.ok).toBe(false);
+    expect(result.failedStage).toBe("storage-preflight");
+    expect(result.stages["storage-preflight"]).toContain("FAILED");
+    // Aborted BEFORE any work: nothing generated, stored, written, or deployed.
+    expect(generator.calls).toHaveLength(0);
+    expect(imageProvider.calls).toHaveLength(0);
+    expect(storage.puts).toHaveLength(0);
+    expect(io.writes).toHaveLength(0);
+    expect(deployRun.calls).toHaveLength(0);
+  });
+
+  it("render excludes a record whose image does not resolve, even with a fresh imageUrl", async () => {
+    const config = makeConfig();
+    // Storage says only "keep" resolves. "drop" is recleared + re-imaged (put succeeds) but is
+    // STILL excluded from the page by the render existence gate — never a dangling <img>.
+    const keep = { ...fullRecord("keep"), firstSeen: "2026-07-10T10:00:00.000Z" };
+    const drop = { ...fullRecord("drop"), firstSeen: "2026-07-10T09:00:00.000Z" };
+    const storage = fakeStorageProvider({ exists: (id) => id === "keep" });
+    const { deps } = makeDeps(manifestOf(keep, drop), { storage });
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.ok).toBe(true);
+    expect(result.stages.render).toContain("1 publishable");
+    expect(result.deploy?.status).toBe("deployed");
   });
 });

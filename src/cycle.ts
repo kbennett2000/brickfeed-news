@@ -7,7 +7,7 @@ import { generateAll, isGenerated } from "./generate.js";
 import { hasImage, generateImages } from "./image.js";
 import { ingest } from "./ingest.js";
 import { readManifest, writeManifest } from "./manifest.js";
-import { publishableRecords, writePublished } from "./publish.js";
+import { publishableRecords, verifiedPublishableRecords, writePublished } from "./publish.js";
 import { renderSite } from "./render/index.js";
 import type { CycleDeps, CycleIo, Manifest, ManifestRecord } from "./types.js";
 
@@ -68,6 +68,18 @@ export async function runCycle(
     return { ok: false, dryRun: opts.dryRun, failedStage: "read-manifest", stages };
   }
 
+  // Storage preflight: validate the selected provider's preconditions ONCE, up front — blob
+  // needs BLOB_READ_WRITE_TOKEN (env) + publicBaseUrl (config); local needs a writable dir. A
+  // real run that fails preflight ABORTS here with an actionable message BEFORE generating
+  // anything (never pays for images it can't store) and never prompts — the cron cycle is
+  // non-interactive by contract.
+  const preflight = await deps.storage.preflight();
+  if (!preflight.ok && !opts.dryRun) {
+    stages["storage-preflight"] = `FAILED: ${preflight.message}`;
+    log(`[${iso()}] cycle: ${preflight.message}`);
+    return { ok: false, dryRun: false, failedStage: "storage-preflight", stages };
+  }
+
   // --- Dry-run: log what each stage WOULD do from the current manifest; mutate nothing. ---
   if (opts.dryRun) {
     const recs = Object.values(manifest.stories);
@@ -76,6 +88,9 @@ export async function runCycle(
     const stale = countStale(recs, config.maxAgeHours, now().getTime());
     const publishable = publishableRecords(manifest).length;
 
+    stages["storage-preflight"] = preflight.ok
+      ? `ok (provider=${config.storage.provider})`
+      : `would ABORT: ${preflight.message}`;
     stages.ingest = `would fetch ${config.feedUrls.length} feed(s)`;
     stages.generate = `${pending} pending would be attempted`;
     stages.image = `${eligibleImages} eligible would be attempted`;
@@ -131,7 +146,7 @@ export async function runCycle(
         );
         manifest = r.manifest;
         await deps.io.writeManifest(config.manifestPath, manifest);
-        await deps.io.writePublished(config.publishedPath, manifest);
+        await deps.io.writePublished(config.publishedPath, manifest, deps.storage);
         return `${r.stored.length} stored, ${r.skipped} skipped, ${r.failed} failed`;
       },
     },
@@ -141,7 +156,7 @@ export async function runCycle(
         const r = await ageOut(config, manifest, { storage: deps.storage, now });
         manifest = r.manifest;
         await deps.io.writeManifest(config.manifestPath, manifest);
-        await deps.io.writePublished(config.publishedPath, manifest);
+        await deps.io.writePublished(config.publishedPath, manifest, deps.storage);
         return `${r.dropped.length} dropped (${r.deleteAttempted.length} images deleted)`;
       },
     },
@@ -164,7 +179,9 @@ export async function runCycle(
   let records: ManifestRecord[];
   log(`[${iso()}] cycle: render …`);
   try {
-    records = publishableRecords(manifest);
+    // Existence-verified: only records whose image really resolves in storage reach the page,
+    // so no dangling <img> is ever rendered (or deployed — the deploy guard keys off this count).
+    records = await verifiedPublishableRecords(manifest, deps.storage);
     files = renderSite(records, {
       now: now(),
       secondaryStoryCount: config.render.secondaryStoryCount,
