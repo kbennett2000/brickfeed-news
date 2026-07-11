@@ -28,6 +28,7 @@ import {
   masthead,
   pageShell,
   railStory,
+  renderAbout,
   sectionHead,
   sectionNav,
   utilityStrip,
@@ -142,6 +143,7 @@ export function renderSite(
 
   const files: Record<string, string> = {
     "index.html": renderCover(views, dateStr, edition, opts.secondaryStoryCount),
+    "about.html": renderAbout(dateStr, edition),
     "styles.css": STYLES,
   };
   for (const category of CATEGORIES) {

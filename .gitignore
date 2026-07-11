@@ -26,3 +26,7 @@ PAUSE
 # rendered static site (Slice 7 build artifact) — derived output; the deploy slice decides
 # how it's served. Chrome lives as committed SOURCE in src/render/styles.ts, not here.
 /site/
+
+# source-of-truth binaries (e.g. the About portrait) — uploaded to Blob and referenced by
+# URL, never committed (repo stays text-only, same rule as generated story images).
+/assets/
