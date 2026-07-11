@@ -117,3 +117,65 @@ export function bylineFor(category: Category): string {
 export function captionWithCredit(caption: string): string {
   return `${caption} / BRICKFEED STUDIO`;
 }
+
+/**
+ * The absolute URL of a story's landing page (ADR-0009), e.g.
+ * `https://www.brickfeed.news/s/<id>.html`. Built from the configured `siteBaseUrl` (an
+ * absolute origin with no trailing slash) and the story id. This is both the file's own
+ * `og:url` and the `url` the X share link points at, so both agree by construction.
+ */
+export function storyPageUrl(siteBaseUrl: string, id: string): string {
+  return `${siteBaseUrl}/s/${id}.html`;
+}
+
+/** X (Twitter) tweet character ceiling. */
+const TWEET_MAX = 280;
+/** Every URL in a tweet is wrapped to a fixed-width t.co link, so it always costs this much. */
+const TCO_URL_LENGTH = 23;
+
+/**
+ * Build an X Web Intent URL (ADR-0009) that opens X's composer prefilled with a story:
+ * `https://x.com/intent/tweet?text=…&url=…[&hashtags=…][&via=…]`. Encoded via URLSearchParams
+ * so spaces/punctuation are correct. `hashtags` (bare, no "#") and `via` (handle, no "@") are
+ * omitted entirely when unset.
+ *
+ * The headline is length-budgeted so the composed tweet — `text` + the t.co-wrapped `url`
+ * (fixed 23 chars) + the rendered hashtags — stays within 280, truncating with a trailing "…"
+ * when needed. The `url` and `hashtags` params never count against the text budget beyond
+ * their in-tweet rendering, which is what we reserve for here.
+ */
+export function buildXIntentUrl(args: {
+  headline: string;
+  pageUrl: string;
+  handle?: string;
+  hashtags?: string[];
+}): string {
+  const { pageUrl, handle, hashtags } = args;
+
+  // What the hashtags render as inside the tweet (`#a #b`), and their whole cost incl. a
+  // leading space separating them from the text. Empty/absent → no reservation.
+  const tags = (hashtags ?? []).filter((h) => h.length > 0);
+  const hashtagsCost = tags.length ? 1 + tags.map((t) => `#${t}`).join(" ").length : 0;
+
+  // Budget for the text: total minus the wrapped url (+ a space) minus the hashtags.
+  const textBudget = TWEET_MAX - TCO_URL_LENGTH - 1 - hashtagsCost;
+  const text = truncateForTweet(args.headline, Math.max(0, textBudget));
+
+  const params = new URLSearchParams();
+  params.set("text", text);
+  params.set("url", pageUrl);
+  if (tags.length) params.set("hashtags", tags.join(","));
+  if (handle) params.set("via", handle);
+
+  return `https://x.com/intent/tweet?${params.toString()}`;
+}
+
+/**
+ * Truncate a headline to fit `max` characters, appending a single "…" when it was cut (the
+ * ellipsis counts toward `max`). Never throws; a `max` of 0 yields "".
+ */
+export function truncateForTweet(headline: string, max: number): string {
+  if (headline.length <= max) return headline;
+  if (max <= 1) return max <= 0 ? "" : "…";
+  return `${headline.slice(0, max - 1).trimEnd()}…`;
+}

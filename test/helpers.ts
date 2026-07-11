@@ -103,7 +103,13 @@ export function makeConfig(over: Partial<Config> = {}): Config {
     publishedPath: "unused-published.json",
     concurrency: 4,
     maxStoriesPerCycle: 20,
-    render: { outputDir: "site", secondaryStoryCount: 4, timeZone: "UTC" },
+    render: {
+      outputDir: "site",
+      secondaryStoryCount: 4,
+      timeZone: "UTC",
+      siteBaseUrl: "https://test.brickfeed.example",
+      share: {},
+    },
     deploy: { command: "vercel --prod --yes", cwd: "site", enabled: true },
     ...over,
   };

@@ -55,7 +55,12 @@
   "render": {
     "outputDir": "site",
     "secondaryStoryCount": 4,
-    "timeZone": "UTC"
+    "timeZone": "UTC",
+    "siteBaseUrl": "https://www.brickfeed.news",
+    "share": {
+      "handle": "brickfeednews",
+      "hashtags": ["brickfeed", "news"]
+    }
   },
   "deploy": {
     "command": "vercel --prod --yes",
