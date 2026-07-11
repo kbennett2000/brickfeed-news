@@ -174,7 +174,7 @@ img { max-width: 100%; display: block; }
 .footer__brand { display: inline-flex; align-items: center; gap: 11px; }
 .footer__wordmark { font-family: var(--display); font-weight: 600; font-size: 34px; text-transform: lowercase; }
 .footer__motto { font: 500 11px/1 var(--mono); letter-spacing: 0.28em; text-transform: uppercase; color: var(--fainter); margin-top: 14px; }
-.footer__cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 34px; padding: 34px 0; }
+.footer__cols { padding: 34px 0; }
 .footer__col-title { font: 600 11px/1 var(--serif); letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink); margin-bottom: 14px; }
 .footer__link { display: block; font-family: var(--serif); font-size: 15px; color: var(--ink-60); padding: 5px 0; }
 .footer__disclaimer { border-top: 1px solid var(--hairline); padding-top: 22px; font-family: var(--serif); font-size: 13px; line-height: 1.55; color: var(--faint); max-width: 80ch; }
@@ -188,13 +188,11 @@ img { max-width: 100%; display: block; }
   .rail { border-left: 0; padding-left: 0; border-top: 1px solid var(--rule-color); padding-top: 30px; }
   .cards { grid-template-columns: repeat(2, 1fr); }
   .cards--section { grid-template-columns: repeat(2, 1fr); }
-  .footer__cols { grid-template-columns: repeat(2, 1fr); }
   .section-head__row { flex-direction: column; align-items: flex-start; }
   .section-head__aside { text-align: left; }
 }
 @media (max-width: 560px) {
   .cards, .cards--section { grid-template-columns: 1fr; }
-  .footer__cols { grid-template-columns: 1fr; }
   .nav__inner { height: auto; flex-direction: column; align-items: flex-start; gap: 10px; padding-top: 10px; padding-bottom: 10px; }
   .nav__link { padding: 4px 0; }
 }

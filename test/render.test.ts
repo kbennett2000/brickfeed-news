@@ -94,9 +94,9 @@ describe("renderSite — cover page", () => {
     expect(index).toContain("Brick Photo");
   });
 
-  it("shows the masthead date from the injected clock and the Latin motto", () => {
+  it("shows the masthead date from the injected clock and the tagline", () => {
     expect(index).toContain("FRIDAY, JULY 10, 2026");
-    expect(index).toContain("Totvs Mvndvs Ex Lateribvs");
+    expect(index).toContain("All the stories, brick by brick");
     expect(index).toContain("Late Brick Edition");
   });
 
@@ -130,7 +130,7 @@ describe("renderSite — section pages", () => {
 
   it("a section with no stories renders a valid empty state, not a crash", () => {
     const sport = files["sport.html"];
-    expect(sport).toContain("Totvs Mvndvs Ex Lateribvs"); // chrome still present
+    expect(sport).toContain("All the stories, brick by brick"); // chrome still present
     expect(sport).toContain("Nothing to brick, just now.");
   });
 });
@@ -140,7 +140,7 @@ describe("renderSite — robustness", () => {
     const files = renderSite([], OPTS);
     const index = files["index.html"];
     expect(index).toContain("brickfeed");
-    expect(index).toContain("Totvs Mvndvs Ex Lateribvs");
+    expect(index).toContain("All the stories, brick by brick");
     expect(index).toContain("Nothing to brick, just now.");
     // Nav still renders from the enum even with no stories.
     for (const c of CATEGORIES) {
