@@ -17,6 +17,7 @@ import {
   DEFAULT_RENDER_SECONDARY_STORY_COUNT,
   DEFAULT_RENDER_TIME_ZONE,
   DEFAULT_RENDER_SITE_BASE_URL,
+  DEFAULT_RENDER_ANALYTICS,
   DEFAULT_STORAGE_BLOB_PATH_PREFIX,
   DEFAULT_STORAGE_LOCAL_DIR,
   DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL,
@@ -242,8 +243,27 @@ describe("validateConfig", () => {
       secondaryStoryCount: DEFAULT_RENDER_SECONDARY_STORY_COUNT,
       timeZone: DEFAULT_RENDER_TIME_ZONE,
       siteBaseUrl: DEFAULT_RENDER_SITE_BASE_URL,
+      analytics: DEFAULT_RENDER_ANALYTICS,
       share: {},
     });
+  });
+
+  it("defaults render.analytics to none and accepts an explicit vercel/none", () => {
+    expect(validateConfig({ ...base, render: { outputDir: "public" } }).render.analytics).toBe(
+      "none",
+    );
+    expect(
+      validateConfig({ ...base, render: { analytics: "vercel" } }).render.analytics,
+    ).toBe("vercel");
+    expect(
+      validateConfig({ ...base, render: { analytics: "none" } }).render.analytics,
+    ).toBe("none");
+  });
+
+  it("rejects an unknown render.analytics value", () => {
+    expect(() =>
+      validateConfig({ ...base, render: { analytics: "google" } }),
+    ).toThrow(/render\.analytics/);
   });
 
   it("defaults render.siteBaseUrl when omitted and keeps a valid explicit one", () => {

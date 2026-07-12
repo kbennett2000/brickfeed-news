@@ -109,6 +109,7 @@ export function makeConfig(over: Partial<Config> = {}): Config {
       secondaryStoryCount: 4,
       timeZone: "UTC",
       siteBaseUrl: "https://test.brickfeed.example",
+      analytics: "none",
       share: {},
     },
     deploy: { command: "vercel --prod --yes", cwd: "site", enabled: true },

@@ -57,6 +57,7 @@
     "secondaryStoryCount": 4,
     "timeZone": "UTC",
     "siteBaseUrl": "https://www.brickfeed.news",
+    "analytics": "none",
     "share": {
       "handle": "brickfeednews",
       "hashtags": ["brickfeed", "news"]

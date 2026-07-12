@@ -81,6 +81,7 @@ minimal config is valid. Only **`feedUrls`** and **`manifestPath`** are strictly
 | `render.secondaryStoryCount` | number | `4` | Number of secondary "rail" stories after the lead on the cover page. |
 | `render.timeZone` | string | `UTC` | IANA time zone the masthead dateline + time-of-day edition label are computed in (ADR-0008). Production uses `America/Denver`. |
 | `render.siteBaseUrl` | string | `https://www.brickfeed.news` | Absolute site origin (no trailing slash) used to build each per-story landing page's absolute `og:url` and the X share URLs (ADR-0009). Must be `http(s)://…`. |
+| `render.analytics` | `"vercel"` \| `"none"` | `none` | Cookieless web-analytics beacon injected before `</body>` on public pages (cover, sections, about, per-story landing pages). `none` keeps the site JS-free. `vercel` injects the Vercel Web Analytics plain-HTML snippet (`/_vercel/insights/script.js`) — it only reports once **Web Analytics is enabled for the project in the Vercel dashboard** (Analytics → Enable). The `noindex` operator share sheet is never tracked. Aggregate unique-visitors/pageviews only; cookieless means no returning-vs-new-visitor breakdown. |
 | `render.share.handle` | string | (unset) | Site X (Twitter) handle **without** a leading `@`; feeds `via=` on share links and `twitter:site` on landing cards. Omit to emit neither. |
 | `render.share.hashtags` | string[] | (unset) | Default hashtags for share links, each **without** a leading `#`. Omit for none. |
 
