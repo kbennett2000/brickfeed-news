@@ -54,6 +54,7 @@ async function main(): Promise<void> {
     timeZone: config.render.timeZone,
     siteBaseUrl: config.render.siteBaseUrl,
     share: config.render.share,
+    analytics: config.render.analytics,
     ads,
     articles,
   });

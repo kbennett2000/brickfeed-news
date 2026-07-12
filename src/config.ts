@@ -57,6 +57,13 @@ export interface RenderConfig {
    * are not valid for social cards, so this must be a real absolute origin.
    */
   siteBaseUrl: string;
+  /**
+   * Cookieless web-analytics provider injected into every page's shell. "none" (default) emits
+   * nothing — the site stays byte-identical and JS-free. "vercel" injects the Vercel Web
+   * Analytics plain-HTML snippet (`/_vercel/insights/script.js`); it only reports once Web
+   * Analytics is enabled for the project in the Vercel dashboard.
+   */
+  analytics: "vercel" | "none";
   /** Assisted-manual X (Twitter) share-sheet settings (ADR-0009). Both fields optional. */
   share: ShareConfig;
 }
@@ -251,6 +258,9 @@ export const DEFAULT_RENDER_TIME_ZONE = "UTC";
 // The production origin, so an omitted siteBaseUrl still yields correct absolute card/share
 // URLs on the live box. No trailing slash (ADR-0009). Override in config for other origins.
 export const DEFAULT_RENDER_SITE_BASE_URL = "https://www.brickfeed.news";
+// Web analytics provider. "none" (default) emits no beacon; "vercel" injects the cookieless
+// Vercel Web Analytics plain-HTML snippet into every page's shell.
+export const DEFAULT_RENDER_ANALYTICS = "none";
 
 /** Defaults when the config omits the `deploy` block (Slice 8). `cwd` defaults to outputDir. */
 export const DEFAULT_DEPLOY_COMMAND = "vercel --prod --yes";
@@ -662,6 +672,7 @@ function validateRender(raw: unknown, path: string): RenderConfig {
       secondaryStoryCount: DEFAULT_RENDER_SECONDARY_STORY_COUNT,
       timeZone: DEFAULT_RENDER_TIME_ZONE,
       siteBaseUrl: DEFAULT_RENDER_SITE_BASE_URL,
+      analytics: DEFAULT_RENDER_ANALYTICS,
       share: {},
     };
   }
@@ -696,9 +707,24 @@ function validateRender(raw: unknown, path: string): RenderConfig {
   );
 
   const siteBaseUrl = validateSiteBaseUrl(r.siteBaseUrl, path);
+  const analytics = validateAnalytics(r.analytics, path);
   const share = validateShare(r.share, path);
 
-  return { outputDir, secondaryStoryCount, timeZone, siteBaseUrl, share };
+  return { outputDir, secondaryStoryCount, timeZone, siteBaseUrl, analytics, share };
+}
+
+/**
+ * Validate `render.analytics`. Absent → "none" (no beacon). A present value must be exactly
+ * "vercel" or "none"; anything else is a config error.
+ */
+function validateAnalytics(raw: unknown, path: string): "vercel" | "none" {
+  const v = raw ?? DEFAULT_RENDER_ANALYTICS;
+  if (v !== "vercel" && v !== "none") {
+    throw new Error(
+      `Config at ${path}: render.analytics must be "vercel" or "none".`,
+    );
+  }
+  return v;
 }
 
 /**

@@ -4,8 +4,8 @@
   ],
   "manifestPath": "data/manifest.json",
   "generator": {
-    "provider": "grok-terminal",
-    "model": "claude-sonnet-5",
+    "provider": "claude",
+    "model": "claude-haiku-4-5-20251001",
     "grok": {
       "baseUrl": "https://api.x.ai/v1",
       "model": "grok-4.5"
@@ -57,6 +57,7 @@
     "secondaryStoryCount": 4,
     "timeZone": "UTC",
     "siteBaseUrl": "https://www.brickfeed.news",
+    "analytics": "none",
     "share": {
       "handle": "brickfeednews",
       "hashtags": ["brickfeed", "news"]

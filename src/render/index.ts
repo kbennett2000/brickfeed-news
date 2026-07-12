@@ -26,6 +26,7 @@ import { renderMarkdown } from "./markdown.js";
 import { adAnimationCss, STYLES } from "./styles.js";
 import {
   adBanner,
+  type AnalyticsProvider,
   brickyardHead,
   card,
   emptyState,
@@ -80,6 +81,12 @@ export interface RenderOptions {
   siteBaseUrl: string;
   /** X (Twitter) share settings for the share sheet + twitter:site meta. Both fields optional. */
   share?: ShareOptions;
+  /**
+   * Cookieless web-analytics beacon injected into public pages. Absent/"none" → no beacon (the
+   * site stays JS-free and byte-identical). "vercel" → the Vercel Web Analytics snippet. The
+   * operator-only share sheet is never tracked. Writers pass `config.render.analytics`.
+   */
+  analytics?: AnalyticsProvider;
 }
 
 /** Optional X share settings threaded into the render (ADR-0009), mirroring the config shape. */
@@ -175,6 +182,7 @@ function renderCover(
   edition: string,
   secondaryStoryCount: number,
   banner: string,
+  analytics: AnalyticsProvider,
 ): string {
   const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav() + banner;
 
@@ -183,7 +191,7 @@ function renderCover(
       chrome +
       `<main>${emptyState("No stories have been bricked yet. Check back once the presses roll.")}</main>` +
       footer();
-    return pageShell("brickfeed", body);
+    return pageShell("brickfeed", body, { analytics });
   }
 
   const [lead, ...rest] = views;
@@ -211,7 +219,7 @@ function renderCover(
     : "";
 
   const body = chrome + `<main>${hero}${brickyard}</main>` + footer();
-  return pageShell("brickfeed", body);
+  return pageShell("brickfeed", body, { analytics });
 }
 
 /**
@@ -225,6 +233,7 @@ function renderSection(
   dateStr: string,
   edition: string,
   banner: string,
+  analytics: AnalyticsProvider,
 ): string {
   const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(category) + banner;
 
@@ -237,7 +246,7 @@ function renderSection(
       emptyState(`No ${titleCase(category)} stories have been bricked yet.`);
 
   const body = chrome + `<main>${content}</main>` + footer();
-  return pageShell(`${titleCase(category)} — brickfeed`, body);
+  return pageShell(`${titleCase(category)} — brickfeed`, body, { analytics });
 }
 
 /**
@@ -259,6 +268,7 @@ export function renderSite(
 
   const share = opts.share ?? {};
   const twitterSite = share.handle ? `@${share.handle}` : undefined;
+  const analytics = opts.analytics ?? "none";
 
   // Locally hosted articles (ADR-0010): drop expired ones, then build a StoryView per live
   // article once (shared across the cover, its section page, and its own landing page). The
@@ -274,8 +284,8 @@ export function renderSite(
   );
 
   const files: Record<string, string> = {
-    "index.html": renderCover(coverViews, dateStr, edition, opts.secondaryStoryCount, banner),
-    "about.html": renderAbout(dateStr, edition, banner),
+    "index.html": renderCover(coverViews, dateStr, edition, opts.secondaryStoryCount, banner, analytics),
+    "about.html": renderAbout(dateStr, edition, banner, analytics),
     "styles.css": STYLES + adAnimationCss(ads.length),
   };
   for (const category of CATEGORIES) {
@@ -290,6 +300,7 @@ export function renderSite(
       dateStr,
       edition,
       banner,
+      analytics,
     );
   }
 
@@ -300,14 +311,14 @@ export function renderSite(
   records.forEach((record, i) => {
     const view = views[i];
     const pageUrl = storyPageUrl(opts.siteBaseUrl, record.id);
-    files[`s/${record.id}.html`] = renderLandingPage(view, { pageUrl, twitterSite });
+    files[`s/${record.id}.html`] = renderLandingPage(view, { pageUrl, twitterSite, analytics });
     shareRows.push({ view, pageUrl });
   });
   // Local articles get the same s/<id>.html page — but it IS the article (body rendered inline),
   // and it's shareable too, so it joins the share sheet.
   for (const { article, view } of articleViews) {
     const pageUrl = storyPageUrl(opts.siteBaseUrl, article.id);
-    files[`s/${article.id}.html`] = renderLandingPage(view, { pageUrl, twitterSite });
+    files[`s/${article.id}.html`] = renderLandingPage(view, { pageUrl, twitterSite, analytics });
     shareRows.push({ view, pageUrl });
   }
   files["share.html"] = renderShareSheet(shareRows, share);

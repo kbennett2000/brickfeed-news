@@ -752,3 +752,48 @@ describe("share format helpers", () => {
     expect(truncateForTweet("anything", 0)).toBe("");
   });
 });
+
+describe("renderSite — web analytics (render.analytics)", () => {
+  const BEACON = `<script defer src="/_vercel/insights/script.js"></script>`;
+
+  it("injects the Vercel beacon before </body> on public pages when analytics: vercel", () => {
+    const article: Article = {
+      id: "article-01",
+      headline: "A Local Story",
+      description: "Hosted here.",
+      byline: "By Staff",
+      category: "CULTURE",
+      mainRank: 0,
+      subRank: 0,
+      bodyMarkdown: "Body.",
+      imageUrl: "https://cdn.test/article-01.png",
+    };
+    const files = renderSite(records, { ...OPTS, analytics: "vercel", articles: [article] });
+
+    for (const page of [
+      "index.html",
+      "about.html",
+      `${sectionSlug("WORLD")}.html`,
+      "s/lead.html", // a feed-story landing page
+      "s/article-01.html", // a local-article landing page
+    ]) {
+      expect(files[page], page).toContain(BEACON);
+      expect(files[page], page).toContain("window.va = window.va ||");
+      // Beacon sits inside the shell, right before the closing body tag.
+      expect(files[page], page).toContain(`${BEACON}\n</body>`);
+    }
+  });
+
+  it("never tracks the operator-only (noindex) share sheet", () => {
+    const files = renderSite(records, { ...OPTS, analytics: "vercel" });
+    expect(files["share.html"]).toContain(`content="noindex"`);
+    expect(files["share.html"]).not.toContain(BEACON);
+  });
+
+  it("emits no beacon by default (analytics omitted → none)", () => {
+    const files = renderSite(records, OPTS);
+    for (const page of Object.values(files)) {
+      expect(page).not.toContain(BEACON);
+    }
+  });
+});

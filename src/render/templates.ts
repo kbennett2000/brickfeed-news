@@ -277,7 +277,12 @@ function aboutLink(href: string, label: string): string {
  * profile links. Static copy is written as literal HTML (like the footer disclaimer); only
  * the URLs are escaped.
  */
-export function renderAbout(dateStr: string, edition: string, banner: string): string {
+export function renderAbout(
+  dateStr: string,
+  edition: string,
+  banner: string,
+  analytics: AnalyticsProvider = "none",
+): string {
   const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav() + banner;
   const body =
     chrome +
@@ -307,7 +312,7 @@ export function renderAbout(dateStr: string, edition: string, banner: string): s
     </div>
   </main>` +
     footer();
-  return pageShell("About — brickfeed", body);
+  return pageShell("About — brickfeed", body, { analytics });
 }
 
 /** The footer: wordmark + tagline, the live Sections links, disclaimer. */
@@ -350,10 +355,29 @@ export function footer(): string {
  * `opts.assetPrefix` prefixes the local `styles.css` href — landing pages live in the `s/`
  * subdir and pass "../" so `../styles.css` resolves; default "" leaves root pages unchanged.
  */
+/** Cookieless web-analytics provider injected into the page shell. "none" emits nothing. */
+export type AnalyticsProvider = "vercel" | "none";
+
+/**
+ * The cookieless Vercel Web Analytics beacon in its plain-HTML form (no npm package). Injected
+ * just before `</body>` on public pages when `render.analytics: "vercel"`. The script only
+ * reports once Web Analytics is enabled for the project in the Vercel dashboard, which serves
+ * `/_vercel/insights/script.js`; until then it 404s harmlessly.
+ */
+const VERCEL_ANALYTICS_SNIPPET = `<script>
+window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>`;
+
+/** The analytics markup to append before `</body>`; empty (byte-identical) unless "vercel". */
+function analyticsSnippet(provider: AnalyticsProvider | undefined): string {
+  return provider === "vercel" ? `\n${VERCEL_ANALYTICS_SNIPPET}` : "";
+}
+
 export function pageShell(
   title: string,
   bodyHtml: string,
-  opts: { headExtra?: string; assetPrefix?: string } = {},
+  opts: { headExtra?: string; assetPrefix?: string; analytics?: AnalyticsProvider } = {},
 ): string {
   const headExtra = opts.headExtra ? `${opts.headExtra}\n` : "";
   const assetPrefix = opts.assetPrefix ?? "";
@@ -369,7 +393,7 @@ ${headExtra}<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="${assetPrefix}styles.css">
 </head>
 <body>
-${bodyHtml}
+${bodyHtml}${analyticsSnippet(opts.analytics)}
 </body>
 </html>
 `;
@@ -431,7 +455,7 @@ function standaloneBrand(homeHref: string): string {
  */
 export function renderLandingPage(
   view: StoryView,
-  opts: { pageUrl: string; twitterSite?: string },
+  opts: { pageUrl: string; twitterSite?: string; analytics?: AnalyticsProvider },
 ): string {
   const meta = cardMeta({
     title: view.headline,
@@ -462,6 +486,7 @@ export function renderLandingPage(
   return pageShell(`${view.headline} — brickfeed`, body, {
     headExtra: meta,
     assetPrefix: "../",
+    analytics: opts.analytics,
   });
 }
 
