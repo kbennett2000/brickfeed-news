@@ -1,5 +1,51 @@
 # Handoff
 
+## Opinion generation stage: authors, gate, selection, idempotent publish (ADR-0015)
+
+The stage that writes opinion pieces now exists and is LIVE — the launch batch ran on
+the box on 2026-07-13 (`npm run opinions -- --authors all`): eight OPINION records are
+in `data/manifest.json` under `opinion-{author}-2026-07-13` keys. They are image-less
+and therefore unpublished (`isPublishable` requires `imageUrl`) — invisible on the site
+until the render/imagery cycle. No render, config, or cron changes (cron's hourly cycle
+now includes a tolerant opinions stage automatically).
+
+- **`src/opinions.ts` is the whole stage** (pure helpers exported): `authorsFor` =
+  ADR-0013 rotation pair (`daysSinceUnixEpoch % 3`) + ADR-0014 letters-schedule overlay;
+  candidates = publishable non-OPINION records `firstSeen` <24h; ONE batched fail-closed
+  topic-gate classification per run (strict JSON verdicts, any deviation → all excluded,
+  news authors skip, letters unaffected); bias-weighted sampling (floor 0.25 for
+  unlisted sections, 3 picks, `sourceArticleIds` persisted); output = title line + body
+  → `headline`/`description`; length sanity per persona (default 300–500, tom 500–700,
+  constants drift-pinned to the .md prose by tests; >2x out of band fails, out of range
+  warns); idempotency checked BEFORE any provider call; per-author failure isolation
+  (serial); CLI exit ≠ 0 only if ALL authors failed.
+- **Record shape**: `id` = the idempotency key (NOT a URL hash — the store doesn't
+  care), `url`/`sourceName` empty, `title` = headline, `firstSeen` = `lastSeen` = now
+  (so `opinionMaxAgeHours` retention works unchanged), plus new optional
+  `ManifestRecord` fields `author` / `columnTitle` / `sourceArticleIds`.
+- **CRITICAL guard (`src/generate.ts`)**: `author`-bearing records are exempt from
+  `generateAll` eligibility. Image-less opinion pieces read as "pending" to
+  `isGenerated` — without the guard the next cycle would overwrite every piece with
+  story-style output and then image it. Verified live: 114 records lack full generation
+  fields, the cycle counts 106 pending (the 8 pieces excluded).
+- **Cycle**: stage order is now ingest → generate → image → ageout → **opinions** →
+  render → deploy; opinions is tolerant like headshots (never fails the run). Cycle
+  dry-run prints a derivation-only "would" line (no provider calls); the standalone
+  `npm run opinions -- --dry-run` DOES make the one gate call (verdicts must print)
+  but zero piece calls and zero writes. `--authors all` = launch batch; `--date` moves
+  derivation+keys only (never the candidate window; no backfill).
+- **Verified on the box**: dry-run printed 8 authors + 42 gate verdicts (7 excluded:
+  casualties/shooting/disaster/obituary — the gate works) + selections, zero writes;
+  real run published 8/8 (news 373–479 words, priscilla 362, tom 602 — all in range,
+  in register); re-run → 8 idempotent skips at zero provider cost; non-OPINION records
+  byte-identical before/after; LEGO grep clean. 573 tests / 39 files, tsc clean.
+- **Render/imagery cycle inherits**: card truncation of full-body `description`s;
+  byline row + `column_title` banner + disclosure footers (ADR-0013 d.6, ADR-0014 d.6 —
+  copy recorded in the ADRs); hero images = add `imagePrompt`/`wrappedPrompt` to
+  author-bearing records and the existing image stage picks them up via its
+  `wrappedPrompt && !hasImage` gate (then `isPublishable` turns on by itself).
+- Landed directly on master per the standing no-PRs directive (see Git state below).
+
 ## Reader-letter columns: Tom & Priscilla assets, schema source split, bench letter mode
 
 Implements ADR-0014 (assets/schema/bench only — no generation pipeline, no render, no
