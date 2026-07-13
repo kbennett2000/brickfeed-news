@@ -49,6 +49,13 @@ export interface ImageOptimizeRender {
 export interface StoryRenderOpts {
   imageOptimize?: ImageOptimizeRender;
   share?: { handle?: string; hashtags?: string[] };
+  /**
+   * Relative prefix for site-internal links ("" on root pages, "../" on `s/` and
+   * `columnist/` pages, ADR-0019) — applied to local story URLs and bio-page links so
+   * every page works over file:// and any mount point. Feed URLs are absolute, never
+   * prefixed. Default "" keeps root-page output byte-identical.
+   */
+  pathPrefix?: string;
 }
 
 /** The view model a template consumes — a ManifestRecord already reduced to display fields. */
@@ -97,6 +104,11 @@ export interface StoryView {
     letters: boolean;
     columnTitle?: string;
     avatarUrl?: string;
+    /**
+     * Site-relative bio-page path, e.g. `columnist/alice.html` (ADR-0019). Present only
+     * when the persona resolved in the directory; absent → the byline row stays linkless.
+     */
+    profilePath?: string;
   };
 }
 
@@ -286,18 +298,26 @@ function bylineTail(ago: string): string {
  * decorative desk byline on opinion cards and piece pages. `extraClass` lets the
  * landing page keep its `byline--lead` sizing. The avatar's 48px size is presentational
  * attributes, not just CSS (ADR-0017): it survives a stale stylesheet and reserves layout.
+ *
+ * Avatar + name link to the columnist's bio page when `profilePath` resolved (ADR-0019);
+ * this row is an anchor carrier now, so callers MUST place it outside any card-wide `<a>`
+ * (same rule as the share row). `pathPrefix` relativizes the link from subdir pages.
  */
-function opinionBylineRow(view: StoryView, extraClass = ""): string {
+function opinionBylineRow(view: StoryView, extraClass = "", pathPrefix = ""): string {
   const o = view.opinion;
   if (!o) return "";
   const avatar = o.avatarUrl
     ? `<img class="byline-opinion__avatar" src="${escapeAttr(o.avatarUrl)}" width="48" height="48" alt="" loading="lazy" decoding="async">`
     : "";
+  const identity = `${avatar}<span class="byline-opinion__name">${escapeHtml(o.displayName)}</span>`;
+  const linked = o.profilePath
+    ? `<a class="byline-opinion__link" href="${escapeAttr(pathPrefix + o.profilePath)}">${identity}</a>`
+    : identity;
   const column = o.columnTitle
     ? ` &middot; <span class="byline-opinion__column">${escapeHtml(o.columnTitle)}</span>`
     : "";
   const cls = extraClass ? `byline ${extraClass} byline-opinion` : "byline byline-opinion";
-  return `<div class="${cls}">${avatar}<span class="byline-opinion__name">${escapeHtml(o.displayName)}</span>${column}${bylineTail(view.ago)}</div>`;
+  return `<div class="${cls}">${linked}${column}${bylineTail(view.ago)}</div>`;
 }
 
 /** The utility strip: dateline + time-of-day edition (no Search / Subscribe / Today's Paper). */
@@ -373,17 +393,30 @@ export function railStory(view: StoryView, opts: StoryRenderOpts = {}): string {
 
 /** One grid card (home "Across the Brickyard" + section grids). */
 export function card(view: StoryView, opts: StoryRenderOpts = {}): string {
-  // Opinion pieces swap the decorative desk byline for the signed byline row (ADR-0016).
-  const byline = view.opinion
-    ? opinionBylineRow(view)
-    : `<div class="byline">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>`;
-  const link = `<a ${storyLinkAttrs(view.url, "card", view.local)}>
+  const prefix = opts.pathPrefix ?? "";
+  const url = view.local ? prefix + view.url : view.url;
+  if (view.opinion) {
+    // Opinion pieces swap the decorative desk byline for the signed byline row (ADR-0016).
+    // The row now carries the bio-page link (ADR-0019), so it lives OUTSIDE the card-wide
+    // <a> as a sibling in the .story wrapper — nested anchors are invalid HTML and browsers
+    // re-parent them (the same rule the share row follows).
+    const link = `<a ${storyLinkAttrs(url, "card", view.local)}>
         ${figure(view, "card", opts)}
         <div class="card__body">
           <div class="kicker kicker--sm">${escapeHtml(view.kicker)}</div>
           <h3 class="card__headline">${escapeHtml(view.headline)}</h3>
           <p class="dek">${escapeHtml(view.description)}</p>
-          ${byline}
+        </div>
+      </a>`;
+    return `<div class="story">${link}${opinionBylineRow(view, "", prefix)}${storyShare(view, opts)}</div>`;
+  }
+  const link = `<a ${storyLinkAttrs(url, "card", view.local)}>
+        ${figure(view, "card", opts)}
+        <div class="card__body">
+          <div class="kicker kicker--sm">${escapeHtml(view.kicker)}</div>
+          <h3 class="card__headline">${escapeHtml(view.headline)}</h3>
+          <p class="dek">${escapeHtml(view.description)}</p>
+          <div class="byline">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>
         </div>
       </a>`;
   return withShare(link, storyShare(view, opts));
@@ -696,7 +729,7 @@ export function renderLandingPage(
       `</div>`
     : "";
   const localByline = view.opinion
-    ? opinionBylineRow(view, "byline--lead")
+    ? opinionBylineRow(view, "byline--lead", "../")
     : `<div class="byline byline--lead">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>`;
   // Local article / opinion piece: byline then its own hosted body, no outbound CTA. Feed
   // story: dek, byline, then a prominent read-at-source link (unchanged from ADR-0009).

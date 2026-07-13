@@ -128,6 +128,16 @@ export function storyPageUrl(siteBaseUrl: string, id: string): string {
   return `${siteBaseUrl}/s/${id}.html`;
 }
 
+/** Site-relative path of a columnist's bio page (ADR-0019), e.g. `columnist/alice.html`. */
+export function columnistPagePath(name: string): string {
+  return `columnist/${name}.html`;
+}
+
+/** The absolute URL of a columnist's bio page — its own og:url and its sitemap entry. */
+export function columnistPageUrl(siteBaseUrl: string, name: string): string {
+  return `${siteBaseUrl}/${columnistPagePath(name)}`;
+}
+
 /**
  * A same-origin Vercel Image Optimization URL (ADR-0012) for a source image at a target width:
  * `/_vercel/image?url=<encoded src>&w=<width>&q=<quality>`. Vercel proxies the (allow-listed)

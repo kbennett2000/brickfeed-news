@@ -16,6 +16,7 @@ import type { Persona } from "../personas.js";
 import type { ManifestRecord } from "../types.js";
 import {
   bylineFor,
+  columnistPagePath,
   escapeAttr,
   escapeHtml,
   excerpt,
@@ -130,6 +131,8 @@ export interface AuthorInfo {
   source: "news" | "letters";
   columnTitle?: string;
   avatarUrl?: string;
+  /** Human-written bio paragraphs for the columnist page (ADR-0019); absent → bylineBlurb. */
+  bio?: string[];
 }
 
 /**
@@ -149,6 +152,7 @@ export function buildAuthorDirectory(
       bylineBlurb: p.bylineBlurb,
       source: p.source,
       ...(p.columnTitle !== undefined ? { columnTitle: p.columnTitle } : undefined),
+      ...(p.bio !== undefined ? { bio: p.bio } : undefined),
       ...(headshots.headshots[p.name]?.avatarUrl
         ? { avatarUrl: headshots.headshots[p.name].avatarUrl }
         : undefined),
@@ -227,6 +231,9 @@ export function toStoryView(
       letters: !!record.columnTitle,
       ...(record.columnTitle !== undefined ? { columnTitle: record.columnTitle } : undefined),
       ...(info?.avatarUrl ? { avatarUrl: info.avatarUrl } : undefined),
+      // The byline links to the bio page only for a resolved persona (ADR-0019): an
+      // unknown author has no columnist page to point at, so the row stays linkless.
+      ...(info ? { profilePath: columnistPagePath(record.author) } : undefined),
     };
   }
   return view;

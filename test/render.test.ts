@@ -1186,17 +1186,31 @@ describe("renderSite — opinion section (ADR-0016)", () => {
     expect(page).not.toContain("By the Opinion Desk");
   });
 
-  it("byline rows pin the 48px avatar attributes on cards AND piece pages (ADR-0017)", () => {
+  it("byline rows pin the 48px avatar attributes on cards AND piece pages (ADR-0017/0019)", () => {
     // Presentational size attributes survive a stale stylesheet and reserve layout (no CLS);
-    // the inline flex row is the wrapper's contract: avatar, then name, inside one div.
+    // the row's contract: the bio-page link wraps avatar then name (ADR-0019), inside one div.
+    // Piece pages live under s/, so their bio link is ../-relative; section cards are root-relative.
     const row =
-      '<div class="byline byline--lead byline-opinion"><img class="byline-opinion__avatar" ' +
+      '<div class="byline byline--lead byline-opinion"><a class="byline-opinion__link" ' +
+      'href="../columnist/alice.html"><img class="byline-opinion__avatar" ' +
       'src="https://cdn.test/headshots/alice.webp" width="48" height="48"';
     expect(newsPage).toContain(row);
     expect(files["opinion.html"]).toContain(
-      '<div class="byline byline-opinion"><img class="byline-opinion__avatar" ' +
+      '<div class="byline byline-opinion"><a class="byline-opinion__link" ' +
+        'href="columnist/alice.html"><img class="byline-opinion__avatar" ' +
         'src="https://cdn.test/headshots/alice.webp" width="48" height="48"',
     );
+  });
+
+  it("byline links: the card byline is a .story sibling of the card anchor, never nested (ADR-0019)", () => {
+    const page = files["opinion.html"];
+    // No anchor nesting: the card anchor's markup must not contain the bio link.
+    const cardAnchor = page.match(/<a class="card" href="s\/opinion-alice[\s\S]*?<\/a>/)?.[0] ?? "";
+    expect(cardAnchor.length).toBeGreaterThan(0);
+    expect(cardAnchor).not.toContain("byline-opinion__link");
+    // The name inside the link closes back to the bio page on both surfaces.
+    expect(page).toContain('href="columnist/tom.html"');
+    expect(lettersPage).toContain('href="../columnist/tom.html"');
   });
 
   it("piece pages render the paragraphized body and the hero with caption credit", () => {
@@ -1232,6 +1246,8 @@ describe("renderSite — opinion section (ADR-0016)", () => {
     expect(out["opinion.html"]).toContain(">alice</span>"); // raw record.author as display name
     expect(out["s/opinion-alice-2026-07-10.html"]).not.toContain("landing__blurb");
     expect(warned.some((m) => m.includes("no loaded persona"))).toBe(true);
+    // Unknown author → no bio page exists, so the byline row stays linkless (ADR-0019).
+    expect(out["opinion.html"]).not.toContain("byline-opinion__link");
   });
 
   it("never contains the trademark, case-insensitive, in any opinion-render output file", () => {

@@ -353,6 +353,11 @@ img { max-width: 100%; display: block; }
 .byline-opinion { display: flex; align-items: center; gap: 10px; }
 .byline-opinion__avatar { width: 48px; height: 48px; object-fit: cover; flex: none; background: var(--photo-field); border: 1px solid var(--photo-border); }
 .byline-opinion__name { color: var(--ink-60); }
+/* Avatar + name link to the bio page (ADR-0019); inherits the row's look, underlines on hover. */
+.byline-opinion__link { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
+.byline-opinion__link:hover .byline-opinion__name { text-decoration: underline; color: var(--accent); }
+/* Opinion card byline is a .story sibling of the card link (never nested in it, ADR-0019). */
+.story > .byline-opinion { margin-top: 12px; }
 .landing .byline-opinion { margin: 14px 0 18px; }
 .landing__disclosure { margin-top: 28px; border-top: 1px solid var(--hairline); padding-top: 14px; }
 .landing__blurb, .landing__letters {
