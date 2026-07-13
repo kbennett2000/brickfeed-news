@@ -1,5 +1,41 @@
 # Handoff
 
+## Columnist bio pages: author pages, byline links, cast strip (ADR-0019)
+
+Render-only slice; generation/selection/rotation/config/disclosure constants untouched.
+
+- **Bio pages**: one per loaded persona at `columnist/<name>.html`, ALWAYS rendered
+  (static content, no retention; empty archive shows "No recent columns…", never hides
+  the page). Standalone landing-page chrome (`../` asset prefix + brand header — a
+  deliberate divergence from about.html's full nav, recorded in the ADR). Body: the
+  256×256 headshot at full size, display name, column title (letters), human-written
+  `bio` paragraphs with `byline_blurb` fallback, and an archive of the persona's
+  currently-live OPINION pieces as cards.
+- **Optional `bio` front-matter** (`src/personas.ts`): inline `bio: text` = one
+  paragraph, or bare `bio:` + indented lines = one paragraph each. Absent → blurb
+  fallback; empty block or re-declared bio → parse defect. Human-written only — the
+  pipeline never generates bio copy. Runbook's add/punch-up sections document it. None
+  of the committed personas carry one yet (blurb fallback is live everywhere).
+- **Byline links**: avatar + name in every opinion byline row link to the bio page.
+  Opinion cards moved the byline row OUT of the card-wide anchor to a `.story` sibling
+  (nested anchors are invalid HTML — share-row precedent); links carry a `pathPrefix`
+  ("" root, "../" under `s/` and `columnist/`) so everything works over file://.
+  Unknown-author records degrade to the old linkless row.
+- **Cast strip** on opinion.html between the disclosure banner and the grid: every
+  loaded persona, alphabetical, own `cast-strip__*` classes.
+- **Meta**: bio pages emit `og:type=profile` (new `ogType` param on `cardMeta`,
+  default "article"), description = `opinionMetaPrefix(displayName) — byline_blurb`
+  (prefix first), `og:image` = the Blob avatar URL; a missing headshot entry omits the
+  tag and warns. Sitemap gains one URL per persona. Homepage stays opinion-free.
+- **Stale cleanup**: retiring a persona leaves its bio page on disk (the file map
+  can't see roster removals), so both writers (`render-cli.ts` and the cycle's
+  `writeSite`) readdir `columnist/` and delete non-emitted pages via the pure, tested
+  `staleColumnistPages` helper. The rm loops themselves are untested, mirroring the
+  existing stale-section deletion.
+- Landed on master per the standing no-PRs directive. **Not deployed** (render-only;
+  cron launcher still disabled by rename — the next manual deploy publishes the bio
+  pages).
+
 ## Opinion operations: publish-hour gate + OPINION-STALE health + runbook (ADR-0018)
 
 **The Opinion infrastructure phase is COMPLETE.** This final slice closed the two

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ADS_DIR, loadAds } from "./ads.js";
 import { ARTICLES_DIR, loadArticles } from "./articles.js";
@@ -9,6 +9,7 @@ import {
   buildAuthorDirectory,
   imageOptimizeOptionFromConfig,
   renderSite,
+  staleColumnistPages,
   staleSectionPages,
 } from "./render/index.js";
 import { createStorageProvider } from "./storage/index.js";
@@ -86,6 +87,14 @@ async function main(): Promise<void> {
   // Empty sections emit no page (ADR-0013) — remove any stale one a previous render wrote,
   // or the deploy keeps serving it.
   for (const stale of staleSectionPages(files)) {
+    await rm(join(config.render.outputDir, stale), { force: true });
+  }
+  // Retired personas leave stale bio pages (ADR-0019): the file map can't see a roster
+  // removal, so list columnist/ (missing dir → none) and delete what this render didn't emit.
+  const existingColumnist = await readdir(join(config.render.outputDir, "columnist")).catch(
+    () => [] as string[],
+  );
+  for (const stale of staleColumnistPages(existingColumnist, files)) {
     await rm(join(config.render.outputDir, stale), { force: true });
   }
 

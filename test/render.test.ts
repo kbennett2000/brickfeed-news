@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "../src/category.js";
-import { type AuthorInfo, renderSite, staleSectionPages } from "../src/render/index.js";
+import {
+  type AuthorInfo,
+  renderSite,
+  staleColumnistPages,
+  staleSectionPages,
+} from "../src/render/index.js";
 import {
   buildLinkedInIntentUrl,
   buildXIntentUrl,
@@ -1031,6 +1036,18 @@ describe("renderSite — conditional sections (ADR-0013)", () => {
     // With every section populated, nothing is stale.
     const all = CATEGORIES.map((c, i) => rec({ id: `all${i}`, category: c }));
     expect(staleSectionPages(renderSite(all, OPTS))).toEqual([]);
+  });
+
+  it("staleColumnistPages names on-disk bio pages this render did not emit (ADR-0019)", () => {
+    const files = { "columnist/alice.html": "<html>", "columnist/tom.html": "<html>" };
+    // A retired persona's page is stale; current pages and non-.html strays are not touched.
+    expect(staleColumnistPages(["alice.html", "tom.html", "zed.html", "notes.txt"], files)).toEqual([
+      "columnist/zed.html",
+    ]);
+    // Empty dir (or missing → [] from the writer) → nothing to delete.
+    expect(staleColumnistPages([], files)).toEqual([]);
+    // No authors rendered at all → every on-disk page is stale.
+    expect(staleColumnistPages(["zed.html"], {})).toEqual(["columnist/zed.html"]);
   });
 
   it("an expired article does NOT make its section present", () => {

@@ -412,6 +412,22 @@ export function staleSectionPages(files: Record<string, string>): string[] {
 }
 
 /**
+ * Columnist pages in the output dir this render did not emit — their personas were
+ * retired (ADR-0019). Unlike sections, the roster is open-ended, so the file map alone
+ * can't see a removal: writers LIST the columnist/ subdir (missing dir → []) and pass the
+ * entries here; the decision stays pure. Returns `columnist/<file>` paths to delete.
+ */
+export function staleColumnistPages(
+  existing: string[],
+  files: Record<string, string>,
+): string[] {
+  return existing
+    .filter((f) => f.endsWith(".html"))
+    .map((f) => `columnist/${f}`)
+    .filter((page) => !(page in files));
+}
+
+/**
  * Render the whole static site. Returns relative-path → file-contents for the cover page,
  * every section page, and the stylesheet. Pure and total: empty input yields valid pages,
  * never a throw.

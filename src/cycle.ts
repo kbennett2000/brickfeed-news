@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ADS_DIR, loadAds } from "./ads.js";
 import { ageOut, retentionHoursFor } from "./ageout.js";
@@ -35,6 +35,7 @@ import {
   buildAuthorDirectory,
   imageOptimizeOptionFromConfig,
   renderSite,
+  staleColumnistPages,
   staleSectionPages,
 } from "./render/index.js";
 import type { CycleDeps, CycleIo, Manifest, ManifestRecord } from "./types.js";
@@ -402,6 +403,14 @@ export const defaultCycleIo: CycleIo = {
     // Empty sections emit no page (ADR-0013) — remove any stale one a previous render wrote,
     // or the deploy keeps serving it.
     for (const stale of staleSectionPages(files)) {
+      await rm(join(outputDir, stale), { force: true });
+    }
+    // Retired personas leave stale bio pages (ADR-0019): the file map can't see a roster
+    // removal, so list columnist/ (missing dir → none) and delete what this render didn't emit.
+    const existingColumnist = await readdir(join(outputDir, "columnist")).catch(
+      () => [] as string[],
+    );
+    for (const stale of staleColumnistPages(existingColumnist, files)) {
       await rm(join(outputDir, stale), { force: true });
     }
   },
