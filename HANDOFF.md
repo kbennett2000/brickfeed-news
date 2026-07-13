@@ -1,5 +1,52 @@
 # Handoff
 
+## Opinion render + imagery: heroes, cards, piece pages, disclosures (ADR-0016)
+
+The Opinion section is now FULLY VISIBLE end to end. Launched on the box 2026-07-13:
+the 8 image-less burn-in records were purged (store's own removal path), the launch
+batch re-ran fresh (8/8 published WITH image briefs), `npm run images` stored all 8
+heroes on Blob, and `npm run render` produced `opinion.html` + 8 piece pages with every
+disclosure surface in place. The rendered `site/` is verified; the next cron cycle
+deploys it (cron untouched).
+
+- **Generation now emits the hero brief** (`src/opinions.ts`): after a piece passes its
+  length check, ONE extra JSON completion (`buildImageBriefPrompt`/`parseImageBrief`)
+  yields `{imagePrompt, caption}` in the story convention (purely visual, no
+  text/brands, not pre-stylized; subject = the piece's topic, never the author);
+  the record stores `imagePrompt` + `wrappedPrompt` (via `wrapBrickStyle`) + `caption`
+  all-or-nothing with the piece. A failed brief fails that author and stores NOTHING —
+  the key stays free, next run retries (piece regenerates; accepted, ADR-0016 d.2).
+  Invariant: *stored opinion record ⇒ has wrappedPrompt + caption* — so the image stage
+  picks pieces up with zero special-casing and `isPublishable` (which requires caption!)
+  passes once the hero lands. `runOpinions` now takes `config` as its first param.
+- **Cycle order changed (ADR-0016 d.5)**: ingest → generate → **opinions** → image →
+  ageout → render → deploy. Opinions sits INSIDE the pipeline array, internally tolerant
+  (its run() never throws), so a piece written at 06:00 heroes and publishes the same
+  cycle via the image stage's existing writePublished.
+- **Render (`src/render/`)**: `author`-bearing records get `local: true` views — internal
+  `s/<id>.html` links, body = `paragraphize` (escaped plain text, NEVER markdown),
+  card/meta description = `excerpt(…, 240)` (both new pure helpers in `format.ts`).
+  `buildAuthorDirectory(personas, headshotManifest)` (render/index.ts) resolves the
+  byline rows: avatar (28px circle from `data/headshots.json`) + display_name +
+  column_title for letters; missing entries degrade with a warning via `opts.log`,
+  never break the build. Homepage cover FILTERS opinion views (only exclusion needed —
+  section pages isolate by kicker; sitemap deliberately KEEPS opinion URLs, d.4).
+- **The four disclosure surfaces are versioned constants in `templates.ts`, pinned by
+  render tests as merge gates**: `OPINION_BANNER` (on opinion.html), per-piece
+  `byline_blurb` footer, `LETTERS_DISCLOSURE` (single definition, letters pieces only),
+  `opinionMetaPrefix` leading every piece's og/twitter description +
+  `OPINION_META_DESCRIPTION` on opinion.html (the ONLY section page with a meta
+  description — byte-parity for the rest is a test). Changing any wording = ADR change.
+- **Box-verified**: 8/8 published 316–597 words (tom in his 500–700 override); all 8
+  briefs + heroes + captions present; banner, avatars, column titles, blurbs, letters
+  line, leading meta prefix all confirmed in the rendered HTML; homepage has zero
+  opinion content but nav links Opinion; sitemap gained opinion.html + 8 piece URLs;
+  LEGO grep clean; world.html vs previous render differs only by nav + story count.
+  600 tests / 39 files, tsc clean.
+- The `generateAll` author-exemption (the ADR-0015 clobber guard) is now belt-and-braces
+  (opinion records read as fully generated) — kept anyway.
+- Landed directly on master per the standing no-PRs directive.
+
 ## Opinion generation stage: authors, gate, selection, idempotent publish (ADR-0015)
 
 The stage that writes opinion pieces now exists and is LIVE — the launch batch ran on
@@ -28,8 +75,9 @@ now includes a tolerant opinions stage automatically).
   `isGenerated` — without the guard the next cycle would overwrite every piece with
   story-style output and then image it. Verified live: 114 records lack full generation
   fields, the cycle counts 106 pending (the 8 pieces excluded).
-- **Cycle**: stage order is now ingest → generate → image → ageout → **opinions** →
-  render → deploy; opinions is tolerant like headshots (never fails the run). Cycle
+- **Cycle**: stage order was ingest → generate → image → ageout → **opinions** →
+  render → deploy (SUPERSEDED by ADR-0016 — opinions now runs before image, see the
+  section above); opinions is tolerant like headshots (never fails the run). Cycle
   dry-run prints a derivation-only "would" line (no provider calls); the standalone
   `npm run opinions -- --dry-run` DOES make the one gate call (verdicts must print)
   but zero piece calls and zero writes. `--authors all` = launch batch; `--date` moves
@@ -39,11 +87,8 @@ now includes a tolerant opinions stage automatically).
   real run published 8/8 (news 373–479 words, priscilla 362, tom 602 — all in range,
   in register); re-run → 8 idempotent skips at zero provider cost; non-OPINION records
   byte-identical before/after; LEGO grep clean. 573 tests / 39 files, tsc clean.
-- **Render/imagery cycle inherits**: card truncation of full-body `description`s;
-  byline row + `column_title` banner + disclosure footers (ADR-0013 d.6, ADR-0014 d.6 —
-  copy recorded in the ADRs); hero images = add `imagePrompt`/`wrappedPrompt` to
-  author-bearing records and the existing image stage picks them up via its
-  `wrappedPrompt && !hasImage` gate (then `isPublishable` turns on by itself).
+- **Render/imagery contracts**: DELIVERED by ADR-0016 (see the section above) — card
+  excerpting, byline rows, column titles, disclosure footers, and hero briefs all live.
 - Landed directly on master per the standing no-PRs directive (see Git state below).
 
 ## Reader-letter columns: Tom & Priscilla assets, schema source split, bench letter mode
