@@ -347,7 +347,9 @@ describe("runCycle — opinions stage (ADR-0015/0016): tolerant, ordered before 
     const result = await runCycle(config, deps, FULL);
 
     expect(result.ok).toBe(true);
-    expect(result.stages.opinions).toBe("1 published, 2 skipped, 0 failed");
+    expect(result.stages.opinions).toBe(
+      "1 published, 2 skipped, 0 failed; gate failed closed (1 candidate(s) excluded)",
+    );
     // The piece carries its brief AND — because opinions now runs before the image
     // stage (ADR-0016 d.5) — its hero, all within this one cycle.
     const saved = io.saved?.stories["opinion-tom-2026-07-10"];
@@ -369,6 +371,123 @@ describe("runCycle — opinions stage (ADR-0015/0016): tolerant, ordered before 
     const keys = Object.keys(result.stages);
     expect(keys.indexOf("opinions")).toBeGreaterThan(keys.indexOf("generate"));
     expect(keys.indexOf("opinions")).toBeLessThan(keys.indexOf("image"));
+  });
+});
+
+describe("runCycle — opinion publish-hour gate + OPINION-STALE (ADR-0018)", () => {
+  // NOW pins the clock at 12:00 UTC; the fixture config opens the gate (hour 0), so
+  // these tests override opinionPublishHourUTC explicitly to exercise the boundary.
+  const assets = {
+    personas: [lettersPersona("tom", ["mon", "wed", "fri", "sun"])],
+    shared: "SHARED RULES",
+    letters: "LETTER RULES",
+  };
+
+  /** An OPINION record whose lastSeen is `hoursOld` before NOW. */
+  function opinionRecord(id: string, hoursOld: number): ManifestRecord {
+    const lastSeen = new Date(new Date(NOW).getTime() - hoursOld * 3600_000).toISOString();
+    return { ...fullRecord(id), category: "OPINION", author: id.split("-")[1], lastSeen };
+  }
+
+  it("hour 12 < 13: distinct skipped-hour status, ZERO provider calls, cycle continues", async () => {
+    const config = makeConfig({ opinionPublishHourUTC: 13 });
+    const { deps, logs, textGenerator, deployRun, io } = makeDeps(manifestOf(fullRecord("a")), {}, {
+      personaAssets: assets,
+    });
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.ok).toBe(true);
+    expect(result.stages.opinions).toBe("skipped — before publish hour (12 < 13 UTC)");
+    // The whole point: the topic-gate classifier must not burn before the publish hour.
+    expect(textGenerator.calls).toHaveLength(0);
+    // The structured outcome still logs, with the distinct status.
+    expect(logs.join("\n")).toContain('"status":"skipped-hour"');
+    // The news pipeline is unaffected: the cycle rendered and deployed as usual.
+    expect(io.writes.filter((w) => w.kind === "site")).toHaveLength(1);
+    expect(deployRun.calls).toHaveLength(1);
+  });
+
+  it("hour 13 >= 13 (the boundary): the stage runs and logs a status:ran outcome", async () => {
+    const config = makeConfig({ opinionPublishHourUTC: 13 });
+    const textGenerator = fakeTextGenerator({
+      impl: (prompt) =>
+        prompt.includes("image brief")
+          ? JSON.stringify({ imagePrompt: "a park scene", caption: "A caption" })
+          : `A Test Title\n\n${"word ".repeat(550).trim()}`,
+    });
+    const { deps, logs, io } = makeDeps(
+      manifestOf(fullRecord("a")),
+      { now: fixedNow("2026-07-10T13:00:00.000Z"), textGenerator },
+      { personaAssets: assets },
+    );
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.stages.opinions).toBe("1 published, 0 skipped, 0 failed; gate not run");
+    expect(textGenerator.calls.length).toBeGreaterThan(0);
+    expect(logs.join("\n")).toContain('"status":"ran"');
+    expect(logs.join("\n")).toContain('"published":["opinion-tom-2026-07-10"]');
+    expect(io.saved?.stories["opinion-tom-2026-07-10"]).toBeDefined();
+  });
+
+  it("dry-run prints the gate decision and mutates nothing", async () => {
+    const config = makeConfig({ opinionPublishHourUTC: 13 });
+    const { deps, textGenerator, io } = makeDeps(manifestOf(fullRecord("a")), {}, {
+      personaAssets: assets,
+    });
+
+    const result = await runCycle(config, deps, { deploy: true, dryRun: true });
+
+    expect(result.dryRun).toBe(true);
+    expect(result.stages.opinions).toBe("would skip — before publish hour (12 < 13 UTC)");
+    expect(textGenerator.calls).toHaveLength(0);
+    expect(io.writes).toHaveLength(0);
+  });
+
+  it("OPINION-STALE fires past 36h with the age and last-known key — every full cycle", async () => {
+    const config = makeConfig();
+    const { deps, logs } = makeDeps(manifestOf(opinionRecord("opinion-tom-2026-07-08", 41)));
+
+    await runCycle(config, deps, FULL);
+
+    const line = logs.find((l) => l.includes("OPINION-STALE"));
+    expect(line).toContain("newest OPINION record is 41h old (opinion-tom-2026-07-08)");
+    expect(line).toContain("threshold 36h");
+  });
+
+  it("OPINION-STALE fires on an empty store", async () => {
+    const config = makeConfig();
+    const { deps, logs } = makeDeps(manifestOf());
+
+    await runCycle(config, deps, FULL);
+
+    expect(logs.find((l) => l.includes("OPINION-STALE"))).toContain(
+      "no OPINION records in the manifest",
+    );
+  });
+
+  it("OPINION-STALE stays silent below the threshold", async () => {
+    const config = makeConfig();
+    const { deps, logs } = makeDeps(manifestOf(opinionRecord("opinion-tom-2026-07-10", 10)));
+
+    await runCycle(config, deps, FULL);
+
+    expect(logs.join("\n")).not.toContain("OPINION-STALE");
+  });
+
+  it("OPINION-STALE runs on a skipped-hour cycle AND on a dry-run", async () => {
+    const config = makeConfig({ opinionPublishHourUTC: 13 });
+    const stale = () => manifestOf(opinionRecord("opinion-tom-2026-07-08", 41));
+
+    const gated = makeDeps(stale(), {}, { personaAssets: assets });
+    const gatedResult = await runCycle(config, gated.deps, FULL);
+    expect(gatedResult.stages.opinions).toContain("before publish hour");
+    expect(gated.logs.join("\n")).toContain("OPINION-STALE");
+
+    const dry = makeDeps(stale(), {}, { personaAssets: assets });
+    await runCycle(config, dry.deps, { deploy: true, dryRun: true });
+    expect(dry.logs.join("\n")).toContain("OPINION-STALE");
   });
 });
 

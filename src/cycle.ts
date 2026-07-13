@@ -17,7 +17,17 @@ import {
 import { hasImage, generateImages } from "./image.js";
 import { ingest } from "./ingest.js";
 import { readManifest, writeManifest } from "./manifest.js";
-import { authorsFor, runOpinions, summarizeOpinions, utcDateOf } from "./opinions.js";
+import {
+  authorsFor,
+  beforeOpinionPublishHour,
+  OPINION_STALE_THRESHOLD_HOURS,
+  opinionsStageOutcome,
+  opinionStaleness,
+  type OpinionsStageOutcome,
+  runOpinions,
+  summarizeOpinions,
+  utcDateOf,
+} from "./opinions.js";
 import { PERSONAS_DIR, loadPersonaAssets } from "./personas.js";
 import { publishableRecords, verifiedPublishableRecords, writePublished } from "./publish.js";
 import {
@@ -121,12 +131,18 @@ export async function runCycle(
     // gate verdicts/selections are the standalone `npm run opinions -- --dry-run`'s job.
     // Ordered before image to mirror the real pipeline (ADR-0016 d.5); eligibleImages
     // counts the CURRENT manifest, so pieces this run would write aren't in it.
-    try {
-      const assets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
-      const names = authorsFor(utcDateOf(now()), assets.personas).map((p) => p.name);
-      stages.opinions = `would write opinion piece(s) for: ${names.join(", ") || "(none)"}`;
-    } catch (err) {
-      stages.opinions = `would skip — ${errMsg(err)}`;
+    // The publish-hour decision prints here too (ADR-0018), so a pre-hour dry-run shows
+    // exactly what the real cycle would do.
+    if (beforeOpinionPublishHour(now(), config.opinionPublishHourUTC)) {
+      stages.opinions = `would skip — before publish hour (${now().getUTCHours()} < ${config.opinionPublishHourUTC} UTC)`;
+    } else {
+      try {
+        const assets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
+        const names = authorsFor(utcDateOf(now()), assets.personas).map((p) => p.name);
+        stages.opinions = `would write opinion piece(s) for: ${names.join(", ") || "(none)"}`;
+      } catch (err) {
+        stages.opinions = `would skip — ${errMsg(err)}`;
+      }
     }
     stages.image = `${eligibleImages} eligible would be attempted`;
     stages.ageout = `${stale} stale would be dropped`;
@@ -142,6 +158,7 @@ export async function runCycle(
     for (const [name, summary] of Object.entries(stages)) {
       log(`[${iso()}] cycle (dry-run): ${name}: ${summary}`);
     }
+    checkOpinionStaleness(manifest, now(), iso, log);
     return { ok: true, dryRun: true, stages };
   }
 
@@ -195,6 +212,22 @@ export async function runCycle(
       // the image stage runs, and it writes published.json itself.
       name: "opinions",
       run: async () => {
+        // Publish-hour gate (ADR-0018): before the configured UTC hour the stage makes
+        // ZERO provider calls — the topic-gate classifier must not burn early. `>=`
+        // (never `==`) so a missed publish-hour tick self-heals next cycle. Direct CLI
+        // runs bypass this by construction (the gate lives only here).
+        const at = now();
+        if (beforeOpinionPublishHour(at, config.opinionPublishHourUTC)) {
+          const outcome: OpinionsStageOutcome = {
+            status: "skipped-hour",
+            published: [],
+            skippedIdempotent: [],
+            failed: [],
+            gateSummary: "gate not run (before publish hour)",
+          };
+          log(`[${iso()}] cycle: opinions outcome ${JSON.stringify(outcome)}`);
+          return `skipped — before publish hour (${at.getUTCHours()} < ${config.opinionPublishHourUTC} UTC)`;
+        }
         try {
           const assets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
           const r = await runOpinions(config, manifest, assets, {
@@ -204,6 +237,7 @@ export async function runCycle(
           });
           manifest = r.manifest;
           await deps.io.writeManifest(config.manifestPath, manifest);
+          log(`[${iso()}] cycle: opinions outcome ${JSON.stringify(opinionsStageOutcome(r))}`);
           return summarizeOpinions(r);
         } catch (err) {
           return `skipped — ${errMsg(err)}`;
@@ -248,6 +282,11 @@ export async function runCycle(
       return { ok: false, dryRun: false, failedStage: stage.name, stages };
     }
   }
+
+  // Opinion health probe (ADR-0018): EVERY cycle, skipped-hour and all-idempotent ones
+  // included. Placed after the pipeline (post-opinions/ageout) so a recovery cycle
+  // clears the alarm the same run it publishes.
+  checkOpinionStaleness(manifest, now(), iso, log);
 
   // Render consumes the final in-memory manifest directly (no read-back of published.json).
   let files: Record<string, string>;
@@ -308,6 +347,26 @@ export async function runCycle(
     deployResult.status + (deployResult.code != null ? ` (exit ${deployResult.code})` : "");
 
   return { ok: true, dryRun: false, stages, deploy: deployResult };
+}
+
+/**
+ * ADR-0018: the loud OPINION-STALE alarm. Error-level by grep token — no notify seam
+ * exists, so this line IS the alert (cron captures stdout into cycle.log). Silent when
+ * the section is fresh.
+ */
+function checkOpinionStaleness(
+  manifest: Manifest,
+  nowDate: Date,
+  iso: () => string,
+  log: (message: string) => void,
+): void {
+  const s = opinionStaleness(manifest, nowDate);
+  if (!s.stale) return;
+  const detail =
+    s.count === 0
+      ? "no OPINION records in the manifest"
+      : `newest OPINION record is ${s.ageHours}h old (${s.newestKey})`;
+  log(`[${iso()}] cycle: OPINION-STALE — ${detail}; threshold ${OPINION_STALE_THRESHOLD_HOURS}h`);
 }
 
 /** Count records older than their category's retention window (must match ageOut's gate). */

@@ -5,14 +5,18 @@ import {
   CANDIDATE_WINDOW_HOURS,
   DEFAULT_LENGTH_RANGE,
   LENGTH_RANGES,
+  OPINION_STALE_THRESHOLD_HOURS,
   ROTATION,
   authorsFor,
+  beforeOpinionPublishHour,
   buildGatePrompt,
   buildImageBriefPrompt,
   buildOpinionPrompt,
   daysSinceUnixEpoch,
   opinionCandidates,
   opinionKey,
+  opinionsStageOutcome,
+  opinionStaleness,
   parseGateVerdicts,
   parseImageBrief,
   runOpinions,
@@ -349,7 +353,9 @@ describe("runOpinions — publish path", () => {
       ["priscilla", "published"],
       ["tom", "published"],
     ]);
-    expect(summarizeOpinions(result)).toBe("4 published, 0 skipped, 0 failed");
+    expect(summarizeOpinions(result)).toBe(
+      "4 published, 0 skipped, 0 failed; gate passed 3/3 candidate(s)",
+    );
     // Exactly ONE gate classification for the whole 4-author run.
     expect(generate.calls.filter(isGateCall)).toHaveLength(1);
     expect(generate.calls.filter(isBriefCall)).toHaveLength(4); // one brief per piece
@@ -747,5 +753,128 @@ describe("runOpinions — dry-run", () => {
 
     expect(result.authors.map((a) => a.author)).toEqual(["edgar", "stryker", "tom"]);
     expect(result.authors[0].key).toBe("opinion-edgar-2026-07-13");
+  });
+});
+
+describe("beforeOpinionPublishHour (ADR-0018) — >= boundary, never ==", () => {
+  it("is closed strictly before the hour and open at/after it", () => {
+    expect(beforeOpinionPublishHour(new Date("2026-07-12T12:59:59Z"), 13)).toBe(true);
+    expect(beforeOpinionPublishHour(new Date("2026-07-12T13:00:00Z"), 13)).toBe(false);
+    // >= not ==: a missed 13:00 tick self-heals at 14:00.
+    expect(beforeOpinionPublishHour(new Date("2026-07-12T14:00:00Z"), 13)).toBe(false);
+    expect(beforeOpinionPublishHour(new Date("2026-07-12T00:00:00Z"), 0)).toBe(false);
+  });
+});
+
+describe("gateSummary (ADR-0018) — one line per topic-gate outcome", () => {
+  it("reports the pass ratio when the gate runs clean", async () => {
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["s1", "s2"], ["s2"]);
+        if (isBriefCall(prompt)) return briefJson();
+        return piece(350);
+      },
+    });
+    const result = await runOpinions(CONFIG, manifestOf(story("s1"), story("s2")), assetsOf(newsPersona("alice")), { generate, now: fixedNow(NOW) }, { authors: ["alice"] });
+    expect(result.gateSummary).toBe("gate passed 1/2 candidate(s)");
+  });
+
+  it("reports fail-closed with the excluded count on a provider error", async () => {
+    const generate = fakeTextGenerator({ impl: () => { throw new Error("provider down"); } });
+    const result = await runOpinions(CONFIG, manifestOf(story("s1"), story("s2")), assetsOf(newsPersona("alice")), { generate, now: fixedNow(NOW) }, { authors: ["alice"] });
+    expect(result.gateSummary).toBe("gate failed closed (2 candidate(s) excluded)");
+  });
+
+  it("reports 'gate not run' on a letters-only day and '(no candidates)' on an empty pool", async () => {
+    const generate = fakeTextGenerator({
+      impl: (prompt) => (isBriefCall(prompt) ? briefJson() : piece(550)),
+    });
+    const letters = await runOpinions(CONFIG, manifestOf(), assetsOf(lettersPersona("tom", ["sun"])), { generate, now: fixedNow(NOW) });
+    expect(letters.gateSummary).toBe("gate not run");
+
+    const empty = await runOpinions(CONFIG, manifestOf(), assetsOf(newsPersona("alice")), { generate: fakeTextGenerator(), now: fixedNow(NOW) }, { authors: ["alice"] });
+    expect(empty.gateSummary).toBe("gate not run (no candidates)");
+  });
+});
+
+describe("opinionsStageOutcome (ADR-0018) — the cycle's structured health record", () => {
+  it("buckets author keys by status and passes the gate summary through", () => {
+    const outcome = opinionsStageOutcome({
+      date: TODAY,
+      authors: [
+        { author: "alice", key: "opinion-alice-2026-07-12", status: "published" },
+        { author: "bob", key: "opinion-bob-2026-07-12", status: "skipped-no-candidates" },
+        { author: "priscilla", key: "opinion-priscilla-2026-07-12", status: "skipped-idempotent" },
+        { author: "tom", key: "opinion-tom-2026-07-12", status: "failed", detail: "boom" },
+      ],
+      gateSummary: "gate passed 1/3 candidate(s)",
+      manifest: manifestOf(),
+      ok: true,
+    });
+    expect(outcome).toEqual({
+      status: "ran",
+      published: ["opinion-alice-2026-07-12"],
+      skippedIdempotent: ["opinion-priscilla-2026-07-12"],
+      failed: ["opinion-tom-2026-07-12"],
+      gateSummary: "gate passed 1/3 candidate(s)",
+    });
+  });
+});
+
+describe("opinionStaleness (ADR-0018) — the >36h / empty-store invariant", () => {
+  /** An OPINION record whose lastSeen is `hours` before NOW. */
+  function opinion(id: string, hoursOld: number): ManifestRecord {
+    const lastSeen = new Date(new Date(NOW).getTime() - hoursOld * 3600_000).toISOString();
+    return story(id, { category: "OPINION", author: id.split("-")[1], lastSeen });
+  }
+
+  it("pins the threshold the schedule invariant derives", () => {
+    expect(OPINION_STALE_THRESHOLD_HOURS).toBe(36);
+  });
+
+  it("an empty store is itself stale", () => {
+    expect(opinionStaleness(manifestOf(), new Date(NOW))).toEqual({ stale: true, count: 0 });
+  });
+
+  it("is silent below the threshold, reporting age and newest key", () => {
+    const m = manifestOf(opinion("opinion-tom-2026-07-12", 10));
+    expect(opinionStaleness(m, new Date(NOW))).toEqual({
+      stale: false,
+      count: 1,
+      ageHours: 10,
+      newestKey: "opinion-tom-2026-07-12",
+    });
+  });
+
+  it("fires past 36h, keying off the NEWEST record and ignoring non-OPINION stories", () => {
+    const m = manifestOf(
+      opinion("opinion-alice-2026-07-09", 80),
+      opinion("opinion-tom-2026-07-11", 41),
+      story("s1"), // fresh news story must not mask opinion staleness
+    );
+    expect(opinionStaleness(m, new Date(NOW))).toEqual({
+      stale: true,
+      count: 2,
+      ageHours: 41,
+      newestKey: "opinion-tom-2026-07-11",
+    });
+    // Exactly 36h is still healthy — the contract is strictly greater-than.
+    const boundary = manifestOf(opinion("opinion-tom-2026-07-11", 36));
+    expect(opinionStaleness(boundary, new Date(NOW)).stale).toBe(false);
+  });
+});
+
+describe("runOpinions has no hour gate of its own (ADR-0018 CLI bypass)", () => {
+  it("publishes at 05:00 UTC even with opinionPublishHourUTC 13", async () => {
+    const generate = fakeTextGenerator({
+      impl: (prompt) => (isBriefCall(prompt) ? briefJson() : piece(550)),
+    });
+    const result = await runOpinions(
+      makeConfig({ opinionPublishHourUTC: 13 }),
+      manifestOf(),
+      assetsOf(lettersPersona("tom", ["sun"])),
+      { generate, now: fixedNow("2026-07-12T05:00:00.000Z") },
+    );
+    expect(result.authors).toMatchObject([{ author: "tom", status: "published" }]);
   });
 });

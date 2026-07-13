@@ -107,6 +107,8 @@ export interface OpinionsResult {
   authors: AuthorOutcome[];
   /** Gate verdicts for this run's candidate pool; undefined if the gate never ran. */
   gate?: GateVerdict[];
+  /** One line describing the topic-gate outcome, for the stage summary (ADR-0018). */
+  gateSummary: string;
   manifest: Manifest;
   /** False only when ≥1 author was derived and EVERY outcome is `failed`. */
   ok: boolean;
@@ -130,6 +132,15 @@ export function utcDateOf(date: Date): string {
 /** The per-author-per-day idempotency key (ADR-0013 decision 4) — also the record id. */
 export function opinionKey(author: string, dateUTC: string): string {
   return `opinion-${author}-${dateUTC}`;
+}
+
+/**
+ * ADR-0018: the cycle's publish-hour gate — `<` here means `>=` opens it, so a missed
+ * publish-hour tick self-heals on the next cycle. Only the CYCLE consults this; direct
+ * CLI runs bypass it (manual is deliberate).
+ */
+export function beforeOpinionPublishHour(now: Date, publishHourUTC: number): boolean {
+  return now.getUTCHours() < publishHourUTC;
 }
 
 /**
@@ -467,9 +478,11 @@ export async function runOpinions(
   let gate: GateVerdict[] | undefined;
   let eligible: ManifestRecord[] = [];
   let gateFailed = false;
+  let gateSummary = "gate not run";
   if (remaining.some((p) => p.source === "news")) {
     const candidates = opinionCandidates(manifest, deps.now().getTime());
     if (candidates.length === 0) {
+      gateSummary = "gate not run (no candidates)";
       log(`opinions: no candidate stories in the last ${CANDIDATE_WINDOW_HOURS}h`);
     } else {
       let response: string | null = null;
@@ -482,6 +495,7 @@ export async function runOpinions(
         response == null ? null : parseGateVerdicts(response, candidates.map((r) => r.id));
       if (verdicts == null) {
         gateFailed = true;
+        gateSummary = `gate failed closed (${candidates.length} candidate(s) excluded)`;
         log(
           `opinions: TOPIC GATE FAILED CLOSED — all ${candidates.length} candidate(s) ` +
             "excluded this run (provider error or malformed verdict JSON)",
@@ -492,7 +506,8 @@ export async function runOpinions(
           log(`opinions: gate ${v.verdict} ${v.id}${v.reason ? ` — ${v.reason}` : ""}`);
         }
         eligible = candidates.filter((r) => verdicts.get(r.id)?.verdict === "eligible");
-        log(`opinions: gate passed ${eligible.length}/${candidates.length} candidate(s)`);
+        gateSummary = `gate passed ${eligible.length}/${candidates.length} candidate(s)`;
+        log(`opinions: ${gateSummary}`);
       }
     }
   }
@@ -627,12 +642,69 @@ export async function runOpinions(
   }
 
   const ok = !(derived.length > 0 && outcomes.every((o) => o.status === "failed"));
-  return { date, authors: outcomes, gate, manifest, ok };
+  return { date, authors: outcomes, gate, gateSummary, manifest, ok };
 }
 
 /** One-line stage summary for the cycle CLI output. */
 export function summarizeOpinions(result: OpinionsResult): string {
   const count = (s: AuthorStatus) => result.authors.filter((o) => o.status === s).length;
   const skipped = count("skipped-idempotent") + count("skipped-no-candidates");
-  return `${count("published")} published, ${skipped} skipped, ${count("failed")} failed`;
+  return `${count("published")} published, ${skipped} skipped, ${count("failed")} failed; ${result.gateSummary}`;
+}
+
+/**
+ * The cycle stage's structured health record (ADR-0018): per-author keys bucketed by
+ * outcome plus the gate summary, logged as one JSON line per cycle. Authors skipped
+ * for lack of candidates appear in no bucket by design — `gateSummary` explains them.
+ */
+export interface OpinionsStageOutcome {
+  status: "ran" | "skipped-hour";
+  published: string[];
+  skippedIdempotent: string[];
+  failed: string[];
+  gateSummary: string;
+}
+
+/** Fold an OpinionsResult into the stage outcome the cycle logs (status "ran"). */
+export function opinionsStageOutcome(result: OpinionsResult): OpinionsStageOutcome {
+  const keys = (s: AuthorStatus) =>
+    result.authors.filter((o) => o.status === s).map((o) => o.key);
+  return {
+    status: "ran",
+    published: keys("published"),
+    skippedIdempotent: keys("skipped-idempotent"),
+    failed: keys("failed"),
+    gateSummary: result.gateSummary,
+  };
+}
+
+/**
+ * ADR-0018: newest-OPINION age beyond this is a fault, not weather — the letters
+ * schedules cover all seven days and the topic gate never applies to letters, so
+ * ≥1 piece/day is the healthy floor even on an all-tragedy news day.
+ */
+export const OPINION_STALE_THRESHOLD_HOURS = 36;
+
+export interface OpinionStaleness {
+  stale: boolean;
+  /** How many OPINION records the manifest holds; 0 is itself stale. */
+  count: number;
+  /** Whole hours since the newest OPINION record's lastSeen; undefined when count is 0. */
+  ageHours?: number;
+  /** The newest OPINION record's id; undefined when count is 0. */
+  newestKey?: string;
+}
+
+/** Pure staleness probe over the manifest — the cycle runs it EVERY cycle (ADR-0018). */
+export function opinionStaleness(manifest: Manifest, now: Date): OpinionStaleness {
+  const records = Object.values(manifest.stories).filter((r) => r.category === "OPINION");
+  if (records.length === 0) return { stale: true, count: 0 };
+  const newest = records.reduce((a, b) => (a.lastSeen >= b.lastSeen ? a : b));
+  const ageHours = Math.floor((now.getTime() - new Date(newest.lastSeen).getTime()) / 3600_000);
+  return {
+    stale: ageHours > OPINION_STALE_THRESHOLD_HOURS,
+    count: records.length,
+    ageHours,
+    newestKey: newest.id,
+  };
 }
