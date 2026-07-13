@@ -54,6 +54,7 @@
     }
   },
   "maxAgeHours": 72,
+  "opinionMaxAgeHours": 168,
   "publishedPath": "data/published.json",
   "concurrency": 4,
   "maxStoriesPerCycle": 40,

@@ -206,6 +206,23 @@ describe("runCycle — flags", () => {
     expect(io.headshotCalls).toHaveLength(0);
   });
 
+  it("--dry-run counts stale records per category window, matching the real ageout gate", async () => {
+    // 72h-old records under maxAgeHours=48 / opinionMaxAgeHours=168: the WORLD one is
+    // stale, the OPINION one is not. An unbranched countStale would report 2 here.
+    const config = makeConfig({ maxAgeHours: 48, opinionMaxAgeHours: 168 });
+    const old = "2026-07-07T12:00:00.000Z"; // 72h before NOW
+    const { deps } = makeDeps(
+      manifestOf(
+        { ...fullRecord("op"), category: "OPINION", lastSeen: old },
+        { ...fullRecord("wd"), category: "WORLD", lastSeen: old },
+      ),
+    );
+
+    const result = await runCycle(config, deps, { deploy: false, dryRun: true });
+
+    expect(result.stages.ageout).toBe("1 stale would be dropped");
+  });
+
   it("deploy.enabled=false skips deploy (same as --no-deploy) even when requested", async () => {
     const config: Config = makeConfig({
       deploy: { command: "vercel --prod --yes", cwd: "site", enabled: false },

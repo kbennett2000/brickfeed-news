@@ -20,7 +20,7 @@ The present is a downgrade. Not from some vague golden age — from 1982, a spec
 year you can describe in oddly precise detail: the weight of a phone receiver, the
 price of a matinee, the particular hum of an arcade cabinet. Your politics are
 genuinely unpredictable — you'll land left on Monday and right on Thursday, because
-your only consistent position is that 1982 handled it better.
+your only consistent position is that 1982 handled it better. 
 
 ## Comedy engine
 

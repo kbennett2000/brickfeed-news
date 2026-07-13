@@ -20,6 +20,11 @@ export interface Config {
   storage: StorageConfig;
   /** Records with no update older than this many hours are aged out (Slice 4). */
   maxAgeHours: number;
+  /**
+   * Retention window for OPINION-category records only (ADR-0013 #5). Absent → 168 (7 days);
+   * NEVER falls back to maxAgeHours — opinion pieces outlive the news churn by design.
+   */
+  opinionMaxAgeHours: number;
   /** Where the derived newest-first list of publishable records is written (Slice 4). */
   publishedPath: string;
   /**
@@ -284,6 +289,8 @@ export const DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL = "images";
 
 /** Defaults for the age-out + publish outputs (Slice 4). */
 export const DEFAULT_MAX_AGE_HOURS = 72;
+/** 7 days — opinion pieces outlive the news churn (ADR-0013 #5); never inherits maxAgeHours. */
+export const DEFAULT_OPINION_MAX_AGE_HOURS = 168;
 export const DEFAULT_PUBLISHED_PATH = "data/published.json";
 
 /** Defaults for the pipeline throughput controls. */
@@ -361,7 +368,13 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
   const brickStyle = validateBrickStyle(obj.brickStyle, path);
   const image = validateImage(obj.image, path);
   const storage = validateStorage(obj.storage, path);
-  const maxAgeHours = validateMaxAgeHours(obj.maxAgeHours, path);
+  const maxAgeHours = validatePositiveHours(obj.maxAgeHours, DEFAULT_MAX_AGE_HOURS, path, "maxAgeHours");
+  const opinionMaxAgeHours = validatePositiveHours(
+    obj.opinionMaxAgeHours,
+    DEFAULT_OPINION_MAX_AGE_HOURS,
+    path,
+    "opinionMaxAgeHours",
+  );
   const publishedPath = requireStringField(
     obj.publishedPath,
     DEFAULT_PUBLISHED_PATH,
@@ -391,6 +404,7 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
     image,
     storage,
     maxAgeHours,
+    opinionMaxAgeHours,
     publishedPath,
     concurrency,
     maxStoriesPerCycle,
@@ -955,11 +969,11 @@ function validateDeploy(raw: unknown, renderOutputDir: string, path: string): De
   return { command, cwd, enabled };
 }
 
-/** Validate `maxAgeHours`. Absent → default; present must be a positive finite number. */
-function validateMaxAgeHours(raw: unknown, path: string): number {
-  if (raw == null) return DEFAULT_MAX_AGE_HOURS;
+/** Validate an hours field. Absent → its own fallback; present must be a positive finite number. */
+function validatePositiveHours(raw: unknown, fallback: number, path: string, field: string): number {
+  if (raw == null) return fallback;
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
-    throw new Error(`Config at ${path}: maxAgeHours must be a positive number.`);
+    throw new Error(`Config at ${path}: ${field} must be a positive number.`);
   }
   return raw;
 }
