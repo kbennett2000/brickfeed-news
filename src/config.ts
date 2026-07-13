@@ -25,6 +25,12 @@ export interface Config {
    * NEVER falls back to maxAgeHours — opinion pieces outlive the news churn by design.
    */
   opinionMaxAgeHours: number;
+  /**
+   * UTC hour (integer 0–23) the CYCLE's opinions stage first runs each day (ADR-0018).
+   * The gate is >= so a missed tick self-heals next cycle; `npm run opinions` bypasses
+   * it entirely. Absent → 13 (≈ 7 AM Denver).
+   */
+  opinionPublishHourUTC: number;
   /** Where the derived newest-first list of publishable records is written (Slice 4). */
   publishedPath: string;
   /**
@@ -291,6 +297,8 @@ export const DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL = "images";
 export const DEFAULT_MAX_AGE_HOURS = 72;
 /** 7 days — opinion pieces outlive the news churn (ADR-0013 #5); never inherits maxAgeHours. */
 export const DEFAULT_OPINION_MAX_AGE_HOURS = 168;
+/** 13:00 UTC ≈ 7 AM Denver — the cycle's opinion publish hour (ADR-0018). */
+export const DEFAULT_OPINION_PUBLISH_HOUR_UTC = 13;
 export const DEFAULT_PUBLISHED_PATH = "data/published.json";
 
 /** Defaults for the pipeline throughput controls. */
@@ -375,6 +383,12 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
     path,
     "opinionMaxAgeHours",
   );
+  const opinionPublishHourUTC = validateHourOfDay(
+    obj.opinionPublishHourUTC,
+    DEFAULT_OPINION_PUBLISH_HOUR_UTC,
+    path,
+    "opinionPublishHourUTC",
+  );
   const publishedPath = requireStringField(
     obj.publishedPath,
     DEFAULT_PUBLISHED_PATH,
@@ -405,6 +419,7 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
     storage,
     maxAgeHours,
     opinionMaxAgeHours,
+    opinionPublishHourUTC,
     publishedPath,
     concurrency,
     maxStoriesPerCycle,
@@ -967,6 +982,15 @@ function validateDeploy(raw: unknown, renderOutputDir: string, path: string): De
   }
 
   return { command, cwd, enabled };
+}
+
+/** Validate an hour-of-day field. Absent → its own fallback; present must be an integer 0–23. */
+function validateHourOfDay(raw: unknown, fallback: number, path: string, field: string): number {
+  if (raw == null) return fallback;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0 || raw > 23) {
+    throw new Error(`Config at ${path}: ${field} must be an integer hour 0-23 (UTC).`);
+  }
+  return raw;
 }
 
 /** Validate an hours field. Absent → its own fallback; present must be a positive finite number. */

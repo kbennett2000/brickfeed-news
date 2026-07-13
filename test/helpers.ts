@@ -110,6 +110,8 @@ export function makeConfig(over: Partial<Config> = {}): Config {
     },
     maxAgeHours: 72,
     opinionMaxAgeHours: 168,
+    // Gate always open in fixtures (cycle tests pin NOW at 12:00 UTC); hour-gate tests override.
+    opinionPublishHourUTC: 0,
     publishedPath: "unused-published.json",
     concurrency: 4,
     maxStoriesPerCycle: 20,

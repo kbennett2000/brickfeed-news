@@ -16,6 +16,7 @@ import {
   DEFAULT_MAX_AGE_HOURS,
   DEFAULT_MODEL,
   DEFAULT_OPINION_MAX_AGE_HOURS,
+  DEFAULT_OPINION_PUBLISH_HOUR_UTC,
   DEFAULT_PUBLISHED_PATH,
   DEFAULT_RENDER_OUTPUT_DIR,
   DEFAULT_RENDER_SECONDARY_STORY_COUNT,
@@ -283,6 +284,22 @@ describe("validateConfig", () => {
     expect(() => validateConfig({ ...base, opinionMaxAgeHours: 0 })).toThrow();
     expect(() => validateConfig({ ...base, opinionMaxAgeHours: -5 })).toThrow();
     expect(() => validateConfig({ ...base, opinionMaxAgeHours: "168" })).toThrow();
+  });
+
+  it("defaults opinionPublishHourUTC to 13 when absent (ADR-0018)", () => {
+    expect(validateConfig(base).opinionPublishHourUTC).toBe(DEFAULT_OPINION_PUBLISH_HOUR_UTC);
+  });
+
+  it("accepts the opinionPublishHourUTC boundary hours 0 and 23", () => {
+    expect(validateConfig({ ...base, opinionPublishHourUTC: 0 }).opinionPublishHourUTC).toBe(0);
+    expect(validateConfig({ ...base, opinionPublishHourUTC: 23 }).opinionPublishHourUTC).toBe(23);
+  });
+
+  it("rejects a non-integer, out-of-range, or non-number opinionPublishHourUTC", () => {
+    expect(() => validateConfig({ ...base, opinionPublishHourUTC: 13.5 })).toThrow();
+    expect(() => validateConfig({ ...base, opinionPublishHourUTC: -1 })).toThrow();
+    expect(() => validateConfig({ ...base, opinionPublishHourUTC: 24 })).toThrow();
+    expect(() => validateConfig({ ...base, opinionPublishHourUTC: "13" })).toThrow();
   });
 
   it("opinionMaxAgeHours never falls back to maxAgeHours (ADR-0013 #5)", () => {
