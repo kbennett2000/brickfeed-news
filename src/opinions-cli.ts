@@ -93,6 +93,7 @@ async function main(): Promise<void> {
   }
 
   const result = await runOpinions(
+    config,
     manifest,
     assets,
     { generate: createTextGenerator(config), now: () => new Date(), log: console.log },

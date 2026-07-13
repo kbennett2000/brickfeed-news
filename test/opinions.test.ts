@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { wrapBrickStyle } from "../src/brick.js";
 import {
   CANDIDATE_WINDOW_HOURS,
   DEFAULT_LENGTH_RANGE,
@@ -7,11 +8,13 @@ import {
   ROTATION,
   authorsFor,
   buildGatePrompt,
+  buildImageBriefPrompt,
   buildOpinionPrompt,
   daysSinceUnixEpoch,
   opinionCandidates,
   opinionKey,
   parseGateVerdicts,
+  parseImageBrief,
   runOpinions,
   splitTitleBody,
   summarizeOpinions,
@@ -21,11 +24,13 @@ import {
 } from "../src/opinions.js";
 import type { OpinionAssets, Persona } from "../src/personas.js";
 import type { Manifest, ManifestRecord } from "../src/types.js";
-import { fakeTextGenerator, fixedNow, lettersPersona, newsPersona } from "./helpers.js";
+import { fakeTextGenerator, fixedNow, lettersPersona, makeConfig, newsPersona } from "./helpers.js";
 
 /** 2026-07-12 is a Sunday: rotation index 20646 % 3 = 0 → alice+bob, plus both letters. */
 const NOW = "2026-07-12T15:00:00.000Z";
 const TODAY = "2026-07-12";
+
+const CONFIG = makeConfig();
 
 /** A publishable non-OPINION story, fresh inside the 24h candidate window. */
 function story(id: string, over: Partial<ManifestRecord> = {}): ManifestRecord {
@@ -99,6 +104,12 @@ function piece(n: number): string {
 }
 
 const isGateCall = (prompt: string): boolean => prompt.includes("STORIES:");
+const isBriefCall = (prompt: string): boolean => prompt.includes("image brief");
+
+/** A valid image-brief completion (ADR-0016). */
+function briefJson(): string {
+  return JSON.stringify({ imagePrompt: "a tiny park scene", caption: "A wry caption line" });
+}
 
 /** A deterministic rng cycling through `values`. */
 function seq(...values: number[]): () => number {
@@ -314,15 +325,18 @@ describe("prompt assembly + output contract", () => {
 describe("runOpinions — publish path", () => {
   function happyGenerate() {
     return fakeTextGenerator({
-      impl: (prompt) =>
-        isGateCall(prompt) ? verdictsJson(["s2", "s1", "s3"]) : piece(350),
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["s2", "s1", "s3"]);
+        if (isBriefCall(prompt)) return briefJson();
+        return piece(350);
+      },
     });
   }
 
   it("Sunday launch: four authors publish; one gate call; records carry the contract fields", async () => {
     const generate = happyGenerate();
     const starting = manifestOf(story("s1"), story("s2"), story("s3"));
-    const result = await runOpinions(starting, sundayAssets(), {
+    const result = await runOpinions(CONFIG,starting, sundayAssets(), {
       generate,
       now: fixedNow(NOW),
     });
@@ -338,7 +352,8 @@ describe("runOpinions — publish path", () => {
     expect(summarizeOpinions(result)).toBe("4 published, 0 skipped, 0 failed");
     // Exactly ONE gate classification for the whole 4-author run.
     expect(generate.calls.filter(isGateCall)).toHaveLength(1);
-    expect(generate.calls).toHaveLength(5); // gate + 4 pieces
+    expect(generate.calls.filter(isBriefCall)).toHaveLength(4); // one brief per piece
+    expect(generate.calls).toHaveLength(9); // gate + 4 pieces + 4 briefs
     expect(result.gate).toHaveLength(3);
 
     // The input manifest was never mutated; the returned copy gained exactly 4 records.
@@ -362,8 +377,12 @@ describe("runOpinions — publish path", () => {
     expect(alice.sourceArticleIds?.every((id) => ["s1", "s2", "s3"].includes(id))).toBe(true);
     expect(alice.columnTitle).toBeUndefined();
     expect(alice.imageUrl).toBeUndefined();
-    expect(alice.imagePrompt).toBeUndefined();
-    expect(alice.caption).toBeUndefined();
+    // The image brief (ADR-0016): neutral prompt + wrap + caption, stored with the piece.
+    expect(alice.imagePrompt).toBe("a tiny park scene");
+    expect(alice.wrappedPrompt).toBe(
+      wrapBrickStyle("a tiny park scene", CONFIG.brickStyle.styleLanguage),
+    );
+    expect(alice.caption).toBe("A wry caption line");
 
     const tom = result.manifest.stories["opinion-tom-2026-07-12"];
     expect(tom.columnTitle).toBe("tom's Column");
@@ -372,10 +391,13 @@ describe("runOpinions — publish path", () => {
 
   it("gate-excluded stories never appear in sourceArticleIds", async () => {
     const generate = fakeTextGenerator({
-      impl: (prompt) =>
-        isGateCall(prompt) ? verdictsJson(["s2", "s1", "s3"], ["s2"]) : piece(350),
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["s2", "s1", "s3"], ["s2"]);
+        if (isBriefCall(prompt)) return briefJson();
+        return piece(350);
+      },
     });
-    const result = await runOpinions(
+    const result = await runOpinions(CONFIG,
       manifestOf(story("s1"), story("s2"), story("s3")),
       sundayAssets(),
       { generate, now: fixedNow(NOW) },
@@ -390,7 +412,7 @@ describe("runOpinions — publish path", () => {
 
   it("--authors override runs exactly those personas; unknown names throw", async () => {
     const generate = happyGenerate();
-    const result = await runOpinions(manifestOf(story("s1")), sundayAssets(), {
+    const result = await runOpinions(CONFIG,manifestOf(story("s1")), sundayAssets(), {
       generate,
       now: fixedNow(NOW),
     }, { authors: ["tom"] });
@@ -400,7 +422,7 @@ describe("runOpinions — publish path", () => {
     expect(generate.calls.filter(isGateCall)).toHaveLength(0); // no news author → no gate
 
     await expect(
-      runOpinions(manifestOf(), sundayAssets(), { generate, now: fixedNow(NOW) }, {
+      runOpinions(CONFIG, manifestOf(), sundayAssets(), { generate, now: fixedNow(NOW) }, {
         authors: ["nobody"],
       }),
     ).rejects.toThrow('unknown persona "nobody"');
@@ -410,10 +432,14 @@ describe("runOpinions — publish path", () => {
 describe("runOpinions — idempotency", () => {
   it("an existing key skips that author before any piece call", async () => {
     const generate = fakeTextGenerator({
-      impl: (prompt) => (isGateCall(prompt) ? verdictsJson(["s1"]) : piece(350)),
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["s1"]);
+        if (isBriefCall(prompt)) return briefJson();
+        return piece(350);
+      },
     });
     const seeded = story("opinion-alice-2026-07-12", { category: "OPINION", author: "alice" });
-    const result = await runOpinions(manifestOf(story("s1"), seeded), sundayAssets(), {
+    const result = await runOpinions(CONFIG,manifestOf(story("s1"), seeded), sundayAssets(), {
       generate,
       now: fixedNow(NOW),
     });
@@ -430,7 +456,7 @@ describe("runOpinions — idempotency", () => {
     const seeded = ["alice", "bob", "priscilla", "tom"].map((name) =>
       story(`opinion-${name}-2026-07-12`, { category: "OPINION", author: name }),
     );
-    const result = await runOpinions(
+    const result = await runOpinions(CONFIG,
       manifestOf(story("s1"), ...seeded),
       sundayAssets(),
       { generate, now: fixedNow(NOW) },
@@ -446,9 +472,13 @@ describe("runOpinions — topic gate failure modes (fail-closed)", () => {
   it("a malformed gate response excludes everything: news skip, letters unaffected", async () => {
     const logs: string[] = [];
     const generate = fakeTextGenerator({
-      impl: (prompt) => (isGateCall(prompt) ? "sorry, I cannot do JSON today" : piece(350)),
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return "sorry, I cannot do JSON today";
+        if (isBriefCall(prompt)) return briefJson();
+        return piece(350);
+      },
     });
-    const result = await runOpinions(
+    const result = await runOpinions(CONFIG,
       manifestOf(story("s1"), story("s2")),
       sundayAssets(),
       { generate, now: fixedNow(NOW), log: (m) => logs.push(m) },
@@ -469,9 +499,13 @@ describe("runOpinions — topic gate failure modes (fail-closed)", () => {
 
   it("a null gate response fails closed the same way", async () => {
     const generate = fakeTextGenerator({
-      impl: (prompt) => (isGateCall(prompt) ? null : piece(350)),
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return null;
+        if (isBriefCall(prompt)) return briefJson();
+        return piece(350);
+      },
     });
-    const result = await runOpinions(manifestOf(story("s1")), sundayAssets(), {
+    const result = await runOpinions(CONFIG,manifestOf(story("s1")), sundayAssets(), {
       generate,
       now: fixedNow(NOW),
     });
@@ -481,8 +515,10 @@ describe("runOpinions — topic gate failure modes (fail-closed)", () => {
   });
 
   it("zero candidates in the window: news skip WITHOUT any gate call", async () => {
-    const generate = fakeTextGenerator({ impl: () => piece(350) });
-    const result = await runOpinions(
+    const generate = fakeTextGenerator({
+      impl: (prompt) => (isBriefCall(prompt) ? briefJson() : piece(350)),
+    });
+    const result = await runOpinions(CONFIG,
       manifestOf(story("old", { firstSeen: "2026-07-10T10:00:00.000Z" })),
       sundayAssets(),
       { generate, now: fixedNow(NOW) },
@@ -499,10 +535,11 @@ describe("runOpinions — failure isolation + length sanity", () => {
     const generate = fakeTextGenerator({
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s1"]);
+        if (isBriefCall(prompt)) return briefJson();
         return prompt.includes("You are alice") ? null : piece(350);
       },
     });
-    const result = await runOpinions(manifestOf(story("s1")), sundayAssets(), {
+    const result = await runOpinions(CONFIG,manifestOf(story("s1")), sundayAssets(), {
       generate,
       now: fixedNow(NOW),
     });
@@ -520,7 +557,7 @@ describe("runOpinions — failure isolation + length sanity", () => {
     const generate = fakeTextGenerator({
       impl: (prompt) => (isGateCall(prompt) ? verdictsJson(["s1"]) : null),
     });
-    const result = await runOpinions(manifestOf(story("s1")), sundayAssets(), {
+    const result = await runOpinions(CONFIG,manifestOf(story("s1")), sundayAssets(), {
       generate,
       now: fixedNow(NOW),
     });
@@ -534,7 +571,7 @@ describe("runOpinions — failure isolation + length sanity", () => {
       impl: (prompt) =>
         isGateCall(prompt) ? verdictsJson(["s1"]) : "a single line with no body",
     });
-    const result = await runOpinions(manifestOf(story("s1")), sundayAssets(), {
+    const result = await runOpinions(CONFIG,manifestOf(story("s1")), sundayAssets(), {
       generate,
       now: fixedNow(NOW),
     });
@@ -551,13 +588,14 @@ describe("runOpinions — failure isolation + length sanity", () => {
     const generate = fakeTextGenerator({
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s1"]);
+        if (isBriefCall(prompt)) return briefJson();
         if (prompt.includes("You are alice")) return piece(100);
         if (prompt.includes("You are bob")) return piece(250);
         if (prompt.includes("You are tom")) return piece(200);
         return piece(350);
       },
     });
-    const result = await runOpinions(manifestOf(story("s1")), sundayAssets(), {
+    const result = await runOpinions(CONFIG,manifestOf(story("s1")), sundayAssets(), {
       generate,
       now: fixedNow(NOW),
       log: (m) => logs.push(m),
@@ -575,13 +613,103 @@ describe("runOpinions — failure isolation + length sanity", () => {
   });
 });
 
+describe("image brief (ADR-0016) — prompt, parse, all-or-nothing", () => {
+  it("news brief prompt carries the piece + source articles + the hard visual rules", () => {
+    const alice = newsPersona("alice");
+    const prompt = buildImageBriefPrompt(alice, "The Title", "The body.", [
+      story("s1"),
+      story("s2"),
+    ]);
+
+    expect(prompt).toContain("Title: The Title");
+    expect(prompt).toContain("The body.");
+    expect(prompt).toContain("ARTICLE 1:\nHeadline s1");
+    expect(prompt).toContain("ARTICLE 2:");
+    expect(prompt).toContain("the news story the piece reacts to");
+    // The story-convention hard rules (mirrors src/prompt.ts).
+    expect(prompt).toContain("PURELY VISUAL");
+    expect(prompt).toContain("NO text, letters, numbers");
+    expect(prompt).toContain("NO brand names, trademarks");
+    expect(prompt).toContain("as if photographed");
+    expect(prompt).toContain("Do NOT stylize");
+    expect(prompt).toContain("never the author");
+    expect(prompt).toContain("STRICT JSON");
+    // The persona voice prompt is NOT part of the brief.
+    expect(prompt).not.toContain(alice.body);
+  });
+
+  it("letters brief prompt keys the subject off the invented letter, no articles", () => {
+    const tom = lettersPersona("tom", ["mon"]);
+    const prompt = buildImageBriefPrompt(tom, "The Title", "The body.", []);
+    expect(prompt).toContain("reader letter");
+    expect(prompt).not.toContain("ARTICLE");
+    expect(prompt).not.toContain("SOURCE ARTICLES");
+  });
+
+  it("parseImageBrief accepts strict/fenced/prose-wrapped JSON and trims", () => {
+    const json = JSON.stringify({ imagePrompt: "  a scene  ", caption: " a line " });
+    for (const text of [json, `\`\`\`json\n${json}\n\`\`\``, `Here!\n${json}\nEnjoy.`]) {
+      expect(parseImageBrief(text)).toEqual({ imagePrompt: "a scene", caption: "a line" });
+    }
+  });
+
+  it.each([
+    ["not JSON", "no json here"],
+    ["missing imagePrompt", JSON.stringify({ caption: "a line" })],
+    ["missing caption", JSON.stringify({ imagePrompt: "a scene" })],
+    ["empty imagePrompt", JSON.stringify({ imagePrompt: "  ", caption: "a line" })],
+    ["non-string caption", JSON.stringify({ imagePrompt: "a scene", caption: 7 })],
+    ["array with no object inside", JSON.stringify(["a scene", "a line"])],
+  ])("parseImageBrief rejects %s → null", (_label, text) => {
+    expect(parseImageBrief(text)).toBeNull();
+  });
+
+  it("a failed brief fails the author and stores NO record — the key stays free", async () => {
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["s1"]);
+        if (isBriefCall(prompt)) return "I refuse to emit JSON";
+        return piece(350);
+      },
+    });
+    const result = await runOpinions(CONFIG, manifestOf(story("s1")), sundayAssets(), {
+      generate,
+      now: fixedNow(NOW),
+    }, { authors: ["alice"] });
+
+    expect(result.authors[0]).toMatchObject({
+      author: "alice",
+      status: "failed",
+      detail: "image brief derivation failed",
+    });
+    expect(result.manifest.stories["opinion-alice-2026-07-12"]).toBeUndefined();
+    expect(result.ok).toBe(false); // the only derived author failed
+  });
+
+  it("a null brief response fails the same way", async () => {
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["s1"]);
+        if (isBriefCall(prompt)) return null;
+        return piece(350);
+      },
+    });
+    const result = await runOpinions(CONFIG, manifestOf(story("s1")), sundayAssets(), {
+      generate,
+      now: fixedNow(NOW),
+    }, { authors: ["bob"] });
+    expect(result.authors[0].status).toBe("failed");
+    expect(result.manifest.stories["opinion-bob-2026-07-12"]).toBeUndefined();
+  });
+});
+
 describe("runOpinions — dry-run", () => {
   it("runs gate + selection only: would-publish keys, zero piece calls, manifest untouched", async () => {
     const generate = fakeTextGenerator({
       impl: (prompt) => (isGateCall(prompt) ? verdictsJson(["s1", "s2"]) : piece(350)),
     });
     const starting = manifestOf(story("s1"), story("s2"));
-    const result = await runOpinions(starting, sundayAssets(), {
+    const result = await runOpinions(CONFIG,starting, sundayAssets(), {
       generate,
       now: fixedNow(NOW),
     }, { dryRun: true });
@@ -590,6 +718,7 @@ describe("runOpinions — dry-run", () => {
     expect(Object.keys(starting.stories)).toHaveLength(2);
     expect(generate.calls).toHaveLength(1); // the gate call ONLY
     expect(generate.calls.filter(isGateCall)).toHaveLength(1);
+    expect(generate.calls.filter(isBriefCall)).toHaveLength(0); // no briefs either
     expect(result.gate).toHaveLength(2);
     expect(result.authors.every((a) => a.status === "would-publish")).toBe(true);
     expect(result.authors.map((a) => a.key)).toEqual([
@@ -604,7 +733,7 @@ describe("runOpinions — dry-run", () => {
 
   it("--date shifts derivation and keys (Monday → pair + tom only)", async () => {
     const generate = fakeTextGenerator({ impl: () => verdictsJson([]) });
-    const result = await runOpinions(
+    const result = await runOpinions(CONFIG,
       manifestOf(),
       assetsOf(
         newsPersona("edgar"),

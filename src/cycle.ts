@@ -215,7 +215,7 @@ export async function runCycle(
   log(`[${iso()}] cycle: opinions …`);
   try {
     const assets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
-    const r = await runOpinions(manifest, assets, {
+    const r = await runOpinions(config, manifest, assets, {
       generate: deps.textGenerator,
       now,
       log,

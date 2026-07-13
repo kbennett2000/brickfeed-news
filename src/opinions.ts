@@ -3,7 +3,11 @@
  * pair + ADR-0014 letters-schedule overlay), selects source articles per news persona
  * (topic-gated, bias-weighted), generates one piece per author through the free-form
  * text seam, and publishes each as an OPINION-category manifest record keyed by the
- * idempotency key `opinion-{author}-{YYYY-MM-DD}` (UTC).
+ * idempotency key `opinion-{author}-{YYYY-MM-DD}` (UTC). Each successful piece also
+ * derives an image brief (ADR-0016): one extra JSON completion yielding the neutral
+ * `imagePrompt` (wrapped with the configured brick style, story-style) and the
+ * `caption`, persisted with the piece all-or-nothing so a stored record is always
+ * ready for the image stage and the publish gate.
  *
  * Contracts that matter:
  *  - Pure derivation: `authorsFor` is a function of (date, personas) — no state file,
@@ -19,7 +23,9 @@
  * in place — callers persist the returned manifest (or discard it: dry-run returns the
  * input untouched).
  */
+import { wrapBrickStyle } from "./brick.js";
 import type { Category } from "./category.js";
+import type { Config } from "./config.js";
 import { extractJsonObject } from "./generator/parse.js";
 import type { TextGenerator } from "./generator/text.js";
 import type { OpinionAssets, Persona, Weekday } from "./personas.js";
@@ -322,14 +328,96 @@ function wordCount(s: string): number {
   return s.trim().split(/\s+/).filter(Boolean).length;
 }
 
+/** The image brief a successful piece derives (ADR-0016 decision 1). */
+export interface ImageBrief {
+  /** Neutral visual scene in the story convention — brick styling is added downstream. */
+  imagePrompt: string;
+  /** One short photo-caption line; the figure template appends the studio credit. */
+  caption: string;
+}
+
+/**
+ * The image-brief prompt (ADR-0016 decision 1): one single-purpose completion per
+ * published piece asking for the standard neutral scene + a caption, as strict JSON.
+ * The hard rules mirror the story generation contract (src/prompt.ts): purely visual,
+ * no text or brands, a real photographed scene — never pre-stylized, never the author.
+ * The subject comes from the piece's topic: the reacted-to articles for news personas,
+ * the invented letter's situation for letters personas.
+ */
+export function buildImageBriefPrompt(
+  persona: Persona,
+  title: string,
+  body: string,
+  articles: ManifestRecord[],
+): string {
+  const subject =
+    persona.source === "letters"
+      ? "the everyday situation described in the reader letter the piece answers"
+      : "the news story the piece reacts to (see the source articles below)";
+  const articleBlocks =
+    persona.source === "letters"
+      ? ""
+      : "\n\nSOURCE ARTICLES the piece reacts to:\n" +
+        articles
+          .map((r, i) => {
+            const lines = [r.headline ?? r.title];
+            if (r.description) lines.push(r.description);
+            return `ARTICLE ${i + 1}:\n${lines.join("\n")}`;
+          })
+          .join("\n\n");
+  return [
+    "You write an image brief for a satirical opinion piece on a static news site. " +
+      "Given the piece below, produce TWO things:",
+    '1. "imagePrompt": a SHORT scene - roughly 15 to 30 words - that is playful, ' +
+      "exaggerated, and cartoonish, and PURELY VISUAL, depicting " +
+      subject +
+      " - never the author, and never the act of writing or publishing. Hard rules: " +
+      "NO text, letters, numbers, signs, logos, speech bubbles, or written words of any " +
+      "kind anywhere in the scene. NO brand names, trademarks, company names, or product " +
+      "names. Describe it as a real, physical scene as if photographed. Do NOT stylize " +
+      "it as a miniature model, a plastic figurine, a sculpture, or an assembled-block " +
+      "build - that styling is added later, downstream, not by you.",
+    '2. "caption": ONE short line - roughly 8 to 15 words - describing that same scene ' +
+      "as a wry photo caption. Same hard rules; do NOT append any credit, byline, or " +
+      "attribution (added later, downstream).",
+    "Output STRICT JSON and nothing else - no prose, no markdown fences - an object " +
+      'with EXACTLY these keys: {"imagePrompt":"...","caption":"..."}.',
+    `OPINION PIECE:\nTitle: ${title}\n\n${body}${articleBlocks}`,
+  ].join("\n\n");
+}
+
+/**
+ * Strictly parse the image-brief response: both keys present as non-empty strings.
+ * Any deviation returns null — the caller fails that author and stores nothing
+ * (ADR-0016 decision 2: a stored opinion record always has its brief). Never throws.
+ */
+export function parseImageBrief(text: string): ImageBrief | null {
+  const slice = extractJsonObject(text);
+  if (slice == null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(slice);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  const { imagePrompt, caption } = parsed as Record<string, unknown>;
+  if (typeof imagePrompt !== "string" || imagePrompt.trim().length === 0) return null;
+  if (typeof caption !== "string" || caption.trim().length === 0) return null;
+  return { imagePrompt: imagePrompt.trim(), caption: caption.trim() };
+}
+
 /**
  * Run the opinion stage for one day: derive (or accept) the author set, skip already-
- * published keys, gate + select for news personas, generate serially, and insert the
- * published records into a COPY of the manifest. See the module doc for the contracts;
- * see OpinionsOptions for dry-run semantics. Throws only on a caller error (an unknown
- * name in opts.authors); provider and per-author failures are contained.
+ * published keys, gate + select for news personas, generate serially (piece + image
+ * brief, all-or-nothing), and insert the published records into a COPY of the manifest.
+ * `config` supplies `brickStyle.styleLanguage` for the brief's wrap (ADR-0016). See the
+ * module doc for the contracts; see OpinionsOptions for dry-run semantics. Throws only
+ * on a caller error (an unknown name in opts.authors); provider and per-author failures
+ * are contained.
  */
 export async function runOpinions(
+  config: Config,
   startingManifest: Manifest,
   assets: OpinionAssets,
   deps: OpinionsDeps,
@@ -484,6 +572,25 @@ export async function runOpinions(
         log(`opinions: ${persona.name} length warning — ${words} words (range ${min}-${max})`);
       }
 
+      // Image brief (ADR-0016): derive the hero prompt + caption for the finished piece.
+      // All-or-nothing with the piece itself — a failed brief stores NO record, so the
+      // idempotency key stays free and the next run retries the whole author.
+      let brief: ImageBrief | null = null;
+      try {
+        const raw = await deps.generate(
+          buildImageBriefPrompt(persona, split.title, split.body, picks),
+        );
+        brief = raw == null ? null : parseImageBrief(raw);
+      } catch {
+        brief = null;
+      }
+      if (brief == null) {
+        const detail = "image brief derivation failed";
+        outcomes.push({ author: persona.name, key, status: "failed", detail });
+        log(`opinions: ${persona.name} FAILED — ${detail} (piece discarded, retried next run)`);
+        continue;
+      }
+
       const nowIso = deps.now().toISOString();
       const record: ManifestRecord = {
         id: key,
@@ -494,6 +601,9 @@ export async function runOpinions(
         lastSeen: nowIso,
         headline: split.title,
         description: split.body,
+        imagePrompt: brief.imagePrompt,
+        wrappedPrompt: wrapBrickStyle(brief.imagePrompt, config.brickStyle.styleLanguage),
+        caption: brief.caption,
         category: "OPINION",
         author: persona.name,
         ...(persona.source === "letters" ? { columnTitle: persona.columnTitle } : undefined),
