@@ -12,6 +12,7 @@
     "render": "tsx src/render-cli.ts",
     "cycle": "tsx src/cycle-cli.ts",
     "backfill-optimize": "tsx src/backfill-optimize.ts",
+    "headshots": "tsx src/headshots-cli.ts",
     "check:claude": "tsx scripts/check-claude-generator.ts",
     "bench:personas": "tsx scripts/persona-bench.ts",
     "test": "vitest run",

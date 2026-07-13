@@ -1,6 +1,7 @@
 import type { AdView } from "../src/ads.js";
 import type { Article } from "../src/articles.js";
 import type { Config } from "../src/config.js";
+import type { HeadshotsResult } from "../src/headshots.js";
 import type {
   ClaudeRunner,
   CycleIo,
@@ -480,11 +481,20 @@ export function fakeCycleIo(
     ads?: AdView[];
     /** Articles the (otherwise disk-reading) loadArticles boundary returns. Default: none. */
     articles?: Article[];
+    /** Result the processHeadshots boundary returns. Default: an all-empty run. */
+    headshots?: HeadshotsResult;
+    /** Make the processHeadshots boundary throw (to prove the stage is tolerant). */
+    throwOnHeadshots?: boolean;
   } = {},
-): CycleIo & { writes: RecordedIoWrite[]; saved?: Manifest } {
+): CycleIo & {
+  writes: RecordedIoWrite[];
+  saved?: Manifest;
+  headshotCalls: { dir: string; manifestPath: string }[];
+} {
   const state = {
     writes: [] as RecordedIoWrite[],
     saved: undefined as Manifest | undefined,
+    headshotCalls: [] as { dir: string; manifestPath: string }[],
   };
   const io: CycleIo = {
     async readManifest() {
@@ -509,6 +519,19 @@ export function fakeCycleIo(
     },
     async loadArticles() {
       return opts.articles ?? [];
+    },
+    async processHeadshots(dir, manifestPath) {
+      state.headshotCalls.push({ dir, manifestPath });
+      if (opts.throwOnHeadshots) throw new Error("simulated headshots failure");
+      return (
+        opts.headshots ?? {
+          processed: [],
+          skipped: [],
+          missing: [],
+          failed: [],
+          manifest: { version: 1, headshots: {} },
+        }
+      );
     },
   };
   return Object.assign(io, state);

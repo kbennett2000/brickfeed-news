@@ -42,3 +42,31 @@ export async function optimizeImage(
     return { bytes, contentType: detectImageContentType(bytes) };
   }
 }
+
+/** Persona avatar edge in px: ~128 px display size, doubled for retina (ADR-0013 amendment). */
+export const AVATAR_SIZE_PX = 256;
+
+/**
+ * Center-crop to a square and scale to exactly `sizePx`×`sizePx`, emitting LOSSLESS PNG —
+ * the storage chokepoint (`withImageOptimization`, the same one story images go through)
+ * performs the single lossy WebP encode on upload, so avatars get one encode total.
+ * Small sources are upscaled: avatars must come out uniform.
+ *
+ * Returns null on undecodable bytes instead of passing the original through — a multi-MB
+ * source is worse than no avatar, so the caller warns and skips that persona.
+ */
+export async function cropSquareAvatar(
+  bytes: Uint8Array,
+  sizePx: number,
+): Promise<Uint8Array | null> {
+  try {
+    const out = await sharp(bytes)
+      .rotate()
+      .resize(sizePx, sizePx, { fit: "cover", position: "centre" })
+      .png()
+      .toBuffer();
+    return new Uint8Array(out);
+  } catch {
+    return null;
+  }
+}
