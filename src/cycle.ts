@@ -10,7 +10,7 @@ import { hasImage, generateImages } from "./image.js";
 import { ingest } from "./ingest.js";
 import { readManifest, writeManifest } from "./manifest.js";
 import { publishableRecords, verifiedPublishableRecords, writePublished } from "./publish.js";
-import { renderSite } from "./render/index.js";
+import { imageOptimizeOptionFromConfig, renderSite } from "./render/index.js";
 import type { CycleDeps, CycleIo, Manifest, ManifestRecord } from "./types.js";
 
 /**
@@ -197,6 +197,7 @@ export async function runCycle(
       siteBaseUrl: config.render.siteBaseUrl,
       share: config.render.share,
       analytics: config.render.analytics,
+      imageOptimize: imageOptimizeOptionFromConfig(config),
       ads,
       articles,
     });

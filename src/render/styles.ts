@@ -184,6 +184,16 @@ img { max-width: 100%; display: block; }
 .cards--section .card__body .dek { -webkit-line-clamp: 3; }
 .card__body .byline { margin-top: 12px; }
 
+/* Per-story share row (ADR-0012): sits BELOW a card/lead/rail item, as a sibling of the story's
+   own link (never nested inside it). The .story element wraps the link + this row so they stack. */
+.story { display: flex; flex-direction: column; }
+.story-share { display: flex; align-items: center; gap: 7px; margin-top: 10px; }
+.story-share__label { font: 500 10px/1 var(--mono); letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted); }
+.story-share__btn { display: inline-block; padding: 4px 11px; background: var(--ink); color: var(--paper); font: 500 10px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; text-decoration: none; transition: background .15s ease, color .15s ease; }
+.story-share__btn:hover { background: var(--accent); color: var(--paper); }
+.story-share__btn--linkedin { background: #0a66c2; }
+.story-share__btn--linkedin:hover { background: #004182; }
+
 /* ---- section page head ---- */
 .section-head { padding-top: 48px; }
 .section-head__row { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border-bottom: 2px solid var(--ink); padding-bottom: 16px; margin-top: 8px; }

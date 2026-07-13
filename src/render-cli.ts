@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { ADS_DIR, loadAds } from "./ads.js";
 import { ARTICLES_DIR, loadArticles } from "./articles.js";
 import { loadConfig } from "./config.js";
-import { renderSite } from "./render/index.js";
+import { imageOptimizeOptionFromConfig, renderSite } from "./render/index.js";
 import { createStorageProvider } from "./storage/index.js";
 import type { ManifestRecord } from "./types.js";
 
@@ -55,6 +55,7 @@ async function main(): Promise<void> {
     siteBaseUrl: config.render.siteBaseUrl,
     share: config.render.share,
     analytics: config.render.analytics,
+    imageOptimize: imageOptimizeOptionFromConfig(config),
     ads,
     articles,
   });

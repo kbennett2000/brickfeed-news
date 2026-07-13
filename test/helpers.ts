@@ -115,6 +115,9 @@ export function makeConfig(over: Partial<Config> = {}): Config {
       siteBaseUrl: "https://test.brickfeed.example",
       analytics: "none",
       share: {},
+      // Off by default so config-driven renders (cycle/render-cli tests) stay byte-identical.
+      // The srcset/vercel.json behavior is covered by dedicated render tests that opt in.
+      imageOptimization: { enabled: false, widths: [320, 480, 640, 960, 1280], quality: 75 },
     },
     deploy: { command: "vercel --prod --yes", cwd: "site", enabled: true },
     ...over,

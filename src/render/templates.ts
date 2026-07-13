@@ -15,9 +15,31 @@ import {
   buildXIntentUrl,
   escapeAttr,
   escapeHtml,
+  optimizedSrcset,
+  optimizedUrl,
   sectionSlug,
   titleCase,
 } from "./format.js";
+
+/**
+ * Responsive image optimization settings threaded into the story templates (ADR-0012). Present
+ * only when `render.imageOptimization.enabled`; absent → images render as today's plain
+ * `<img src=blobUrl>` (byte-identical). `widths` seed the srcset; `quality` the `q=` param.
+ */
+export interface ImageOptimizeRender {
+  widths: number[];
+  quality: number;
+}
+
+/**
+ * Options threaded into the per-story templates (figure/lead/rail/card). `imageOptimize` enables
+ * the responsive srcset (ADR-0012); `share` drives the per-story X/LinkedIn share row (ADR-0012),
+ * reusing the same intent builders as the operator Share page.
+ */
+export interface StoryRenderOpts {
+  imageOptimize?: ImageOptimizeRender;
+  share?: { handle?: string; hashtags?: string[] };
+}
 
 /** The view model a template consumes — a ManifestRecord already reduced to display fields. */
 export interface StoryView {
@@ -45,6 +67,12 @@ export interface StoryView {
   local?: boolean;
   /** Rendered HTML of the article body (local articles only); shown on the landing page. */
   bodyHtml?: string;
+  /**
+   * Absolute landing-page URL (`https://…/s/<id>.html`) the per-story X/LinkedIn share buttons
+   * point at (ADR-0012). Set by renderSite for every publishable record/article; absent → no
+   * share row is drawn.
+   */
+  shareUrl?: string;
 }
 
 /** Italic descriptor shown under a section masthead. Preserves the design's deadpan tone. */
@@ -67,11 +95,37 @@ function studs(sizeClass: string, photo = false): string {
 
 type FigureVariant = "lead" | "rail" | "card" | "seclead";
 
-const FIGURE_META: Record<FigureVariant, { frame: string; studs: string; label: string }> = {
-  lead: { frame: "figure__frame--lead", studs: "studs--9", label: "Brick Photograph" },
-  rail: { frame: "figure__frame--rail", studs: "studs--6", label: "Brick Photograph" },
-  card: { frame: "figure__frame--card", studs: "studs--6", label: "Brick Photo" },
-  seclead: { frame: "figure__frame--seclead", studs: "studs--9", label: "Brick Photograph" },
+const FIGURE_META: Record<
+  FigureVariant,
+  { frame: string; studs: string; label: string; sizes: string }
+> = {
+  // `sizes` approximates each variant's rendered width across breakpoints so the browser picks
+  // the smallest srcset entry that fits (ADR-0012). Values are deliberately generous — a slightly
+  // larger pick is fine; the win is not shipping the full 1280 px source to a ~300 px slot.
+  lead: {
+    frame: "figure__frame--lead",
+    studs: "studs--9",
+    label: "Brick Photograph",
+    sizes: "(max-width: 700px) 92vw, (max-width: 1080px) 60vw, 640px",
+  },
+  rail: {
+    frame: "figure__frame--rail",
+    studs: "studs--6",
+    label: "Brick Photograph",
+    sizes: "(max-width: 700px) 92vw, (max-width: 1080px) 42vw, 320px",
+  },
+  card: {
+    frame: "figure__frame--card",
+    studs: "studs--6",
+    label: "Brick Photo",
+    sizes: "(max-width: 700px) 92vw, (max-width: 1080px) 45vw, 320px",
+  },
+  seclead: {
+    frame: "figure__frame--seclead",
+    studs: "studs--9",
+    label: "Brick Photograph",
+    sizes: "(max-width: 700px) 92vw, (max-width: 1080px) 60vw, 640px",
+  },
 };
 
 /**
@@ -82,23 +136,75 @@ const FIGURE_META: Record<FigureVariant, { frame: string; studs: string; label: 
  *
  * When an image is present it also emits a decorative, hover-revealed full-size preview
  * (`.figure__zoom`) as a sibling of the cropped frame. The frame crops via `object-fit:cover`,
- * so this CSS-only lightbox lets a reader see the whole image at full resolution on hover. It
- * reuses the same URL (already downloaded for the thumbnail — no extra network) and is
- * `aria-hidden` so screen readers aren't told about the same picture twice.
+ * so this CSS-only lightbox lets a reader see the whole image at full resolution on hover. Both
+ * imgs are `loading="lazy" decoding="async"` — the eager zoom used to defeat the thumbnail's
+ * lazy-loading (same URL, fetched immediately), so making it lazy restores real deferral. The
+ * zoom is `aria-hidden` so screen readers aren't told about the same picture twice.
+ *
+ * With `opts.imageOptimize` (ADR-0012) the thumbnail carries a responsive `srcset`/`sizes` of
+ * same-origin `/_vercel/image` variants and the zoom loads the largest optimized width; without
+ * it, both fall back to the raw Blob URL (byte-identical to the pre-optimization render).
  */
-function figure(view: StoryView, variant: FigureVariant): string {
+function figure(view: StoryView, variant: FigureVariant, opts: StoryRenderOpts = {}): string {
   const meta = FIGURE_META[variant];
-  const inner = view.imageUrl
-    ? `<img class="figure__img" src="${escapeAttr(view.imageUrl)}" alt="${escapeAttr(view.headline)}" loading="lazy">`
-    : `<div class="figure__placeholder">${studs(meta.studs, true)}<span class="figure__label">${meta.label}</span></div>`;
-  const zoom = view.imageUrl
-    ? `<span class="figure__zoom" aria-hidden="true"><img class="figure__zoom-img" src="${escapeAttr(view.imageUrl)}" alt=""></span>`
-    : "";
+  const io = opts.imageOptimize;
+  let inner: string;
+  if (view.imageUrl) {
+    const responsive = io
+      ? ` srcset="${escapeAttr(optimizedSrcset(view.imageUrl, io.widths, io.quality))}" sizes="${meta.sizes}"`
+      : "";
+    inner = `<img class="figure__img" src="${escapeAttr(view.imageUrl)}"${responsive} alt="${escapeAttr(view.headline)}" loading="lazy" decoding="async">`;
+  } else {
+    inner = `<div class="figure__placeholder">${studs(meta.studs, true)}<span class="figure__label">${meta.label}</span></div>`;
+  }
+  let zoom = "";
+  if (view.imageUrl) {
+    const zoomSrc = io
+      ? optimizedUrl(view.imageUrl, Math.max(...io.widths), io.quality)
+      : view.imageUrl;
+    zoom = `<span class="figure__zoom" aria-hidden="true"><img class="figure__zoom-img" src="${escapeAttr(zoomSrc)}" alt="" loading="lazy" decoding="async"></span>`;
+  }
   return `<figure class="figure">
         <div class="figure__frame ${meta.frame}">${inner}</div>
         ${zoom}
         <figcaption class="figcaption">${escapeHtml(view.caption)} <span class="figcaption__credit">/ BRICKFEED STUDIO</span></figcaption>
       </figure>`;
+}
+
+/**
+ * A per-story share row (ADR-0012): "Share" + an X and a LinkedIn button, each opening that
+ * platform's composer prefilled with the story's landing-page URL — the exact intent builders the
+ * operator Share page uses, so the public buttons and the worksheet behave identically. Returns ""
+ * unless the story has both a `shareUrl` (its absolute landing page) and an image (publishable),
+ * so imageless placeholders stay byte-identical.
+ *
+ * IMPORTANT: these are anchors, so the caller MUST place this OUTSIDE the story's own `<a>` — the
+ * card-wide link would otherwise nest anchors (invalid HTML) and swallow the share clicks.
+ */
+function storyShare(view: StoryView, opts: StoryRenderOpts): string {
+  if (!view.shareUrl || !view.imageUrl) return "";
+  const share = opts.share ?? {};
+  const xHref = buildXIntentUrl({
+    headline: view.headline,
+    pageUrl: view.shareUrl,
+    handle: share.handle,
+    hashtags: share.hashtags,
+  });
+  const liHref = buildLinkedInIntentUrl({ headline: view.headline, pageUrl: view.shareUrl });
+  return `<div class="story-share">
+        <span class="story-share__label">Share</span>
+        <a class="story-share__btn" href="${escapeAttr(xHref)}" target="_blank" rel="noopener noreferrer">X</a>
+        <a class="story-share__btn story-share__btn--linkedin" href="${escapeAttr(liHref)}" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      </div>`;
+}
+
+/**
+ * Wrap a story's clickable `<a>` and its share row as siblings so the anchors never nest. When
+ * there's no share row (imageless placeholder), returns the bare link — byte-identical to the
+ * pre-share render, so unrelated fixtures don't churn.
+ */
+function withShare(link: string, share: string): string {
+  return share ? `<div class="story">${link}${share}</div>` : link;
 }
 
 /**
@@ -165,9 +271,9 @@ export function sectionNav(active?: Category): string {
 }
 
 /** The single large lead story. */
-export function leadStory(view: StoryView): string {
-  return `<a ${storyLinkAttrs(view.url, "lead", view.local)}>
-      ${figure(view, "lead")}
+export function leadStory(view: StoryView, opts: StoryRenderOpts = {}): string {
+  const link = `<a ${storyLinkAttrs(view.url, "lead", view.local)}>
+      ${figure(view, "lead", opts)}
       <div class="lead__body">
         <div class="kicker">${escapeHtml(view.kicker)}</div>
         <h2 class="lead__headline">${escapeHtml(view.headline)}</h2>
@@ -175,23 +281,25 @@ export function leadStory(view: StoryView): string {
         <div class="byline byline--lead">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>
       </div>
     </a>`;
+  return withShare(link, storyShare(view, opts));
 }
 
 /** One secondary (rail) story: photo, kicker, headline, dek, byline. */
-export function railStory(view: StoryView): string {
-  return `<a ${storyLinkAttrs(view.url, "rail__item", view.local)}>
-        ${figure(view, "rail")}
+export function railStory(view: StoryView, opts: StoryRenderOpts = {}): string {
+  const link = `<a ${storyLinkAttrs(view.url, "rail__item", view.local)}>
+        ${figure(view, "rail", opts)}
         <div class="kicker kicker--sm">${escapeHtml(view.kicker)}</div>
         <h3 class="rail__headline">${escapeHtml(view.headline)}</h3>
         <p class="dek">${escapeHtml(view.description)}</p>
         <div class="byline">${escapeHtml(view.byline)}</div>
       </a>`;
+  return withShare(link, storyShare(view, opts));
 }
 
 /** One grid card (home "Across the Brickyard" + section grids). */
-export function card(view: StoryView): string {
-  return `<a ${storyLinkAttrs(view.url, "card", view.local)}>
-        ${figure(view, "card")}
+export function card(view: StoryView, opts: StoryRenderOpts = {}): string {
+  const link = `<a ${storyLinkAttrs(view.url, "card", view.local)}>
+        ${figure(view, "card", opts)}
         <div class="card__body">
           <div class="kicker kicker--sm">${escapeHtml(view.kicker)}</div>
           <h3 class="card__headline">${escapeHtml(view.headline)}</h3>
@@ -199,6 +307,7 @@ export function card(view: StoryView): string {
           <div class="byline">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>
         </div>
       </a>`;
+  return withShare(link, storyShare(view, opts));
 }
 
 /** The "Across the Brickyard" section header row above the home card grid. */
@@ -247,7 +356,7 @@ export function adBanner(ads: AdView[]): string {
     .map(
       (ad) =>
         `<a class="adbanner__slide" href="${escapeAttr(ad.href)}" target="_blank" rel="noopener sponsored nofollow">` +
-        `<img class="adbanner__img" src="${escapeAttr(ad.imageUrl)}" alt="${escapeAttr(ad.alt)}"></a>`,
+        `<img class="adbanner__img" src="${escapeAttr(ad.imageUrl)}" alt="${escapeAttr(ad.alt)}" loading="lazy" decoding="async"></a>`,
     )
     .join("");
   return `<div class="container">
@@ -369,9 +478,22 @@ window.va = window.va || function () { (window.vaq = window.vaq || []).push(argu
 </script>
 <script defer src="/_vercel/insights/script.js"></script>`;
 
-/** The analytics markup to append before `</body>`; empty (byte-identical) unless "vercel". */
+/**
+ * The Vercel Speed Insights beacon (ADR-0012) in its plain-HTML form. Real-user Core Web Vitals
+ * (LCP/CLS/INP) — a Pro feature — injected alongside Web Analytics whenever `analytics: "vercel"`.
+ * Like the analytics beacon it 404s harmlessly until Speed Insights is enabled for the project in
+ * the Vercel dashboard, so shipping it early is safe.
+ */
+const VERCEL_SPEED_INSIGHTS_SNIPPET = `<script>
+window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/speed-insights/script.js"></script>`;
+
+/** The analytics + speed-insights markup to append before `</body>`; empty unless "vercel". */
 function analyticsSnippet(provider: AnalyticsProvider | undefined): string {
-  return provider === "vercel" ? `\n${VERCEL_ANALYTICS_SNIPPET}` : "";
+  return provider === "vercel"
+    ? `\n${VERCEL_ANALYTICS_SNIPPET}\n${VERCEL_SPEED_INSIGHTS_SNIPPET}`
+    : "";
 }
 
 export function pageShell(
@@ -455,7 +577,13 @@ function standaloneBrand(homeHref: string): string {
  */
 export function renderLandingPage(
   view: StoryView,
-  opts: { pageUrl: string; twitterSite?: string; analytics?: AnalyticsProvider },
+  opts: {
+    pageUrl: string;
+    twitterSite?: string;
+    analytics?: AnalyticsProvider;
+    imageOptimize?: ImageOptimizeRender;
+    share?: { handle?: string; hashtags?: string[] };
+  },
 ): string {
   const meta = cardMeta({
     title: view.headline,
@@ -464,6 +592,10 @@ export function renderLandingPage(
     imageUrl: view.imageUrl,
     twitterSite: opts.twitterSite,
   });
+  // The landing page isn't wrapped in a card-wide anchor, so the share row can live inside the
+  // article. Its shareUrl IS this page's own absolute URL (opts.pageUrl).
+  const storyOpts: StoryRenderOpts = { imageOptimize: opts.imageOptimize, share: opts.share };
+  const shareRow = storyShare({ ...view, shareUrl: opts.pageUrl }, storyOpts);
   // Local article: byline then its own hosted body, no outbound CTA. Feed story: dek, byline,
   // then a prominent read-at-source link (unchanged from ADR-0009).
   const tail = view.local
@@ -476,10 +608,11 @@ export function renderLandingPage(
     ${standaloneBrand("../index.html")}
     <main class="container landing__main">
       <article class="landing__article">
-        ${figure(view, "lead")}
+        ${figure(view, "lead", storyOpts)}
         <div class="kicker">${escapeHtml(view.kicker)}</div>
         <h1 class="landing__headline">${escapeHtml(view.headline)}</h1>
         ${tail}
+        ${shareRow}
       </article>
     </main>
   </div>`;

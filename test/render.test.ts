@@ -8,6 +8,8 @@ import {
   editionForHour,
   editionLabel,
   formatMastheadDate,
+  optimizedSrcset,
+  optimizedUrl,
   relativeTime,
   sectionSlug,
   storyPageUrl,
@@ -779,8 +781,12 @@ describe("renderSite — web analytics (render.analytics)", () => {
     ]) {
       expect(files[page], page).toContain(BEACON);
       expect(files[page], page).toContain("window.va = window.va ||");
-      // Beacon sits inside the shell, right before the closing body tag.
-      expect(files[page], page).toContain(`${BEACON}\n</body>`);
+      // The analytics beacon is followed by the Speed Insights beacon (ADR-0012), which sits
+      // right before the closing body tag.
+      expect(files[page], page).toContain("window.si = window.si ||");
+      expect(files[page], page).toContain(
+        `<script defer src="/_vercel/speed-insights/script.js"></script>\n</body>`,
+      );
     }
   });
 
@@ -795,5 +801,165 @@ describe("renderSite — web analytics (render.analytics)", () => {
     for (const page of Object.values(files)) {
       expect(page).not.toContain(BEACON);
     }
+  });
+});
+
+const IMG_OPT = { widths: [320, 640, 1280], quality: 75, blobHost: "store.public.blob.vercel-storage.com" };
+
+describe("renderSite — responsive image optimization (ADR-0012)", () => {
+  it("emits a /_vercel/image srcset + sizes on cover images when enabled", () => {
+    const index = renderSite(records, { ...OPTS, imageOptimize: IMG_OPT })["index.html"];
+    // The thumbnail keeps the raw Blob URL as its src fallback…
+    expect(index).toContain('src="https://cdn.test/lead.png"');
+    // …and gains an optimized srcset across the configured widths + a sizes hint.
+    expect(index).toContain(
+      `srcset="/_vercel/image?url=${encodeURIComponent("https://cdn.test/lead.png")}&amp;w=320&amp;q=75 320w`,
+    );
+    expect(index).toContain('sizes="');
+    expect(index).toContain("&amp;w=1280&amp;q=75 1280w");
+  });
+
+  it("points the hover-zoom img at the largest optimized width", () => {
+    const index = renderSite(records, { ...OPTS, imageOptimize: IMG_OPT })["index.html"];
+    expect(index).toContain(
+      `class="figure__zoom-img" src="/_vercel/image?url=${encodeURIComponent("https://cdn.test/lead.png")}&amp;w=1280&amp;q=75"`,
+    );
+  });
+
+  it("writes a vercel.json with the images block + Blob remotePattern when enabled", () => {
+    const files = renderSite(records, { ...OPTS, imageOptimize: IMG_OPT });
+    expect(files["vercel.json"]).toBeTruthy();
+    const cfg = JSON.parse(files["vercel.json"]);
+    expect(cfg.images.formats).toEqual(["image/avif", "image/webp"]);
+    expect(cfg.images.sizes).toEqual([320, 640, 1280]);
+    expect(cfg.images.qualities).toEqual([75]);
+    expect(cfg.images.remotePatterns).toEqual([
+      { protocol: "https", hostname: "store.public.blob.vercel-storage.com" },
+    ]);
+  });
+
+  it("is inert (byte-identical, no images block) when optimization is off", () => {
+    const optimized = renderSite(records, OPTS)["index.html"];
+    // No optimization option → no srcset, raw Blob src only.
+    expect(optimized).not.toContain("/_vercel/image");
+    expect(optimized).toContain('src="https://cdn.test/lead.png"');
+    const cfg = JSON.parse(renderSite(records, OPTS)["vercel.json"]);
+    expect(cfg.images).toBeUndefined();
+    // vercel.json still carries the security + cache headers regardless.
+    expect(JSON.stringify(cfg.headers)).toContain("X-Content-Type-Options");
+  });
+});
+
+describe("renderSite — lazy loading (ADR-0012)", () => {
+  it("marks the hover-zoom img lazy + async so it no longer defeats the thumbnail's lazy load", () => {
+    const index = renderSite(records, OPTS)["index.html"];
+    const zoomImgs = index.match(/<img class="figure__zoom-img"[^>]*>/g) ?? [];
+    expect(zoomImgs.length).toBeGreaterThan(0);
+    for (const img of zoomImgs) {
+      expect(img).toContain('loading="lazy"');
+      expect(img).toContain('decoding="async"');
+    }
+  });
+
+  it("marks banner ad images lazy + async", () => {
+    const index = renderSite(records, { ...OPTS, ads: [AD_A] })["index.html"];
+    const adImgs = index.match(/<img class="adbanner__img"[^>]*>/g) ?? [];
+    expect(adImgs.length).toBeGreaterThan(0);
+    for (const img of adImgs) {
+      expect(img).toContain('loading="lazy"');
+      expect(img).toContain('decoding="async"');
+    }
+  });
+});
+
+describe("renderSite — per-story share links (ADR-0012)", () => {
+  it("renders an X + LinkedIn share button under each publishable cover story", () => {
+    const index = renderSite(records, {
+      ...OPTS,
+      share: { handle: "brickfeednews", hashtags: ["brickfeed"] },
+    })["index.html"];
+    // The lead story's share buttons point at its ABSOLUTE landing URL…
+    const landing = `${SITE_BASE_URL}/s/lead.html`;
+    // X intent: text is the headline, url is the absolute landing page.
+    expect(index).toContain("https://x.com/intent/tweet?");
+    expect(index).toContain(`url=${encodeURIComponent(landing)}`);
+    expect(index).toContain("Summit+Ends+With+a+Handshake"); // headline in the X text= param
+    // LinkedIn: the landing URL rides in the shareActive text so LinkedIn resolves our OG card.
+    expect(index).toContain("https://www.linkedin.com/feed/?");
+    expect(index).toContain(encodeURIComponent(landing));
+    // X carries the configured via + hashtags, like the Share page.
+    expect(index).toContain("via=brickfeednews");
+    expect(index).toContain("hashtags=brickfeed");
+  });
+
+  it("places the share links OUTSIDE the card's own anchor (no nested <a>)", () => {
+    const index = renderSite(records, OPTS)["index.html"];
+    // Every story with a share row is wrapped in a .story container.
+    expect(index).toContain('<div class="story">');
+    // Locate the lead story block and assert the share anchors are siblings of, not inside, the
+    // story's own <a>. A crude but effective check: between a story link's opening <a and its
+    // closing </a>, there must be no nested <a (the share buttons come after the </a>).
+    const storyBlocks = index.split('<div class="story">').slice(1);
+    expect(storyBlocks.length).toBeGreaterThan(0);
+    for (const block of storyBlocks) {
+      const firstAnchorClose = block.indexOf("</a>");
+      const inner = block.slice(0, firstAnchorClose);
+      // No second <a opens before the story link closes.
+      expect(inner.indexOf("<a ", 1)).toBe(-1);
+    }
+    // And the share buttons DO exist (after the anchor), as story-share links.
+    expect(index).toContain('class="story-share__btn"');
+    expect(index).toContain('class="story-share__btn story-share__btn--linkedin"');
+  });
+
+  it("does NOT render a share row for an imageless placeholder story (byte-identical)", () => {
+    const placeholder = renderSite([rec({ id: "np", imageUrl: undefined })], OPTS)["index.html"];
+    expect(placeholder).toContain("figure__placeholder");
+    expect(placeholder).not.toContain("story-share");
+  });
+
+  it("adds a share row to the per-story landing page too", () => {
+    const page = renderSite(records, OPTS)["s/lead.html"];
+    expect(page).toContain("story-share");
+    expect(page).toContain(`url=${encodeURIComponent(`${SITE_BASE_URL}/s/lead.html`)}`);
+  });
+});
+
+describe("renderSite — SEO artifacts (ADR-0012)", () => {
+  const files = renderSite(records, { ...OPTS, articles: [art({ id: "article-01" })] });
+
+  it("emits robots.txt pointing at the sitemap and disallowing the share sheet", () => {
+    const robots = files["robots.txt"];
+    expect(robots).toContain("User-agent: *");
+    expect(robots).toContain(`Sitemap: ${SITE_BASE_URL}/sitemap.xml`);
+    expect(robots).toContain("Disallow: /share.html");
+  });
+
+  it("emits a sitemap listing the cover, sections, and landing pages but not the share sheet", () => {
+    const sitemap = files["sitemap.xml"];
+    expect(sitemap).toContain(`<loc>${SITE_BASE_URL}/</loc>`);
+    expect(sitemap).toContain(`<loc>${SITE_BASE_URL}/world.html</loc>`);
+    expect(sitemap).toContain(`<loc>${SITE_BASE_URL}/s/lead.html</loc>`);
+    expect(sitemap).toContain(`<loc>${SITE_BASE_URL}/s/article-01.html</loc>`);
+    expect(sitemap).not.toContain("share.html");
+  });
+});
+
+describe("optimizedUrl / optimizedSrcset (ADR-0012)", () => {
+  it("builds a same-origin /_vercel/image URL with an encoded src and clamped quality", () => {
+    expect(optimizedUrl("https://cdn.test/a b.png", 640, 75)).toBe(
+      `/_vercel/image?url=${encodeURIComponent("https://cdn.test/a b.png")}&w=640&q=75`,
+    );
+    // Quality is clamped into 1–100.
+    expect(optimizedUrl("https://cdn.test/x.png", 320, 999)).toContain("&q=100");
+    expect(optimizedUrl("https://cdn.test/x.png", 320, 0)).toContain("&q=1");
+  });
+
+  it("builds an ascending, de-duplicated srcset of width descriptors", () => {
+    const set = optimizedSrcset("https://cdn.test/x.png", [640, 320, 640], 75);
+    expect(set).toBe(
+      `/_vercel/image?url=${encodeURIComponent("https://cdn.test/x.png")}&w=320&q=75 320w, ` +
+        `/_vercel/image?url=${encodeURIComponent("https://cdn.test/x.png")}&w=640&q=75 640w`,
+    );
   });
 });
