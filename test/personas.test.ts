@@ -4,17 +4,31 @@ import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "../src/category.js";
 import { loadPersonas, parsePersona, type PersonasDeps } from "../src/personas.js";
 
-/** A minimal valid persona document; tests below mutate pieces of it. */
+/** A minimal valid news persona document; tests below mutate pieces of it. */
 const VALID = `---
 name: alice
 display_name: Alice
 byline_blurb: Alice is a test blurb.
+source: news
 selection_bias:
   POLITICS: 3
   WORLD: 2
 ---
 
 You are Alice. Escalate everything.
+`;
+
+/** A minimal valid letters persona document (ADR-0014). */
+const VALID_LETTERS = `---
+name: tammy
+display_name: Tammy
+byline_blurb: Tammy is a test blurb.
+source: letters
+schedule: mon/wed/fri/sun
+column_title: Tammy's Test Corner
+---
+
+You are Tammy. Answer the letter.
 `;
 
 describe("parsePersona", () => {
@@ -32,6 +46,12 @@ describe("parsePersona", () => {
     expect(parsePersona(VALID.replace("name: alice\n", ""))).toBeNull();
     expect(parsePersona(VALID.replace("display_name: Alice\n", ""))).toBeNull();
     expect(parsePersona(VALID.replace("byline_blurb: Alice is a test blurb.\n", ""))).toBeNull();
+    expect(parsePersona(VALID.replace("source: news\n", ""))).toBeNull();
+  });
+
+  it("returns null on a source outside news|letters (no normalization)", () => {
+    expect(parsePersona(VALID.replace("source: news", "source: espn"))).toBeNull();
+    expect(parsePersona(VALID.replace("source: news", "source: NEWS"))).toBeNull();
   });
 
   it("returns null on an empty body", () => {
@@ -52,10 +72,46 @@ describe("parsePersona", () => {
     expect(parsePersona(VALID.replace("  WORLD: 2", "  WORLD: heavy"))).toBeNull();
   });
 
-  it("accepts an absent selection_bias block as an empty map", () => {
-    const p = parsePersona(VALID.replace(/selection_bias:\n( {2}.+\n)+/, ""));
+  it("returns null when a news persona omits selection_bias (required for news)", () => {
+    expect(parsePersona(VALID.replace(/selection_bias:\n( {2}.+\n)+/, ""))).toBeNull();
+  });
+
+  it("returns null when a news persona carries the letters-only fields", () => {
+    expect(parsePersona(VALID.replace("source: news", "source: news\nschedule: mon"))).toBeNull();
+    expect(
+      parsePersona(VALID.replace("source: news", "source: news\ncolumn_title: Alice's Corner")),
+    ).toBeNull();
+  });
+
+  it("parses a letters persona: schedule tokens in order, column title, empty bias", () => {
+    const p = parsePersona(VALID_LETTERS);
     expect(p).not.toBeNull();
+    expect(p!.source).toBe("letters");
+    expect(p!.schedule).toEqual(["mon", "wed", "fri", "sun"]);
+    expect(p!.columnTitle).toBe("Tammy's Test Corner");
     expect(p!.selectionBias).toEqual({});
+  });
+
+  it("returns null when a letters persona carries a selection_bias block", () => {
+    expect(
+      parsePersona(
+        VALID_LETTERS.replace("source: letters", "source: letters\nselection_bias:\n  WORLD: 2"),
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null when a letters persona omits schedule or column_title", () => {
+    expect(parsePersona(VALID_LETTERS.replace("schedule: mon/wed/fri/sun\n", ""))).toBeNull();
+    expect(parsePersona(VALID_LETTERS.replace("column_title: Tammy's Test Corner\n", ""))).toBeNull();
+  });
+
+  it("returns null on an empty, unknown, non-lowercase, or duplicate schedule token", () => {
+    const sched = (v: string) => VALID_LETTERS.replace("schedule: mon/wed/fri/sun", `schedule:${v}`);
+    expect(parsePersona(sched(""))).toBeNull(); // empty list
+    expect(parsePersona(sched(" monday"))).toBeNull(); // long-form token
+    expect(parsePersona(sched(" MON"))).toBeNull(); // no case normalization
+    expect(parsePersona(sched(" mon/xyz"))).toBeNull(); // unknown token
+    expect(parsePersona(sched(" mon/mon"))).toBeNull(); // duplicate
   });
 
   it("tolerates CRLF line endings", () => {
@@ -157,18 +213,21 @@ describe("loadPersonas", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Schema validation of the REAL committed persona assets (ADR-0013): the six
-// authors exist, parse cleanly, and carry every required field.
+// Schema validation of the REAL committed persona assets (ADR-0013, ADR-0014):
+// the eight authors exist, parse cleanly, and carry every required field for
+// their source.
 // ---------------------------------------------------------------------------
 
-const ROSTER = ["alice", "bob", "cynthia", "edgar", "larry", "stryker"] as const;
+const NEWS_ROSTER = ["alice", "bob", "cynthia", "edgar", "larry", "stryker"] as const;
+const LETTERS_ROSTER = ["priscilla", "tom"] as const;
+const ROSTER = [...NEWS_ROSTER, ...LETTERS_ROSTER].sort();
 const personasDir = fileURLToPath(new URL("../personas/", import.meta.url));
 const headshotsDir = fileURLToPath(new URL("../assets/headshots/", import.meta.url));
 
 describe("committed persona files", () => {
-  it("personas/ holds exactly the six-author roster plus _shared.md", () => {
+  it("personas/ holds exactly the eight-author roster plus the two _ support blocks", () => {
     const mds = readdirSync(personasDir).filter((f) => f.endsWith(".md"));
-    expect(mds.sort()).toEqual(["_shared.md", ...ROSTER.map((n) => `${n}.md`)]);
+    expect(mds.sort()).toEqual(["_letters.md", "_shared.md", ...ROSTER.map((n) => `${n}.md`)]);
   });
 
   it("_shared.md is non-empty and carries the register and guardrail blocks", () => {
@@ -176,6 +235,15 @@ describe("committed persona files", () => {
     expect(shared).toContain("REGISTER");
     expect(shared).toContain("GUARDRAILS");
     expect(shared).toContain("300");
+  });
+
+  it("_letters.md carries the letter-invention guardrails (ADR-0014)", () => {
+    const letters = readFileSync(`${personasDir}_letters.md`, "utf8");
+    expect(letters).toContain("exactly one letter-writer");
+    expect(letters).toContain("FIRST name");
+    expect(letters).toContain("never a public figure");
+    expect(letters).toContain("everyday and PG");
+    expect(letters).toContain("no real-world facts");
   });
 
   it.each(ROSTER)("%s.md parses with all required fields", (name) => {
@@ -187,8 +255,11 @@ describe("committed persona files", () => {
     expect(p!.body.length).toBeGreaterThan(0);
   });
 
-  it.each(ROSTER)("%s.md has a valid, non-empty selection_bias", (name) => {
+  it.each(NEWS_ROSTER)("%s.md is source news with a valid, non-empty selection_bias", (name) => {
     const p = parsePersona(readFileSync(`${personasDir}${name}.md`, "utf8"));
+    expect(p!.source).toBe("news");
+    expect(p!.schedule).toBeUndefined();
+    expect(p!.columnTitle).toBeUndefined();
     const entries = Object.entries(p!.selectionBias);
     expect(entries.length).toBeGreaterThan(0);
     for (const [section, weight] of entries) {
@@ -196,6 +267,23 @@ describe("committed persona files", () => {
       expect(Number.isFinite(weight)).toBe(true);
       expect(weight!).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  it.each(LETTERS_ROSTER)("%s.md is source letters with schedule and column title", (name) => {
+    const p = parsePersona(readFileSync(`${personasDir}${name}.md`, "utf8"));
+    expect(p!.source).toBe("letters");
+    expect(p!.columnTitle!.length).toBeGreaterThan(0);
+    expect(p!.selectionBias).toEqual({});
+  });
+
+  it("pins the ADR-0014 cadence: tom mon/wed/fri/sun, priscilla tue/thu/sat/sun", () => {
+    const tom = parsePersona(readFileSync(`${personasDir}tom.md`, "utf8"));
+    const priscilla = parsePersona(readFileSync(`${personasDir}priscilla.md`, "utf8"));
+    expect(tom!.schedule).toEqual(["mon", "wed", "fri", "sun"]);
+    expect(priscilla!.schedule).toEqual(["tue", "thu", "sat", "sun"]);
+    // The Sunday double is intentional (ADR-0014 decision 3).
+    expect(tom!.schedule).toContain("sun");
+    expect(priscilla!.schedule).toContain("sun");
   });
 });
 

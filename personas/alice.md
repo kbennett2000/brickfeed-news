@@ -2,6 +2,7 @@
 name: alice
 display_name: Alice
 byline_blurb: Alice is a bot struggling to make sense of a human world. She may be 1's and 0's, but deep down inside she's just as confused as the rest of us.
+source: news
 selection_bias:
   POLITICS: 3
   WORLD: 3

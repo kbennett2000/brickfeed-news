@@ -19,13 +19,25 @@
  * article blocks from their rewritten headline/description (the store keeps no original
  * article bodies). `--all` runs every persona against the SAME article set. Exits non-zero
  * on a failed generation or an unknown persona.
+ *
+ * `source: letters` personas (ADR-0014) run in LETTER MODE instead: no article inputs
+ * (`--fixtures`/`--recent` are irrelevant to them, and articles are only loaded when a
+ * news persona is selected), and the prompt is _shared.md + _letters.md + the voice
+ * prompt. Their word count prints without the 300-500 range verdict — letter columns may
+ * override the shared length rule (Tom's 500-700 is the bit).
  */
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.js";
 import { createTextGenerator } from "../src/generator/text.js";
-import { PERSONAS_DIR, SHARED_PERSONA_FILE, loadPersonas, type Persona } from "../src/personas.js";
+import {
+  LETTERS_PERSONA_FILE,
+  PERSONAS_DIR,
+  SHARED_PERSONA_FILE,
+  loadPersonas,
+  type Persona,
+} from "../src/personas.js";
 import type { ManifestRecord } from "../src/types.js";
 
 const DEFAULT_FIXTURES_DIR = "fixtures/opinion-bench";
@@ -111,6 +123,18 @@ function buildBenchPrompt(shared: string, persona: Persona, blocks: string[]): s
   ].join("\n\n");
 }
 
+/** Letter mode (ADR-0014): shared register + letter-invention rules + voice + task. */
+function buildLetterPrompt(shared: string, letters: string, persona: Persona): string {
+  return [
+    shared.trim(),
+    letters.trim(),
+    persona.body,
+    "Write one reader-letter column: invent the letter per your instructions above, open " +
+      "with it in your column's format, then answer it in your voice. Output only the " +
+      "piece itself - no title, no preamble, no commentary.",
+  ].join("\n\n");
+}
+
 function wordCount(s: string): number {
   return s.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -133,26 +157,40 @@ async function main(): Promise<void> {
   }
 
   const shared = await readFile(join(PERSONAS_DIR, SHARED_PERSONA_FILE), "utf8");
-  const blocks = args.recent
-    ? await recentBlocks(config.publishedPath, args.recent)
-    : await fixtureBlocks(args.fixturesDir);
-  if (blocks.length === 0) {
+
+  // Inputs are lazy per source: articles only when a news persona runs (so
+  // `--persona tom` needs no fixture args), the letters block only when a letters
+  // persona runs.
+  const anyNews = selected.some((p) => p.source === "news");
+  const anyLetters = selected.some((p) => p.source === "letters");
+  const blocks = anyNews
+    ? args.recent
+      ? await recentBlocks(config.publishedPath, args.recent)
+      : await fixtureBlocks(args.fixturesDir)
+    : [];
+  if (anyNews && blocks.length === 0) {
     console.error("no articles to react to (empty fixtures dir / published store)");
     process.exit(1);
   }
+  const letters = anyLetters ? await readFile(join(PERSONAS_DIR, LETTERS_PERSONA_FILE), "utf8") : "";
 
   const provider = config.generator.provider;
   const generate = createTextGenerator(config);
-  console.log(
-    `persona bench · ${selected.length} persona(s) · ${blocks.length} article(s) ` +
-      `(${args.recent ? `--recent ${args.recent}` : args.fixturesDir}) · provider=${provider}\n`,
-  );
+  const articleNote = anyNews
+    ? `${blocks.length} article(s) (${args.recent ? `--recent ${args.recent}` : args.fixturesDir})`
+    : "letter mode (no articles)";
+  console.log(`persona bench · ${selected.length} persona(s) · ${articleNote} · provider=${provider}\n`);
 
   let failures = 0;
   for (const persona of selected) {
-    console.log(`── ${persona.name} · ${persona.displayName} · provider=${provider} ──`);
+    const mode = persona.source === "letters" ? " · letters" : "";
+    console.log(`── ${persona.name} · ${persona.displayName} · provider=${provider}${mode} ──`);
     const started = Date.now();
-    const piece = await generate(buildBenchPrompt(shared, persona, blocks));
+    const prompt =
+      persona.source === "letters"
+        ? buildLetterPrompt(shared, letters, persona)
+        : buildBenchPrompt(shared, persona, blocks);
+    const piece = await generate(prompt);
     const ms = Date.now() - started;
 
     if (piece == null) {
@@ -162,9 +200,15 @@ async function main(): Promise<void> {
     }
 
     const words = wordCount(piece);
-    const range = words >= 300 && words <= 500 ? "[in range 300-500]" : "[OUT OF RANGE]";
+    // Letter columns may override the shared length rule, so no range verdict there.
+    const range =
+      persona.source === "letters"
+        ? ""
+        : words >= 300 && words <= 500
+          ? "  [in range 300-500]"
+          : "  [OUT OF RANGE]";
     console.log(piece);
-    console.log(`\nwords: ${words}  ${range}  [${ms}ms]\n`);
+    console.log(`\nwords: ${words}${range}  [${ms}ms]\n`);
   }
 
   if (failures > 0) {

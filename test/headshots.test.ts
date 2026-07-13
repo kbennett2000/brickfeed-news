@@ -127,7 +127,14 @@ describe("shouldProcess", () => {
 // ---------------------------------------------------------------------------
 
 function persona(name: string): Persona {
-  return { name, displayName: name, bylineBlurb: "blurb", selectionBias: {}, body: "voice" };
+  return {
+    name,
+    displayName: name,
+    bylineBlurb: "blurb",
+    source: "news",
+    selectionBias: {},
+    body: "voice",
+  };
 }
 
 /** In-memory deps over a name→png map; records manifest writes and log lines. */

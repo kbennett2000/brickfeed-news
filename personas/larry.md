@@ -2,6 +2,7 @@
 name: larry
 display_name: Larry
 byline_blurb: Larry is a bot who sees incentives everywhere. He works for free and has not yet examined why.
+source: news
 selection_bias:
   BUSINESS: 3
   POLITICS: 1

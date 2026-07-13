@@ -1,9 +1,16 @@
 /**
- * Opinion personas (ADR-0013): the six fictional, clearly-disclosed AI authors live as
- * versioned prompt assets under `personas/*.md`. Each file is a `---`-fenced front-matter
- * block (name / display_name / byline_blurb / selection_bias) followed by the persona's
- * voice prompt — the body handed to the text generator, after `personas/_shared.md` (the
- * shared register + guardrail block, which has no front-matter and is not a persona).
+ * Opinion personas (ADR-0013, ADR-0014): the fictional, clearly-disclosed AI authors live
+ * as versioned prompt assets under `personas/*.md`. Each file is a `---`-fenced front-matter
+ * block (name / display_name / byline_blurb / source, plus source-specific fields) followed
+ * by the persona's voice prompt — the body handed to the text generator, after
+ * `personas/_shared.md` (the shared register + guardrail block, which has no front-matter
+ * and is not a persona).
+ *
+ * Two sources (ADR-0014 decision 1): `source: news` personas react to selected articles and
+ * carry a `selection_bias` block; `source: letters` personas invent a fictional reader
+ * letter and answer it, carrying a `schedule` (UTC weekdays) and a `column_title` instead.
+ * The letter-invention guardrails live in `personas/_letters.md`, prepended after
+ * `_shared.md` for letters personas only.
  *
  * Front-matter is deliberately STRICT: personas are creator-authored committed assets, so
  * a typo'd section name or a missing field should fail loudly (parsePersona → null, which
@@ -22,6 +29,20 @@ export const PERSONAS_DIR = "personas";
 /** The shared register/guardrail block prepended to every opinion prompt (not a persona). */
 export const SHARED_PERSONA_FILE = "_shared.md";
 
+/**
+ * The letter-invention guardrail block (ADR-0014 decision 5), prepended after `_shared.md`
+ * for `source: letters` personas only (not a persona itself — `_` keeps it off the roster).
+ */
+export const LETTERS_PERSONA_FILE = "_letters.md";
+
+/** Where a persona's pieces come from (ADR-0014 decision 1). */
+export type PersonaSource = "news" | "letters";
+
+/** Lowercase UTC weekday tokens, the only accepted `schedule` vocabulary. */
+export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+
+export type Weekday = (typeof WEEKDAYS)[number];
+
 /** One opinion author, parsed from `personas/<name>.md`. */
 export interface Persona {
   /**
@@ -33,8 +54,17 @@ export interface Persona {
   displayName: string;
   /** The hand-written disclosure footer for this author's pieces (ADR-0013 decision 6). */
   bylineBlurb: string;
-  /** Section → selection weight steering which articles this persona reacts to. */
+  /** `news` reacts to articles; `letters` invents and answers a fictional reader letter. */
+  source: PersonaSource;
+  /**
+   * Section → selection weight steering which articles this persona reacts to.
+   * Required (non-empty) for `news`; forbidden for `letters` (always {} there).
+   */
   selectionBias: Partial<Record<Category, number>>;
+  /** UTC weekdays this letters persona posts on — an overlay on the daily rotation pair. */
+  schedule?: Weekday[];
+  /** The column's banner title on letter pieces (e.g. "Tom's Tech Corner"). */
+  columnTitle?: string;
   /** Everything after the closing fence — the persona's voice prompt. */
   body: string;
 }
@@ -59,9 +89,14 @@ const defaultDeps: PersonasDeps = {
  * the voice-prompt body after the closing fence.
  *
  * Pure and never throws. Returns null — this is not a valid persona — when the fences are
- * missing/unterminated, a required field (name, display_name, byline_blurb) or the body is
- * empty, a selection_bias key is not exactly one of CATEGORIES (no normalization: a typo
- * must not silently become WORLD), or a weight is not a finite number ≥ 0.
+ * missing/unterminated, a required field (name, display_name, byline_blurb, source) or the
+ * body is empty, a selection_bias key is not exactly one of CATEGORIES (no normalization: a
+ * typo must not silently become WORLD), or a weight is not a finite number ≥ 0.
+ *
+ * `source` branches the contract (ADR-0014): `news` requires a non-empty selection_bias and
+ * forbids schedule/column_title; `letters` requires a schedule (slash-separated lowercase
+ * WEEKDAYS tokens, no duplicates) and a column_title, and forbids selection_bias. No case
+ * or token normalization anywhere — `MON` and `monday` are rejects, not aliases.
  */
 export function parsePersona(text: string): Persona | null {
   const lines = text.split(/\r?\n/);
@@ -74,6 +109,7 @@ export function parsePersona(text: string): Persona | null {
 
   const scalars = new Map<string, string>();
   const selectionBias: Partial<Record<Category, number>> = {};
+  let sawBiasBlock = false;
   let inBias = false;
   let closed = false;
 
@@ -105,6 +141,7 @@ export function parsePersona(text: string): Persona | null {
     }
 
     if (key === "selection_bias" && value.length === 0) {
+      sawBiasBlock = true;
       inBias = true;
       continue;
     }
@@ -119,7 +156,41 @@ export function parsePersona(text: string): Persona | null {
   if (name.length === 0 || displayName.length === 0 || bylineBlurb.length === 0) return null;
   if (body.length === 0) return null;
 
-  return { name, displayName, bylineBlurb, selectionBias, body };
+  const source = scalars.get("source") ?? "";
+  if (source !== "news" && source !== "letters") return null;
+
+  if (source === "news") {
+    // News personas react to selected articles: bias is the selection input, and the
+    // letters-only fields must not sneak in and silently mean nothing.
+    if (Object.keys(selectionBias).length === 0) return null;
+    if (scalars.has("schedule") || scalars.has("column_title")) return null;
+    return { name, displayName, bylineBlurb, source, selectionBias, body };
+  }
+
+  // Letters personas: schedule + column_title required, selection_bias forbidden.
+  if (sawBiasBlock) return null;
+  const schedule = parseSchedule(scalars.get("schedule"));
+  const columnTitle = scalars.get("column_title") ?? "";
+  if (!schedule || columnTitle.length === 0) return null;
+
+  return { name, displayName, bylineBlurb, source, selectionBias, schedule, columnTitle, body };
+}
+
+/**
+ * Parse a `schedule` scalar: slash-separated lowercase WEEKDAYS tokens, e.g.
+ * `mon/wed/fri/sun`. Null on absent/empty, an unknown or non-lowercase token, or a
+ * duplicate — same strictness as the rest of the front-matter.
+ */
+function parseSchedule(raw: string | undefined): Weekday[] | null {
+  if (raw === undefined || raw.trim().length === 0) return null;
+  const tokens = raw.split("/").map((t) => t.trim());
+  const seen = new Set<string>();
+  for (const token of tokens) {
+    if (!(WEEKDAYS as readonly string[]).includes(token)) return null;
+    if (seen.has(token)) return null;
+    seen.add(token);
+  }
+  return tokens as Weekday[];
 }
 
 /**

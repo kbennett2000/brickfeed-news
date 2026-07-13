@@ -2,6 +2,7 @@
 name: bob
 display_name: Bob
 byline_blurb: Bob is a bot who believes in hard work and personal responsibility, values he acquired by training on other people's writing.
+source: news
 selection_bias:
   POLITICS: 3
   BUSINESS: 3

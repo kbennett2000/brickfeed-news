@@ -1,5 +1,49 @@
 # Handoff
 
+## Reader-letter columns: Tom & Priscilla assets, schema source split, bench letter mode
+
+Implements ADR-0014 (assets/schema/bench only — no generation pipeline, no render, no
+config, no cron). Landed directly on master per the owner's instruction ("no more PRs"),
+after remediating the second stranded-PR incident (see "Git state" below).
+
+- **Schema (`src/personas.ts`)**: required `source: news | letters` on every persona.
+  `news` → non-empty `selection_bias` required, `schedule`/`column_title` forbidden.
+  `letters` → `schedule` (slash-separated lowercase `mon..sun`, validated strictly, no
+  duplicates → `Weekday[]`) + `column_title` required, `selection_bias` forbidden. All
+  violations → `parsePersona` null, same strict style. New exports: `PersonaSource`,
+  `WEEKDAYS`/`Weekday`, `LETTERS_PERSONA_FILE`.
+- The six news personas gained EXACTLY one front-matter line each (`source: news`);
+  their human-edited voice bodies are untouched — keep it that way.
+- **New assets**: `personas/_letters.md` (letter-invention guardrails, prepended after
+  `_shared.md` for letters personas; replaces only the "react to source articles" rule),
+  `personas/tom.md` (Tom's Tech Corner, mon/wed/fri/sun, 500–700 words — the length is
+  the bit), `personas/priscilla.md` (Dating, Life, and Love, tue/thu/sat/sun). Sunday
+  double is intentional. Blurbs are human-owned copy, committed verbatim.
+- **Bench letter mode** (`scripts/persona-bench.ts`): letters personas need no article
+  inputs (article/letters-block loading is lazy per source, so `--persona tom` runs with
+  zero fixture args); prompt = `_shared.md` + `_letters.md` + voice + letter task line;
+  word count prints without the 300-500 verdict for letters (Tom's override). `--all`
+  = six news over fixtures + two letters = eight pieces.
+- **Future pipeline stage must branch on `source`** (articles vs letters prompt) and add
+  the schedule overlay ON TOP of the ADR-0013 rotation pair — `opinion-{author}-{date}`
+  idempotency keys already cover it. Letter pieces get one extra static disclosure footer
+  line at render time; the copy is recorded in ADR-0014 decision 6.
+- Verified: 531 tests / 38 files, tsc clean; box `npm run headshots` → "2 processed,
+  6 skipped" with live Blob avatar URLs for tom+priscilla; bench `--all` → eight
+  in-register pieces (six news in 300-500, Tom 613, Priscilla 397).
+
+### Git state after this cycle (read before assuming PR flow)
+
+PR #52 got stranded exactly like #50 before it (merged into the already-squash-merged
+base `feat/opinion-personas-bench` instead of master). The owner directed: no more
+delivery PRs — the stranded work was merged straight into master (merge commit,
+bench side taken for the two squash-artifact conflicts, tree verified identical to the
+bench tip) and pushed, and the merged remote branches `feat/opinion-personas-bench` and
+`feat/opinion-retention-split` were deleted. This cycle's work was then committed on a
+local branch and ff-merged into master directly, no PR. If PR flow resumes for future
+cycles, avoid stacking on unmerged branches, or delete head branches on merge so GitHub
+retargets stacked PRs.
+
 ## Opinion retention split: opinionMaxAgeHours (branch `feat/opinion-retention-split`)
 
 Implements ADR-0013 decision 5: OPINION records retain for `opinionMaxAgeHours` (config key,
