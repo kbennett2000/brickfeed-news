@@ -336,7 +336,9 @@ img { max-width: 100%; display: block; }
 .landing__body img { max-width: 100%; height: auto; }
 
 /* ---- Opinion section (ADR-0016): banner, signed byline row, piece disclosures ---- */
-.opinion-banner { margin: 0 0 22px; }
+/* margin-bottom ONLY — the shorthand would clobber .container's "margin: 0 auto" centering
+   (same specificity, later in the sheet), shoving the banner to the viewport's left edge. */
+.opinion-banner { margin-bottom: 22px; }
 .opinion-banner__text {
   font-family: var(--serif);
   font-style: italic;
