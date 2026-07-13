@@ -106,6 +106,7 @@ export function makeConfig(over: Partial<Config> = {}): Config {
       local: { dir: "/tmp/unused-storage", publicBaseUrl: "http://storage.test/blob" },
     },
     maxAgeHours: 72,
+    opinionMaxAgeHours: 168,
     publishedPath: "unused-published.json",
     concurrency: 4,
     maxStoriesPerCycle: 20,

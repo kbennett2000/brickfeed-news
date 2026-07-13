@@ -28,6 +28,7 @@ minimal config is valid. Only **`feedUrls`** and **`manifestPath`** are strictly
 | `manifestPath` | string | — (**required**) | Path to the story-state JSON manifest (example: `data/manifest.json`). |
 | `publishedPath` | string | `data/published.json` | Path to the newest-first publishable slice the renderer reads. |
 | `maxAgeHours` | number | `72` | Records whose `lastSeen` is older than this are aged out and their images deleted. |
+| `opinionMaxAgeHours` | number | `168` | Retention window for OPINION stories only; all other categories use `maxAgeHours`. Never falls back to `maxAgeHours` (ADR-0013). |
 | `concurrency` | number | `4` | Parallel stories processed in the generate and image stages. |
 | `maxStoriesPerCycle` | number | `40` | Cap on new stories imaged per cycle, so a backlog spreads over several cron ticks. |
 | `brickStyle.styleLanguage` | string | — (**required**) | The toy-brick style text wrapped around every image prompt. Kept in config, never hardcoded; generic bricks only (no trademark). |

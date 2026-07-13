@@ -7,7 +7,8 @@ import type { AgeOutDeps } from "./ageout.js";
 
 /**
  * CLI entry for the age-out pass (Slice 4). Loads config.json, reads the manifest, drops
- * records with no update older than config.maxAgeHours, deletes their stored images for
+ * records with no update older than their category's retention window (opinionMaxAgeHours
+ * for OPINION, maxAgeHours otherwise; ADR-0013 #5), deletes their stored images for
  * real, then persists the manifest and rewrites published.json. Mirrors the other CLIs.
  *
  * Usage: `npm run ageout`.
@@ -29,7 +30,7 @@ async function main(): Promise<void> {
   console.log(
     `[${at}] age-out: ${result.dropped.length} dropped ` +
       `(${result.deleteAttempted.length} with stored images deleted), ` +
-      `maxAgeHours=${config.maxAgeHours}`,
+      `maxAgeHours=${config.maxAgeHours} opinionMaxAgeHours=${config.opinionMaxAgeHours}`,
   );
   for (const id of result.dropped) {
     console.log(`  • dropped ${id}`);

@@ -1,5 +1,17 @@
+import type { Category } from "./category.js";
 import type { Config } from "./config.js";
 import type { Manifest, StorageProvider } from "./types.js";
+
+/**
+ * The ONLY retention decision in the codebase (ADR-0013 #5): OPINION pieces live for
+ * config.opinionMaxAgeHours; everything else (including records with no category yet)
+ * lives for config.maxAgeHours. Every age gate MUST route through this — an unbranched
+ * sweep is self-masking (a fresh opinion piece keeps the section visible while older
+ * ones silently die), so no smoke check would catch a second gate drifting.
+ */
+export function retentionHoursFor(category: Category | undefined, config: Config): number {
+  return category === "OPINION" ? config.opinionMaxAgeHours : config.maxAgeHours;
+}
 
 export interface AgeOutResult {
   /** Story IDs dropped from the manifest this run. */
@@ -17,7 +29,8 @@ export interface AgeOutDeps {
 }
 
 /**
- * Age-out pass (ADR-0001 #4): records with no update older than config.maxAgeHours are
+ * Age-out pass (ADR-0001 #4): records with no update older than their category's retention
+ * window (retentionHoursFor: opinionMaxAgeHours for OPINION, maxAgeHours otherwise) are
  * dropped from the manifest AND their stored image is deleted for real (images live in
  * storage, not git). Age is measured from lastSeen. Pure: storage + clock are injected.
  *
@@ -41,10 +54,10 @@ export async function ageOut(
   const dropped: string[] = [];
   const deleteAttempted: string[] = [];
   const nowMs = deps.now().getTime();
-  const maxAgeMs = config.maxAgeHours * 3600_000;
 
   for (const id of Object.keys(manifest.stories)) {
     const record = manifest.stories[id];
+    const maxAgeMs = retentionHoursFor(record.category, config) * 3600_000;
     const lastSeenMs = new Date(record.lastSeen).getTime();
 
     // Guard against an unparseable lastSeen (NaN): treat as not-stale, keep the record.
