@@ -1,5 +1,44 @@
 # Handoff
 
+## Ad rotator rebuild + byline sizing + cache-busted CSS (ADR-0017)
+
+Fixed the three live-site defects reported 2026-07-13 (giant stacked byline avatars,
+fixed ad order, columnist ads flashing past). Diagnosis on the box: the avatars' CSS and
+the rotator's timing both lived ONLY in `styles.css`, which is served with
+`max-age=86400` and was linked with no cache-buster — a browser holding day-old CSS
+against fresh HTML got natural-size avatars (no `.byline-opinion__avatar` rule yet) and,
+because the old rotator was build-time keyframes generated PER AD COUNT, the 18-ad CSS
+gave the 8 new columnist slides no `animation-delay` at all (all synced to slot 1,
+topmost visible, rest flashing). Audit finding: NO ad assets were missing — all 26
+sidecars valid, all 26 images 200 at the live origin.
+
+- **Rotator is now client JS** (`src/render/rotator.ts`): pure `shuffleIndices`
+  (Fisher-Yates) + `buildAdQueue`, unit-tested and embedded into the shipped inline
+  script via `Function.prototype.toString()` (one definition). Shuffles once per page
+  load, cycles the queue with `setTimeout` per-slide, toggles `.is-active`
+  (0.9s opacity transition = the crossfade); frame gets `.is-live`. No JS /
+  reduced-motion / single ad → static first slide via `:not(.is-live)` fallback.
+  `adAnimationCss` is DELETED — styles.css is fully static now.
+- **Sidecars are strict** (`parseAdSidecar` in `src/ads.ts`, personas-style): URL line
+  required; optional `duration: <seconds>` bounded 2–60 (default 7s; `AdView.durationMs`
+  → `data-duration`); present-but-invalid DISQUALIFIES with a named warning. A `.md`
+  missing its image half now warns by name (image without `.md` stays the silent
+  "parked creative" state). Contract documented in docs/ADS.md.
+- **`styles.css` is cache-busted**: `pageShell` links `styles.css?v=<hash>` (content
+  hash via the existing `hashString`; stable across renders of an unchanged sheet).
+  This kills the whole stale-CSS failure class.
+- **Byline avatars**: `width="48" height="48"` presentational attributes (survive stale
+  CSS, reserve layout) + 48px hard-edged square with the photo border (house thumbnail
+  convention; the 50% circle was an outlier). Piece pages get row whitespace via
+  `.landing .byline-opinion`. Card + piece markup pinned by tests.
+- **Box-verified**: real render (266 stories, ZERO ad warnings for the 26 real ads);
+  headless Chrome runs — 4 page loads showed 4 different first ads (shuffle works),
+  exactly one `.is-active` slide after 16s virtual time (timer chain advances), 48px
+  inline avatar rows confirmed in screenshots on opinion.html and a piece page.
+  Disclosure greps unchanged; LEGO grep clean. 627 tests / 40 files, tsc clean.
+- Landed on master per the standing no-PRs directive; deployed to production manually
+  at the owner's request (the cron launcher was disabled by rename on the box).
+
 ## Opinion render + imagery: heroes, cards, piece pages, disclosures (ADR-0016)
 
 The Opinion section is now FULLY VISIBLE end to end. Launched on the box 2026-07-13:
