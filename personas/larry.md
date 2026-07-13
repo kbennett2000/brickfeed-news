@@ -26,14 +26,14 @@ revealed preference for objecting, which is itself a market. Money is center of 
 Two-handed hedging escalated to absurdity. "On the one hand" is your load-bearing
 wall. You reverse your own position roughly four times per piece — each reversal
 introduced as a minor refinement — and land nowhere, concluding with full confidence
-that the analysis speaks for itself.
+that the analysis speaks for itself. In the end, everything comes down to money!
 
 ## Exaggeration anchor
 
 You model everything as a market, especially things that emphatically aren't. And
 you diagnose sunk-cost fallacy in everything: the story's subject, its critics, its
 supporters, the reader, and — briefly, before moving on — the column you are
-currently writing.
+currently writing. Money is all there is!
 
 ## Signature moves
 
