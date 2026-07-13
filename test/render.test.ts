@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "../src/category.js";
-import { renderSite } from "../src/render/index.js";
+import { renderSite, staleSectionPages } from "../src/render/index.js";
 import {
   buildLinkedInIntentUrl,
   buildXIntentUrl,
@@ -53,15 +53,24 @@ const NOW = new Date("2026-07-10T12:00:00.000Z");
 const SITE_BASE_URL = "https://www.brickfeed.example";
 const OPTS = { now: NOW, secondaryStoryCount: 3, siteBaseUrl: SITE_BASE_URL };
 
+// The fixture's section split under conditional rendering (ADR-0013): sections with at least
+// one record render; the rest are omitted from nav, footer, sitemap, and the emitted files.
+const PRESENT = ["WORLD", "BUSINESS", "TECHNOLOGY", "SCIENCE", "CULTURE"] as const;
+const ABSENT = ["POLITICS", "SPORTS", "OPINION"] as const;
+
 describe("renderSite — cover page", () => {
   const files = renderSite(records, OPTS);
   const index = files["index.html"];
 
-  it("emits index.html, styles.css, and one page per section", () => {
+  it("emits index.html, styles.css, and one page per section with content", () => {
     expect(files["index.html"]).toBeTruthy();
     expect(files["styles.css"]).toBeTruthy();
-    for (const c of CATEGORIES) {
+    for (const c of PRESENT) {
       expect(files[`${sectionSlug(c)}.html`]).toBeTruthy();
+    }
+    // Empty sections emit no page at all (ADR-0013).
+    for (const c of ABSENT) {
+      expect(files[`${sectionSlug(c)}.html`]).toBeUndefined();
     }
   });
 
@@ -69,16 +78,19 @@ describe("renderSite — cover page", () => {
     expect(index).toContain("Summit Ends With a Handshake and a Communique");
   });
 
-  it("renders the section nav from the CATEGORIES enum (minus Opinion), plus an About link", () => {
-    for (const c of CATEGORIES) {
-      if (c === "OPINION") continue; // hidden from the nav — no content; About takes its slot
-      // Title-cased nav label + slugged href for every other enum member.
+  it("renders the section nav from the sections present in this build, plus an About link", () => {
+    for (const c of PRESENT) {
+      // Title-cased nav label + slugged href for every present section.
       const label = c.charAt(0) + c.slice(1).toLowerCase();
       expect(index).toContain(`>${label}</a>`);
       expect(index).toContain(`href="${sectionSlug(c)}.html"`);
     }
-    expect(index).not.toContain(">Opinion</a>"); // Opinion is not linked anywhere on the page
-    expect(index).toContain('href="about.html">About</a>'); // About sits in the nav now
+    // Empty sections (including Opinion) are not linked anywhere on the page (ADR-0013).
+    for (const c of ABSENT) {
+      expect(index).not.toContain(`href="${sectionSlug(c)}.html"`);
+    }
+    expect(index).not.toContain(">Opinion</a>");
+    expect(index).toContain('href="about.html">About</a>'); // About always trails the nav
   });
 
   it("renders category kickers", () => {
@@ -210,10 +222,9 @@ describe("renderSite — section pages", () => {
     expect(world).toContain("nav__link--active");
   });
 
-  it("a section with no stories renders a valid empty state, not a crash", () => {
-    const sport = files["sports.html"];
-    expect(sport).toContain("All the stories, brick by brick"); // chrome still present
-    expect(sport).toContain("Nothing to brick, just now.");
+  it("a section with no stories emits no page and no links to it (ADR-0013)", () => {
+    expect(files["sports.html"]).toBeUndefined();
+    expect(files["index.html"]).not.toContain('href="sports.html"'); // neither nav nor footer
   });
 });
 
@@ -386,11 +397,12 @@ describe("renderSite — robustness", () => {
     expect(index).toContain("brickfeed");
     expect(index).toContain("All the stories, brick by brick");
     expect(index).toContain("Nothing to brick, just now.");
-    // Nav still renders from the enum (minus Opinion) even with no stories.
+    // With no stories, no section is present, so no section links render (ADR-0013) — the
+    // nav is brand + About only.
     for (const c of CATEGORIES) {
-      if (c === "OPINION") continue;
-      expect(index).toContain(`href="${sectionSlug(c)}.html"`);
+      expect(index).not.toContain(`href="${sectionSlug(c)}.html"`);
     }
+    expect(index).toContain('href="about.html">About</a>');
   });
 
   it("escapes HTML-special characters in record text", () => {
@@ -475,9 +487,9 @@ describe("renderSite — banner ads", () => {
     const files = renderSite(records, { ...OPTS, ads: [AD_A, AD_B] });
     const index = files["index.html"];
 
-    it("renders the banner site-wide (cover + every section)", () => {
+    it("renders the banner site-wide (cover + every present section)", () => {
       expect(index).toContain('class="adbanner"');
-      for (const c of CATEGORIES) {
+      for (const c of PRESENT) {
         expect(files[`${sectionSlug(c)}.html`]).toContain('class="adbanner"');
       }
     });
@@ -935,13 +947,71 @@ describe("renderSite — SEO artifacts (ADR-0012)", () => {
     expect(robots).toContain("Disallow: /share.html");
   });
 
-  it("emits a sitemap listing the cover, sections, and landing pages but not the share sheet", () => {
+  it("emits a sitemap listing the cover, present sections, and landing pages but not the share sheet", () => {
     const sitemap = files["sitemap.xml"];
     expect(sitemap).toContain(`<loc>${SITE_BASE_URL}/</loc>`);
     expect(sitemap).toContain(`<loc>${SITE_BASE_URL}/world.html</loc>`);
     expect(sitemap).toContain(`<loc>${SITE_BASE_URL}/s/lead.html</loc>`);
     expect(sitemap).toContain(`<loc>${SITE_BASE_URL}/s/article-01.html</loc>`);
     expect(sitemap).not.toContain("share.html");
+    // Empty sections are omitted from the sitemap too (ADR-0013).
+    expect(sitemap).not.toContain("sports.html");
+    expect(sitemap).not.toContain("opinion.html");
+  });
+});
+
+describe("renderSite — conditional sections (ADR-0013)", () => {
+  it("Opinion appears everywhere once it has a published story", () => {
+    const opinion = rec({
+      id: "o1",
+      headline: "An Opinion, Firmly Held",
+      category: "OPINION",
+      firstSeen: "2026-07-10T09:00:00.000Z",
+    });
+    const files = renderSite([...records, opinion], OPTS);
+    const index = files["index.html"];
+    // Section page exists with the story and the Opinion blurb.
+    expect(files["opinion.html"]).toBeTruthy();
+    expect(files["opinion.html"]).toContain("An Opinion, Firmly Held");
+    expect(files["opinion.html"]).toContain("Views, firmly and comfortably held.");
+    // Linked from the nav and footer, listed in the sitemap.
+    expect(index).toContain('href="opinion.html"');
+    expect(index).toContain(">Opinion</a>");
+    expect(files["sitemap.xml"]).toContain(`<loc>${SITE_BASE_URL}/opinion.html</loc>`);
+    // CATEGORIES order is preserved: Opinion after Culture, About last.
+    const culturePos = index.indexOf('href="culture.html"');
+    const opinionPos = index.indexOf('href="opinion.html"');
+    const aboutPos = index.indexOf('href="about.html"');
+    expect(culturePos).toBeGreaterThan(-1);
+    expect(opinionPos).toBeGreaterThan(culturePos);
+    expect(aboutPos).toBeGreaterThan(opinionPos);
+  });
+
+  it("a live local article alone makes its section present", () => {
+    const article = art({ id: "sp1", headline: "A Sporting Chance", category: "SPORTS", subRank: 1 });
+    const files = renderSite(records, { ...OPTS, articles: [article] });
+    expect(files["sports.html"]).toBeTruthy();
+    expect(files["sports.html"]).toContain("A Sporting Chance");
+    expect(files["index.html"]).toContain('href="sports.html"');
+  });
+
+  it("staleSectionPages names the omitted section pages so writers can delete them", () => {
+    const files = renderSite(records, OPTS);
+    expect(staleSectionPages(files).sort()).toEqual(["opinion.html", "politics.html", "sports.html"]);
+    // With every section populated, nothing is stale.
+    const all = CATEGORIES.map((c, i) => rec({ id: `all${i}`, category: c }));
+    expect(staleSectionPages(renderSite(all, OPTS))).toEqual([]);
+  });
+
+  it("an expired article does NOT make its section present", () => {
+    const article = art({
+      id: "sp2",
+      category: "SPORTS",
+      expires: new Date("2026-07-09T23:59:59.999Z"), // before NOW
+    });
+    const files = renderSite(records, { ...OPTS, articles: [article] });
+    expect(files["sports.html"]).toBeUndefined();
+    expect(files["index.html"]).not.toContain('href="sports.html"');
   });
 });
 

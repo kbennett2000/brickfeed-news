@@ -204,17 +204,18 @@ function renderCover(
   dateStr: string,
   edition: string,
   secondaryStoryCount: number,
+  sections: readonly Category[],
   banner: string,
   analytics: AnalyticsProvider,
   storyOpts: StoryRenderOpts,
 ): string {
-  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav() + banner;
+  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(sections) + banner;
 
   if (views.length === 0) {
     const body =
       chrome +
       `<main>${emptyState("No stories have been bricked yet. Check back once the presses roll.")}</main>` +
-      footer();
+      footer(sections);
     return pageShell("brickfeed", body, { analytics });
   }
 
@@ -242,7 +243,7 @@ function renderCover(
         .join("")}</div></div>`
     : "";
 
-  const body = chrome + `<main>${hero}${brickyard}</main>` + footer();
+  const body = chrome + `<main>${hero}${brickyard}</main>` + footer(sections);
   return pageShell("brickfeed", body, { analytics });
 }
 
@@ -256,12 +257,15 @@ function renderSection(
   secViews: StoryView[],
   dateStr: string,
   edition: string,
+  sections: readonly Category[],
   banner: string,
   analytics: AnalyticsProvider,
   storyOpts: StoryRenderOpts,
 ): string {
-  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(category) + banner;
+  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(sections, category) + banner;
 
+  // Defensive only: renderSite never calls this with an empty section (ADR-0013 omits those
+  // pages entirely), but the module stays total if a future caller does.
   const content = secViews.length
     ? sectionHead(category, secViews.length) +
       `<div class="container section-grid"><div class="cards cards--section">${secViews
@@ -270,8 +274,18 @@ function renderSection(
     : sectionHead(category, 0) +
       emptyState(`No ${titleCase(category)} stories have been bricked yet.`);
 
-  const body = chrome + `<main>${content}</main>` + footer();
+  const body = chrome + `<main>${content}</main>` + footer(sections);
   return pageShell(`${titleCase(category)} — brickfeed`, body, { analytics });
+}
+
+/**
+ * Section pages a previous render may have left in the output dir but this render did not
+ * emit (their sections are empty now — ADR-0013). site/ is written incrementally, never
+ * wiped, so writers must delete these or the deploy keeps serving a page nothing links to.
+ * Pure: derived from the rendered file map only.
+ */
+export function staleSectionPages(files: Record<string, string>): string[] {
+  return CATEGORIES.map((c) => `${sectionSlug(c)}.html`).filter((page) => !(page in files));
 }
 
 /**
@@ -318,6 +332,15 @@ export function renderSite(
   });
   const seed = `${dateStr}|${edition}`;
 
+  // Sections with at least one published item this build — feed records plus live (non-expired)
+  // local articles — in canonical CATEGORIES order. Only these render, get linked from the
+  // nav/footer, or appear in the sitemap; empty sections vanish site-wide (ADR-0013).
+  const presentSet = new Set<Category>([
+    ...views.map((v) => v.kicker),
+    ...liveArticles.map((a) => a.category),
+  ]);
+  const presentSections: Category[] = CATEGORIES.filter((c) => presentSet.has(c));
+
   const coverViews = insertRanked(
     views,
     articleViews.map(({ article, view }) => ({ id: article.id, rank: article.mainRank, view })),
@@ -325,11 +348,11 @@ export function renderSite(
   );
 
   const files: Record<string, string> = {
-    "index.html": renderCover(coverViews, dateStr, edition, opts.secondaryStoryCount, banner, analytics, storyOpts),
-    "about.html": renderAbout(dateStr, edition, banner, analytics),
+    "index.html": renderCover(coverViews, dateStr, edition, opts.secondaryStoryCount, presentSections, banner, analytics, storyOpts),
+    "about.html": renderAbout(dateStr, edition, banner, presentSections, analytics),
     "styles.css": STYLES + adAnimationCss(ads.length),
   };
-  for (const category of CATEGORIES) {
+  for (const category of presentSections) {
     const base = views.filter((v) => v.kicker === category);
     const sectionArticles = articleViews
       .filter(({ article }) => article.category === category)
@@ -340,6 +363,7 @@ export function renderSite(
       secViews,
       dateStr,
       edition,
+      presentSections,
       banner,
       analytics,
       storyOpts,
@@ -373,7 +397,7 @@ export function renderSite(
   const sitemapPaths = [
     "",
     "about.html",
-    ...CATEGORIES.map((c) => `${sectionSlug(c)}.html`),
+    ...presentSections.map((c) => `${sectionSlug(c)}.html`),
     ...records.map((r) => `s/${r.id}.html`),
     ...articleViews.map(({ article }) => `s/${article.id}.html`),
   ];
