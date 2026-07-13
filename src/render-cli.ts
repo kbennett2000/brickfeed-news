@@ -1,9 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ADS_DIR, loadAds } from "./ads.js";
 import { ARTICLES_DIR, loadArticles } from "./articles.js";
 import { loadConfig } from "./config.js";
-import { imageOptimizeOptionFromConfig, renderSite } from "./render/index.js";
+import { imageOptimizeOptionFromConfig, renderSite, staleSectionPages } from "./render/index.js";
 import { createStorageProvider } from "./storage/index.js";
 import type { ManifestRecord } from "./types.js";
 
@@ -66,6 +66,11 @@ async function main(): Promise<void> {
     // Per-story landing pages live under s/, so ensure each file's parent dir exists.
     await mkdir(dirname(dest), { recursive: true });
     await writeFile(dest, contents, "utf8");
+  }
+  // Empty sections emit no page (ADR-0013) — remove any stale one a previous render wrote,
+  // or the deploy keeps serving it.
+  for (const stale of staleSectionPages(files)) {
+    await rm(join(config.render.outputDir, stale), { force: true });
   }
 
   const at = new Date().toISOString();

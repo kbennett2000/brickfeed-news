@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ADS_DIR, loadAds } from "./ads.js";
 import { ageOut } from "./ageout.js";
@@ -10,7 +10,7 @@ import { hasImage, generateImages } from "./image.js";
 import { ingest } from "./ingest.js";
 import { readManifest, writeManifest } from "./manifest.js";
 import { publishableRecords, verifiedPublishableRecords, writePublished } from "./publish.js";
-import { imageOptimizeOptionFromConfig, renderSite } from "./render/index.js";
+import { imageOptimizeOptionFromConfig, renderSite, staleSectionPages } from "./render/index.js";
 import type { CycleDeps, CycleIo, Manifest, ManifestRecord } from "./types.js";
 
 /**
@@ -256,6 +256,11 @@ export const defaultCycleIo: CycleIo = {
       // create each file's parent before writing.
       await mkdir(dirname(dest), { recursive: true });
       await writeFile(dest, contents, "utf8");
+    }
+    // Empty sections emit no page (ADR-0013) — remove any stale one a previous render wrote,
+    // or the deploy keeps serving it.
+    for (const stale of staleSectionPages(files)) {
+      await rm(join(outputDir, stale), { force: true });
     }
   },
   loadAds,

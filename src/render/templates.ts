@@ -249,13 +249,13 @@ export function masthead(): string {
 }
 
 /**
- * The sticky section nav. Section links are generated from CATEGORIES (imported) so the nav
- * stays in sync with the taxonomy, minus OPINION (hidden here — it has no content — and its
- * slot given to About instead). `active` underlines the current section on its page. About is
- * a standalone page, never a category, so it never takes the active state.
+ * The sticky section nav. Links only the sections present in this build (the caller passes
+ * them in CATEGORIES order — ADR-0013: empty sections are omitted site-wide, not special-cased).
+ * `active` underlines the current section on its page. About is a standalone page, never a
+ * category, so it always trails the section links and never takes the active state.
  */
-export function sectionNav(active?: Category): string {
-  const links = CATEGORIES.filter((c) => c !== "OPINION")
+export function sectionNav(sections: readonly Category[], active?: Category): string {
+  const links = sections
     .map((c) => {
       const cls = c === active ? "nav__link nav__link--active" : "nav__link";
       return `<a class="${cls}" href="${sectionSlug(c)}.html">${escapeHtml(titleCase(c))}</a>`;
@@ -390,9 +390,10 @@ export function renderAbout(
   dateStr: string,
   edition: string,
   banner: string,
+  sections: readonly Category[],
   analytics: AnalyticsProvider = "none",
 ): string {
-  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav() + banner;
+  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(sections) + banner;
   const body =
     chrome +
     `<main>
@@ -420,14 +421,13 @@ export function renderAbout(
       </div>
     </div>
   </main>` +
-    footer();
+    footer(sections);
   return pageShell("About — brickfeed", body, { analytics });
 }
 
-/** The footer: wordmark + tagline, the live Sections links, disclaimer. */
-export function footer(): string {
-  // OPINION is omitted (no content); every other section is listed, as before.
-  const sectionLinks = CATEGORIES.filter((c) => c !== "OPINION")
+/** The footer: wordmark + tagline, the live Sections links (present sections only), disclaimer. */
+export function footer(sections: readonly Category[]): string {
+  const sectionLinks = sections
     .map(
       (c) => `<a class="footer__link" href="${sectionSlug(c)}.html">${escapeHtml(titleCase(c))}</a>`,
     )

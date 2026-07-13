@@ -1,5 +1,44 @@
 # Handoff
 
+## Opinion section: ADR-0013 + conditional section rendering (branch `feat/opinion-section-scaffold`)
+
+The full Opinion-section design (six disclosed AI persona authors) is recorded as **ADR-0013**
+(`docs/adr/0013-opinion-section-architecture.md`): pipeline-stage generation via the existing
+`Generator` seam, `personas/*.md` prompt assets with front-matter (`name`, `display_name`,
+`byline_blurb`, `selection_bias`; headshots by convention at `assets/headshots/{name}.png`, no
+`avatar_seed`), stateless cadence (2/day, fixed pairs, `daysSinceUnixEpoch % 3`, skip-never-backfill),
+idempotency key `opinion-{author}-{YYYY-MM-DD}` (UTC), retention via `opinionMaxAgeHours` (default
+168, never inherits `maxAgeHours`), three static hand-written disclosure surfaces (page banner,
+byline_blurb footer, Twitter Card description **prefix**), topic gate + content guardrails, and
+layout reuse with byline-row/footer/banner deltas. **This cycle landed only the UI groundwork** —
+personas, generation, headshot processing, config, and cron are all future cycles per the ADR.
+
+What landed in code — **all section rendering is now data-driven** (ADR-0013 decision 9):
+
+- `renderSite` computes `presentSections` once (feed records + live local articles, CATEGORIES
+  order) and threads it through `sectionNav`/`footer`/`renderAbout`/`renderCover`/`renderSection`
+  (all now take a `sections: readonly Category[]` param). A section with zero published items is
+  omitted from the nav, the footer, the sitemap, **and no `<slug>.html` is emitted at all**. The
+  two hard-coded `filter((c) => c !== "OPINION")` special-cases are gone; About is a permanent
+  trailing nav link. `renderSection`'s empty-state branch is kept defensive-only.
+- **Stale-page cleanup (found during verify, not in the plan):** `site/` is written incrementally,
+  never wiped — so an omitted section's page from a previous render would linger and deploy. New
+  pure helper `staleSectionPages(files)` in `src/render/index.ts`; both writers (`render-cli.ts`
+  and `cycle.ts` `defaultCycleIo.writeSite`) now `rm` those files after writing. Verified against
+  the real `site/`: the pre-existing stale `opinion.html` was deleted on the next `npm run render`.
+- `OPINION` was already in `CATEGORIES` (`src/category.ts`) with a `SECTION_BLURBS` entry — no
+  taxonomy change. Opinion appears automatically the day its first piece publishes.
+- Tests: 6 render tests updated (per-section emission, nav, empty-section, empty-published, ads
+  site-wide, sitemap) + new `describe("renderSite — conditional sections (ADR-0013)")` (Opinion
+  visible with a record incl. nav ordering; a live article alone makes a section present; an
+  expired article does not; `staleSectionPages`).
+
+Verified: `npx tsc --noEmit` clean; **`npm test` 442 passing, 34 files**; real
+`npm run render` (cron.env sourced) → 206 stories, populated sections all render unchanged,
+no opinion links anywhere, stale `opinion.html` removed from `site/`.
+
+---
+
 ## Switch text generation to Claude/Haiku (images stay on Grok) + the `--bare` fix that unblocks it (branch `fix/claude-bare-not-logged-in`, PR #44)
 
 **Text** generation now runs on the **`claude` provider with Haiku** (`claude-haiku-4-5-20251001`);
