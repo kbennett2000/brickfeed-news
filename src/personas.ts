@@ -54,6 +54,11 @@ export interface Persona {
   displayName: string;
   /** The hand-written disclosure footer for this author's pieces (ADR-0013 decision 6). */
   bylineBlurb: string;
+  /**
+   * Human-written bio paragraphs for the columnist page (ADR-0019) — never
+   * model-generated. Absent → the bio page falls back to `bylineBlurb`.
+   */
+  bio?: string[];
   /** `news` reacts to articles; `letters` invents and answers a fictional reader letter. */
   source: PersonaSource;
   /**
@@ -88,6 +93,11 @@ const defaultDeps: PersonasDeps = {
  * `selection_bias:` line opens a nested block of INDENTED `SECTION: <weight>` lines, then
  * the voice-prompt body after the closing fence.
  *
+ * The optional `bio` field (ADR-0019) is either an inline scalar (`bio: text` — one
+ * paragraph) or a bare `bio:` line opening a nested block of INDENTED free-prose lines,
+ * one paragraph per line. Bio lines are consumed before scalar parsing, so paragraphs
+ * may contain colons. An empty block or a re-declared `bio` is a defect (null).
+ *
  * Pure and never throws. Returns null — this is not a valid persona — when the fences are
  * missing/unterminated, a required field (name, display_name, byline_blurb, source) or the
  * body is empty, a selection_bias key is not exactly one of CATEGORIES (no normalization: a
@@ -111,6 +121,8 @@ export function parsePersona(text: string): Persona | null {
   const selectionBias: Partial<Record<Category, number>> = {};
   let sawBiasBlock = false;
   let inBias = false;
+  let bio: string[] | undefined;
+  let inBio = false;
   let closed = false;
 
   for (; i < lines.length; i++) {
@@ -123,6 +135,15 @@ export function parsePersona(text: string): Persona | null {
     if (line.trim().length === 0) continue;
 
     const indented = /^\s/.test(line);
+    // Bio paragraphs are free prose (may lack colons), so consume them before the
+    // colon check that the rest of the front-matter grammar relies on.
+    if (inBio) {
+      if (indented) {
+        bio!.push(line.trim());
+        continue;
+      }
+      inBio = false;
+    }
     if (inBias && !indented) inBias = false;
 
     const colon = line.indexOf(":");
@@ -145,9 +166,20 @@ export function parsePersona(text: string): Persona | null {
       inBias = true;
       continue;
     }
+    if (key === "bio") {
+      if (bio !== undefined) return null; // re-declared
+      if (value.length === 0) {
+        bio = [];
+        inBio = true;
+      } else {
+        bio = [value];
+      }
+      continue;
+    }
     if (key.length > 0) scalars.set(key, value);
   }
   if (!closed) return null;
+  if (bio !== undefined && bio.length === 0) return null; // `bio:` block with no paragraphs
 
   const name = scalars.get("name") ?? "";
   const displayName = scalars.get("display_name") ?? "";
@@ -164,7 +196,7 @@ export function parsePersona(text: string): Persona | null {
     // letters-only fields must not sneak in and silently mean nothing.
     if (Object.keys(selectionBias).length === 0) return null;
     if (scalars.has("schedule") || scalars.has("column_title")) return null;
-    return { name, displayName, bylineBlurb, source, selectionBias, body };
+    return { name, displayName, bylineBlurb, ...(bio ? { bio } : {}), source, selectionBias, body };
   }
 
   // Letters personas: schedule + column_title required, selection_bias forbidden.
@@ -173,7 +205,17 @@ export function parsePersona(text: string): Persona | null {
   const columnTitle = scalars.get("column_title") ?? "";
   if (!schedule || columnTitle.length === 0) return null;
 
-  return { name, displayName, bylineBlurb, source, selectionBias, schedule, columnTitle, body };
+  return {
+    name,
+    displayName,
+    bylineBlurb,
+    ...(bio ? { bio } : {}),
+    source,
+    selectionBias,
+    schedule,
+    columnTitle,
+    body,
+  };
 }
 
 /**

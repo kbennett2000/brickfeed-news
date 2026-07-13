@@ -64,6 +64,9 @@ log line today (no notify seam exists in the repo).
 
 1. Write `personas/<name>.md` — strict front-matter + the voice body. `source: news`
    needs `selection_bias`; `source: letters` needs `schedule` and `column_title`.
+   Optional `bio` (ADR-0019): human-written paragraphs for the columnist page —
+   inline `bio: text` for one paragraph, or a bare `bio:` line followed by indented
+   lines (one paragraph each); absent → the bio page shows `byline_blurb` instead.
    Parsing is strict: any defect drops the persona and turns the schema tests red.
 2. Drop the headshot at `assets/headshots/<name>.png`, then `npm run headshots`.
 3. Bench-read the voice: `npm run bench:personas -- --persona <name>` (fixture mode;
@@ -76,7 +79,9 @@ log line today (no notify seam exists in the repo).
 ## Punching up a voice
 
 Edit the persona `.md` body → `npm run bench:personas -- --persona <name>` → commit.
-Persona bodies are human-owned; the pipeline never rewrites them.
+Persona bodies are human-owned; the pipeline never rewrites them. The same goes for
+the optional `bio` front-matter (the columnist-page copy, ADR-0019): it is disclosure
+prose, human-written only — punch it up in the same loop.
 
 ## Retiring a persona
 

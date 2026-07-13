@@ -135,6 +135,43 @@ describe("parsePersona", () => {
     // so it must land in scalars (ignored), not be rejected as a bad section.
     expect(p!.selectionBias).toEqual({ POLITICS: 3, WORLD: 2 });
   });
+
+  it("leaves bio undefined when the field is absent", () => {
+    expect(parsePersona(VALID)!.bio).toBeUndefined();
+    expect(parsePersona(VALID_LETTERS)!.bio).toBeUndefined();
+  });
+
+  it("parses an inline bio scalar as a single paragraph (ADR-0019)", () => {
+    const p = parsePersona(VALID.replace("source: news", "source: news\nbio: Alice yells at clouds."));
+    expect(p).not.toBeNull();
+    expect(p!.bio).toEqual(["Alice yells at clouds."]);
+  });
+
+  it("parses a bio block: one indented line per paragraph, colons allowed in prose", () => {
+    const doc = VALID_LETTERS.replace(
+      "source: letters",
+      "source: letters\nbio:\n  Tammy answers letters nobody sent.\n  Her motto: never look back.",
+    );
+    const p = parsePersona(doc);
+    expect(p).not.toBeNull();
+    expect(p!.bio).toEqual(["Tammy answers letters nobody sent.", "Her motto: never look back."]);
+    // The block closed cleanly — the letters contract still parsed after it.
+    expect(p!.columnTitle).toBe("Tammy's Test Corner");
+  });
+
+  it("returns null on a bio block with no paragraphs, or a re-declared bio", () => {
+    expect(parsePersona(VALID.replace("source: news", "source: news\nbio:"))).toBeNull();
+    expect(
+      parsePersona(VALID.replace("source: news", "source: news\nbio: one\nbio: two")),
+    ).toBeNull();
+  });
+
+  it("parses a bio block under CRLF line endings", () => {
+    const doc = VALID.replace("source: news", "source: news\nbio:\n  First.\n  Second.");
+    const p = parsePersona(doc.replace(/\n/g, "\r\n"));
+    expect(p).not.toBeNull();
+    expect(p!.bio).toEqual(["First.", "Second."]);
+  });
 });
 
 describe("loadPersonas", () => {
