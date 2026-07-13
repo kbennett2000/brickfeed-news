@@ -369,6 +369,22 @@ img { max-width: 100%; display: block; }
   margin: 0 0 0.6em;
 }
 
+/* ---- Columnist bio pages + cast strip (ADR-0019) ---- */
+.cast-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; margin-bottom: 22px; }
+.cast-strip__member { display: flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; }
+.cast-strip__avatar { width: 48px; height: 48px; object-fit: cover; flex: none; background: var(--photo-field); border: 1px solid var(--photo-border); }
+.cast-strip__name { font: 500 12px/1.2 var(--mono); letter-spacing: 0.04em; color: var(--ink-60); }
+.cast-strip__member:hover .cast-strip__name { color: var(--accent); text-decoration: underline; }
+.colbio__main { max-width: 820px; }
+.colbio__head { display: flex; flex-wrap: wrap; gap: 26px; align-items: flex-start; margin: 10px 0 34px; }
+.colbio__headshot { width: 256px; height: 256px; object-fit: cover; flex: none; background: var(--photo-field); border: 1px solid var(--photo-border); }
+.colbio__ident { flex: 1 1 300px; }
+.colbio__name { font-family: var(--display); font-weight: 700; font-size: 34px; line-height: 1.1; margin: 0 0 6px; }
+.colbio__column { font-family: var(--serif); font-style: italic; font-size: 16px; color: var(--ink-60); margin: 0 0 14px; }
+.colbio__bio { font-family: var(--serif); font-size: 16px; line-height: 1.6; margin: 0 0 0.8em; }
+.colbio__archive-head { font: 500 12px/1 var(--mono); letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted); border-top: 1px solid var(--hairline); padding-top: 14px; margin: 0 0 16px; }
+.colbio__empty { font-family: var(--serif); font-style: italic; color: var(--faint); }
+
 .sharesheet__main { max-width: 820px; padding-bottom: 60px; }
 .sharesheet__title {
   font-family: var(--display);

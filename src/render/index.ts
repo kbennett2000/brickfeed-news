@@ -17,6 +17,7 @@ import type { ManifestRecord } from "../types.js";
 import {
   bylineFor,
   columnistPagePath,
+  columnistPageUrl,
   escapeAttr,
   escapeHtml,
   excerpt,
@@ -43,6 +44,7 @@ import {
   type AnalyticsProvider,
   brickyardHead,
   card,
+  castStrip,
   emptyState,
   footer,
   type ImageOptimizeRender,
@@ -53,6 +55,7 @@ import {
   pageShell,
   railStory,
   renderAbout,
+  renderColumnistPage,
   renderLandingPage,
   renderShareSheet,
   sectionHead,
@@ -360,6 +363,7 @@ function renderSection(
   banner: string,
   analytics: AnalyticsProvider,
   storyOpts: StoryRenderOpts,
+  cast = "",
 ): string {
   const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(sections, category) + banner;
 
@@ -375,16 +379,22 @@ function renderSection(
       ? `<meta name="description" content="${escapeAttr(OPINION_META_DESCRIPTION)}">`
       : undefined;
 
+  // The cast strip (ADR-0019) sits under the disclosure banner, above the card grid.
+  // The caller passes it only for OPINION, so every other page stays byte-identical.
+  const opinionCast = category === "OPINION" ? cast : "";
+
   // Defensive only: renderSite never calls this with an empty section (ADR-0013 omits those
   // pages entirely), but the module stays total if a future caller does.
   const content = secViews.length
     ? sectionHead(category, secViews.length) +
       opinionBanner +
+      opinionCast +
       `<div class="container section-grid"><div class="cards cards--section">${secViews
         .map((v) => card(v, storyOpts))
         .join("")}</div></div>`
     : sectionHead(category, 0) +
       opinionBanner +
+      opinionCast +
       emptyState(`No ${titleCase(category)} stories have been bricked yet.`);
 
   const body = chrome + `<main>${content}</main>` + footer(sections);
@@ -470,6 +480,7 @@ export function renderSite(
     "about.html": renderAbout(dateStr, edition, banner, presentSections, analytics),
     "styles.css": STYLES,
   };
+  const cast = castStrip(opts.authors ?? {});
   for (const category of presentSections) {
     const base = views.filter((v) => v.kicker === category);
     const sectionArticles = articleViews
@@ -485,7 +496,38 @@ export function renderSite(
       banner,
       analytics,
       storyOpts,
+      cast,
     );
+  }
+
+  // Columnist bio pages (ADR-0019): one per loaded persona, ALWAYS rendered — static
+  // content with no retention; an empty archive shows a note, never hides the page. The
+  // archive is the persona's currently-live pieces (`records`/`views` are index-aligned),
+  // its cards rendered with a "../" prefix since the page lives in the columnist/ subdir.
+  const authorNames = Object.keys(opts.authors ?? {}).sort();
+  const bioCardOpts: StoryRenderOpts = { ...storyOpts, pathPrefix: "../" };
+  for (const name of authorNames) {
+    const info = (opts.authors ?? {})[name];
+    if (!info.avatarUrl) {
+      opts.log?.(
+        `render: columnist "${name}" has no headshot manifest entry — bio page og:image omitted`,
+      );
+    }
+    const archiveCards = views
+      .filter((v, i) => records[i].author === name && v.kicker === "OPINION")
+      .map((v) => card(v, bioCardOpts))
+      .join("");
+    files[columnistPagePath(name)] = renderColumnistPage({
+      displayName: info.displayName,
+      bylineBlurb: info.bylineBlurb,
+      ...(info.columnTitle !== undefined ? { columnTitle: info.columnTitle } : undefined),
+      ...(info.avatarUrl ? { avatarUrl: info.avatarUrl } : undefined),
+      ...(info.bio !== undefined ? { bio: info.bio } : undefined),
+      archiveCards,
+      pageUrl: columnistPageUrl(opts.siteBaseUrl, name),
+      twitterSite,
+      analytics,
+    });
   }
 
   // Per-story landing pages (ADR-0009): one social-card-bearing page per record at
@@ -516,6 +558,7 @@ export function renderSite(
     "",
     "about.html",
     ...presentSections.map((c) => `${sectionSlug(c)}.html`),
+    ...authorNames.map((name) => columnistPagePath(name)),
     ...records.map((r) => `s/${r.id}.html`),
     ...articleViews.map(({ article }) => `s/${article.id}.html`),
   ];

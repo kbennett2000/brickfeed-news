@@ -13,6 +13,7 @@ import { CATEGORIES, type Category } from "../category.js";
 import {
   buildLinkedInIntentUrl,
   buildXIntentUrl,
+  columnistPagePath,
   escapeAttr,
   escapeHtml,
   hashString,
@@ -648,11 +649,13 @@ export function cardMeta(args: {
   pageUrl: string;
   imageUrl?: string;
   twitterSite?: string;
+  /** Open Graph object type; defaults to "article" (bio pages pass "profile", ADR-0019). */
+  ogType?: string;
 }): string {
-  const { title, description, pageUrl, imageUrl, twitterSite } = args;
+  const { title, description, pageUrl, imageUrl, twitterSite, ogType = "article" } = args;
   const lines = [
     `<meta name="twitter:card" content="summary_large_image">`,
-    `<meta property="og:type" content="article">`,
+    `<meta property="og:type" content="${escapeAttr(ogType)}">`,
     `<meta property="og:site_name" content="brickfeed">`,
     `<meta property="og:title" content="${escapeAttr(title)}">`,
     `<meta property="og:description" content="${escapeAttr(description)}">`,
@@ -756,6 +759,97 @@ export function renderLandingPage(
     assetPrefix: "../",
     analytics: opts.analytics,
   });
+}
+
+/**
+ * A columnist bio page (ADR-0019) at `columnist/<name>.html` — the standalone shell the
+ * landing pages use (`../` asset prefix, brand header). The headshot renders at its full
+ * stored 256×256 (ADR-0017 sized it for 2× retina at 48px display; this page is where the
+ * asset earns its resolution). Bio paragraphs are human-written front-matter; absent → the
+ * persona's byline_blurb. The archive is the persona's currently-live pieces, pre-rendered
+ * by the caller with a `../` path prefix; an empty archive shows a small note — the page
+ * always renders (static content, no retention). Meta: og:type=profile, description led by
+ * the bot-disclosure prefix so truncation can never drop it, og:image = the avatar (the
+ * caller omits it, with a warning, when the headshot manifest has no entry).
+ */
+export function renderColumnistPage(args: {
+  displayName: string;
+  bylineBlurb: string;
+  columnTitle?: string;
+  avatarUrl?: string;
+  bio?: string[];
+  /** Pre-rendered archive card grid contents; "" when the persona has no live pieces. */
+  archiveCards: string;
+  pageUrl: string;
+  twitterSite?: string;
+  analytics?: AnalyticsProvider;
+}): string {
+  const meta = cardMeta({
+    title: args.displayName,
+    description: `${opinionMetaPrefix(args.displayName)} — ${args.bylineBlurb}`,
+    pageUrl: args.pageUrl,
+    imageUrl: args.avatarUrl,
+    twitterSite: args.twitterSite,
+    ogType: "profile",
+  });
+  const headshot = args.avatarUrl
+    ? `<img class="colbio__headshot" src="${escapeAttr(args.avatarUrl)}" width="256" height="256" alt="${escapeAttr(`A plastic toy-brick minifigure portrait of ${args.displayName}`)}" decoding="async">`
+    : "";
+  const column = args.columnTitle
+    ? `<p class="colbio__column">${escapeHtml(args.columnTitle)}</p>`
+    : "";
+  const paragraphs = (args.bio ?? [args.bylineBlurb])
+    .map((p) => `<p class="colbio__bio">${escapeHtml(p)}</p>`)
+    .join("\n          ");
+  const archive = args.archiveCards
+    ? `<div class="cards cards--section">${args.archiveCards}</div>`
+    : `<p class="colbio__empty">No recent columns from ${escapeHtml(args.displayName)} just yet.</p>`;
+  const body = `<div class="standalone colbio">
+    ${standaloneBrand("../index.html")}
+    <main class="container colbio__main">
+      <section class="colbio__head">
+        ${headshot}
+        <div class="colbio__ident">
+          <h1 class="colbio__name">${escapeHtml(args.displayName)}</h1>
+          ${column}
+          ${paragraphs}
+        </div>
+      </section>
+      <section class="colbio__archive">
+        <h2 class="colbio__archive-head">Recent columns</h2>
+        ${archive}
+      </section>
+    </main>
+  </div>`;
+  return pageShell(`${args.displayName} — brickfeed`, body, {
+    headExtra: meta,
+    assetPrefix: "../",
+    analytics: args.analytics,
+  });
+}
+
+/**
+ * The cast strip on opinion.html (ADR-0019): every loaded persona — avatar + name —
+ * linking to its bio page, in directory-key (alphabetical) order. Root-relative hrefs:
+ * the strip renders only on the root-level section page. Own `cast-strip__*` classes,
+ * never `byline-opinion__*`, so byline fallbacks stay independently testable. "" for an
+ * empty directory.
+ */
+export function castStrip(
+  authors: Record<string, { displayName: string; avatarUrl?: string }>,
+): string {
+  const names = Object.keys(authors).sort();
+  if (names.length === 0) return "";
+  const members = names
+    .map((name) => {
+      const a = authors[name];
+      const avatar = a.avatarUrl
+        ? `<img class="cast-strip__avatar" src="${escapeAttr(a.avatarUrl)}" width="48" height="48" alt="" loading="lazy" decoding="async">`
+        : "";
+      return `<a class="cast-strip__member" href="${escapeAttr(columnistPagePath(name))}">${avatar}<span class="cast-strip__name">${escapeHtml(a.displayName)}</span></a>`;
+    })
+    .join("");
+  return `<div class="container cast-strip">${members}</div>`;
 }
 
 /** One story on the share sheet: its display view + its absolute landing-page URL. */

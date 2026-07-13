@@ -1255,6 +1255,132 @@ describe("renderSite — opinion section (ADR-0016)", () => {
       expect(file.toLowerCase()).not.toContain("lego");
     }
   });
+
+  describe("columnist bio pages + cast strip (ADR-0019)", () => {
+    it("renders a bio page per directory author with the 256px headshot and the blurb fallback", () => {
+      const alice = files["columnist/alice.html"];
+      const tom = files["columnist/tom.html"];
+      expect(alice).toBeDefined();
+      expect(tom).toBeDefined();
+      // Full-size headshot: the stored 256×256 avatar with presentational size attributes.
+      expect(alice).toContain(
+        '<img class="colbio__headshot" src="https://cdn.test/headshots/alice.webp" width="256" height="256"',
+      );
+      expect(alice).toContain('<h1 class="colbio__name">Alice Brickland</h1>');
+      // No `bio` front-matter in the fixture → the page falls back to the byline_blurb.
+      expect(alice).toContain(`<p class="colbio__bio">${AUTHORS.alice.bylineBlurb}</p>`);
+      // Letters personas show their column title; news personas don't.
+      expect(tom).toContain(`<p class="colbio__column">Tom's Tech Corner</p>`);
+      expect(alice).not.toContain("colbio__column");
+    });
+
+    it("renders explicit bio paragraphs instead of the blurb when the persona has one", () => {
+      const withBio: Record<string, AuthorInfo> = {
+        alice: { ...AUTHORS.alice, bio: ["First paragraph.", "Second: with a colon."] },
+      };
+      const out = renderSite([news], { ...OPTS, authors: withBio });
+      const page = out["columnist/alice.html"];
+      expect(page).toContain('<p class="colbio__bio">First paragraph.</p>');
+      expect(page).toContain('<p class="colbio__bio">Second: with a colon.</p>');
+      expect(page).not.toContain(`<p class="colbio__bio">${AUTHORS.alice.bylineBlurb}</p>`);
+    });
+
+    it("archives only that author's live OPINION pieces, linked ../-relative", () => {
+      const alice = files["columnist/alice.html"];
+      expect(alice).toContain('href="../s/opinion-alice-2026-07-10.html"');
+      expect(alice).not.toContain("opinion-tom-2026-07-10");
+      // Non-opinion records never enter an archive even if an author matched.
+      expect(alice).not.toContain('href="../s/lead.html"');
+      const tom = files["columnist/tom.html"];
+      expect(tom).toContain('href="../s/opinion-tom-2026-07-10.html"');
+      expect(tom).not.toContain("opinion-alice-2026-07-10");
+    });
+
+    it("an author with no live pieces still gets a page, with the empty-archive note", () => {
+      const bench: Record<string, AuthorInfo> = {
+        ...AUTHORS,
+        bob: { displayName: "Bob Plasticsen", bylineBlurb: "Bob is also a bot.", source: "news" },
+      };
+      const out = renderSite([news], { ...OPTS, authors: bench, log: () => {} });
+      const page = out["columnist/bob.html"];
+      expect(page).toBeDefined();
+      expect(page).toContain("No recent columns from Bob Plasticsen just yet.");
+      expect(page).not.toContain('class="cards cards--section"');
+    });
+
+    it("bio pages carry profile og meta: disclosure-first description, avatar og:image, absolute og:url", () => {
+      const alice = files["columnist/alice.html"];
+      expect(alice).toContain('<meta property="og:type" content="profile">');
+      expect(alice).toContain(
+        '<meta property="og:description" content="Unhinged rantings of a delusional bot named Alice Brickland — ',
+      );
+      expect(alice).toContain(
+        '<meta property="og:image" content="https://cdn.test/headshots/alice.webp">',
+      );
+      expect(alice).toContain(
+        `<meta property="og:url" content="${SITE_BASE_URL}/columnist/alice.html">`,
+      );
+      // Piece landing pages keep the article type — the default didn't drift.
+      expect(newsPage).toContain('<meta property="og:type" content="article">');
+    });
+
+    it("a missing headshot entry omits og:image on the bio page and warns", () => {
+      const warned: string[] = [];
+      const noAvatar: Record<string, AuthorInfo> = {
+        alice: { ...AUTHORS.alice, avatarUrl: undefined },
+      };
+      const out = renderSite([news], { ...OPTS, authors: noAvatar, log: (m) => warned.push(m) });
+      const page = out["columnist/alice.html"];
+      expect(page).not.toContain("og:image");
+      expect(page).not.toContain("colbio__headshot");
+      expect(warned.some((m) => m.includes("bio page og:image omitted"))).toBe(true);
+    });
+
+    it("opinion.html carries the cast strip under the banner: one link per author, alphabetical", () => {
+      const page = files["opinion.html"];
+      const strip = page.match(/<div class="container cast-strip">[\s\S]*?<\/div>/)?.[0] ?? "";
+      expect(strip).toContain('href="columnist/alice.html"');
+      expect(strip).toContain('href="columnist/tom.html"');
+      expect(strip.indexOf("alice")).toBeLessThan(strip.indexOf("tom"));
+      expect(strip.match(/cast-strip__member/g)).toHaveLength(2);
+      // Under the banner, above the grid.
+      expect(page.indexOf("opinion-banner")).toBeLessThan(page.indexOf("cast-strip"));
+      expect(page.indexOf("cast-strip")).toBeLessThan(page.indexOf("section-grid"));
+    });
+
+    it("a full eight-author directory yields eight strip links and eight bio pages", () => {
+      const eight = ["alice", "bob", "cynthia", "edgar", "larry", "priscilla", "stryker", "tom"];
+      const directory: Record<string, AuthorInfo> = Object.fromEntries(
+        eight.map((n) => [
+          n,
+          {
+            displayName: `${n[0].toUpperCase()}${n.slice(1)} Bot`,
+            bylineBlurb: `${n} is a bot.`,
+            source: "news" as const,
+            avatarUrl: `https://cdn.test/headshots/${n}.webp`,
+          },
+        ]),
+      );
+      const out = renderSite([news], { ...OPTS, authors: directory, log: () => {} });
+      expect(out["opinion.html"].match(/cast-strip__member/g)).toHaveLength(8);
+      for (const n of eight) expect(out[`columnist/${n}.html`]).toBeDefined();
+    });
+
+    it("the cast strip and bio links appear ONLY on the opinion page — homepage and other sections unchanged", () => {
+      expect(files["index.html"]).not.toContain("cast-strip");
+      expect(files["world.html"]).not.toContain("cast-strip");
+      expect(files["index.html"]).not.toContain("columnist/");
+      expect(files["world.html"]).not.toContain("columnist/");
+    });
+
+    it("the sitemap gains one columnist URL per directory author", () => {
+      expect(files["sitemap.xml"]).toContain(`<loc>${SITE_BASE_URL}/columnist/alice.html</loc>`);
+      expect(files["sitemap.xml"]).toContain(`<loc>${SITE_BASE_URL}/columnist/tom.html</loc>`);
+      // No authors → no columnist URLs (the no-opinion fixture renders none).
+      const plain = renderSite(records, OPTS);
+      expect(plain["sitemap.xml"]).not.toContain("columnist/");
+    });
+  });
 });
 
 describe("format helpers — excerpt + paragraphize (ADR-0016)", () => {
