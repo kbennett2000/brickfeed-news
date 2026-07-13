@@ -6,6 +6,12 @@ import { ARTICLES_DIR, loadArticles } from "./articles.js";
 import type { Config } from "./config.js";
 import { deploy, type DeployResult } from "./deploy.js";
 import { generateAll, isGenerated } from "./generate.js";
+import {
+  HEADSHOTS_DIR,
+  HEADSHOTS_MANIFEST_PATH,
+  processHeadshots,
+  summarizeHeadshots,
+} from "./headshots.js";
 import { hasImage, generateImages } from "./image.js";
 import { ingest } from "./ingest.js";
 import { readManifest, writeManifest } from "./manifest.js";
@@ -93,6 +99,7 @@ export async function runCycle(
     stages["storage-preflight"] = preflight.ok
       ? `ok (provider=${config.storage.provider})`
       : `would ABORT: ${preflight.message}`;
+    stages.headshots = "would check persona headshots (hash-gated; unchanged sources skip)";
     stages.ingest = `would fetch ${config.feedUrls.length} feed(s)`;
     stages.generate = `${pending} pending would be attempted`;
     stages.image = `${eligibleImages} eligible would be attempted`;
@@ -110,6 +117,18 @@ export async function runCycle(
       log(`[${iso()}] cycle (dry-run): ${name}: ${summary}`);
     }
     return { ok: true, dryRun: true, stages };
+  }
+
+  // Persona headshots (ADR-0013 d.8): hash-gated against data/headshots.json, so the steady
+  // state is six hash checks. Tolerant like ads/articles — a headshot problem must never
+  // break a publish cycle, so this never sets ok:false (the boundary is already never-throw;
+  // the catch is belt-and-braces).
+  log(`[${iso()}] cycle: headshots …`);
+  try {
+    const r = await deps.io.processHeadshots(HEADSHOTS_DIR, HEADSHOTS_MANIFEST_PATH, deps.storage);
+    stages.headshots = summarizeHeadshots(r);
+  } catch (err) {
+    stages.headshots = `skipped — ${errMsg(err)}`;
   }
 
   // --- Full run: ordered, manifest-threading stages; a throw aborts before deploy. ---
@@ -265,4 +284,6 @@ export const defaultCycleIo: CycleIo = {
   },
   loadAds,
   loadArticles,
+  processHeadshots: (dir, manifestPath, storage) =>
+    processHeadshots(storage, { dir, manifestPath }),
 };

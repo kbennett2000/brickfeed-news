@@ -5,6 +5,7 @@
 import type { AdView } from "./ads.js";
 import type { Article } from "./articles.js";
 import type { Category } from "./category.js";
+import type { HeadshotsResult } from "./headshots.js";
 
 /** A single item parsed from an RSS feed, before link resolution / identity. */
 export interface FeedItem {
@@ -303,6 +304,17 @@ export interface CycleIo {
    * loadArticles.
    */
   loadArticles(dir: string, storage: StorageProvider): Promise<Article[]>;
+  /**
+   * Process persona headshots (hash-gated; ADR-0013 d.8): square-crop changed sources from
+   * `dir`, publish avatars via `storage`, and persist the derived manifest at
+   * `manifestPath`. Disk + upload IO, so it lives on this boundary — tests stub it;
+   * production wires the real processHeadshots. Tolerant like loadAds/loadArticles.
+   */
+  processHeadshots(
+    dir: string,
+    manifestPath: string,
+    storage: StorageProvider,
+  ): Promise<HeadshotsResult>;
 }
 
 /**

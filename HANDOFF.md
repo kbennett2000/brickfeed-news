@@ -1,5 +1,44 @@
 # Handoff
 
+## Opinion headshots: idempotent optimize + publish step (branch `feat/opinion-headshots`)
+
+Implements ADR-0013 decision 8 (+ a dated amendment: 256×256, i.e. ~128 px display at 2×
+retina). Stacked on `feat/opinion-personas-bench` (PR #49, unmerged — this cycle needs
+`loadPersonas`), so its PR targets that branch, not master.
+
+- `src/headshots.ts` — hash-gated processing: sha256 of each `assets/headshots/<name>.png`
+  vs its entry in the derived manifest `data/headshots.json` (`HEADSHOTS_MANIFEST_PATH`, a
+  module constant like `ADS_DIR` — deliberately NOT config, per this cycle's "no config"
+  scope; read degrades to empty, write is tmp+rename, same contract as `manifest.ts`).
+  Changed/new sources are center-cropped square to 256×256 (`cropSquareAvatar` in
+  `src/image/optimize.ts`, lossless PNG intermediate, null on undecodable input) and
+  published via plain `storage.put("headshots/<name>", …)` — the SAME
+  `withImageOptimization` chokepoint story images use performs the single WebP-q80 encode,
+  landing at blob key `images/headshots/<name>.webp` (deterministic overwrite). Entry shape:
+  `{ persona, sourceHash, avatarUrl, processedAt }`.
+- Tolerance (ads/articles semantics, never throws): missing PNG → warn + `missing`;
+  undecodable → `failed`; upload null → `failed`; in every case any EXISTING entry is
+  preserved (the live avatar keeps rendering; a hash mismatch persists so the next run
+  retries). Manifest written only when something processed — steady state is six hash
+  checks, zero writes.
+- Wiring: `npm run headshots [-- --force]` (`src/headshots-cli.ts`, fails loud on storage
+  preflight); auto-invoked at the start of `render-cli.ts` and as a tolerant `headshots`
+  cycle stage (after storage preflight, before ingest; never sets `ok:false`; dry-run
+  prints a "would check persona headshots" line and provably does zero headshot IO).
+  `CycleIo` grew a `processHeadshots` boundary (`fakeCycleIo` stubs it).
+- **For render (cycle 6): resolve persona → avatarUrl via
+  `readHeadshotManifest(HEADSHOTS_MANIFEST_PATH)`; a persona absent from the manifest
+  simply has no avatar.**
+- Box-verified: first run 6 processed + 6 entries with real Blob URLs; immediate rerun 6
+  skipped; `--force` 6 processed; one re-encoded source → exactly 1 processed. Suite: 509
+  passing / 37 files (E2E over the real PNGs is `describe.skipIf`-guarded; CI needs no
+  assets and no network).
+- Known limitations: entries for deleted personas are not pruned (orphan avatars would
+  linger in Blob); toggling `image.optimize.enabled` doesn't change `sourceHash`, so a
+  format change needs `--force`.
+- Found in the working tree (NOT committed by this cycle): human edits to five persona
+  worldview sections — left uncommitted for Kris to commit to PR #49.
+
 ## Opinion personas: voice assets + bench harness (branch `feat/opinion-personas-bench`)
 
 The six ADR-0013 persona prompt assets now exist under `personas/` — `_shared.md` (the REGISTER +

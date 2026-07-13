@@ -110,3 +110,14 @@ human commentary, on the page or in a social-card preview.
 - **Inheriting `maxAgeHours` for opinion retention.** Rejected: opinion pieces are two-a-day
   evergreen-ish takes; tying their lifetime to the news feed's 72h churn would empty the
   section most days.
+
+## Amendment (2026-07-13)
+
+Decision 8 said the headshot step emits "a ~128px avatar variant". The implemented step
+(`src/headshots.ts`) emits ONE square avatar at **256×256** — twice the ~128 px display
+size, so avatars stay sharp on retina/high-DPI screens — center-cropped via
+`cropSquareAvatar` (lossless PNG intermediate), then WebP-q80-encoded by the same storage
+optimization chokepoint story images use. The display size is still ~128 px; only the
+stored pixel dimensions changed. Idempotency is a sha256 source-hash check against the
+derived `data/headshots.json` manifest (`--force` reprocesses). See branch
+`feat/opinion-headshots`.
