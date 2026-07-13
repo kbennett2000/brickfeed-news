@@ -88,6 +88,7 @@ describe("runCycle — full chain (happy path)", () => {
     expect(result.ok).toBe(true);
     // Exact stage order (object keys preserve insertion order).
     expect(Object.keys(result.stages)).toEqual([
+      "headshots",
       "ingest",
       "generate",
       "image",
@@ -95,6 +96,11 @@ describe("runCycle — full chain (happy path)", () => {
       "render",
       "deploy",
     ]);
+    // The headshots boundary ran with the by-convention paths + the cycle's storage.
+    expect(io.headshotCalls).toEqual([
+      { dir: "assets/headshots", manifestPath: "data/headshots.json" },
+    ]);
+    expect(result.stages.headshots).toBe("0 processed, 0 skipped, 0 missing, 0 failed");
     // Providers were actually driven.
     expect(generator.calls).toHaveLength(1);
     expect(imageProvider.calls).toHaveLength(1);
@@ -186,6 +192,7 @@ describe("runCycle — flags", () => {
     // Still reports intended actions per stage (incl. the up-front storage preflight).
     expect(Object.keys(result.stages)).toEqual([
       "storage-preflight",
+      "headshots",
       "ingest",
       "generate",
       "image",
@@ -194,6 +201,9 @@ describe("runCycle — flags", () => {
       "deploy",
     ]);
     expect(result.stages["storage-preflight"]).toContain("ok");
+    // Headshots report a "would …" line only — the boundary itself is never invoked.
+    expect(result.stages.headshots).toContain("would");
+    expect(io.headshotCalls).toHaveLength(0);
   });
 
   it("deploy.enabled=false skips deploy (same as --no-deploy) even when requested", async () => {
@@ -207,6 +217,41 @@ describe("runCycle — flags", () => {
     expect(result.ok).toBe(true);
     expect(result.deploy?.status).toBe("skipped-disabled");
     expect(deployRun.calls).toHaveLength(0);
+  });
+});
+
+describe("runCycle — headshots stage is tolerant", () => {
+  it("a throwing headshots boundary keeps ok:true and the pipeline running", async () => {
+    const config = makeConfig();
+    const { deps, deployRun, io } = makeDeps(manifestOf(fullRecord("a")), {}, {
+      throwOnHeadshots: true,
+    });
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.ok).toBe(true);
+    expect(result.failedStage).toBeUndefined();
+    expect(result.stages.headshots).toContain("skipped — simulated headshots failure");
+    // The rest of the cycle proceeded all the way to deploy.
+    expect(io.writes.filter((w) => w.kind === "site")).toHaveLength(1);
+    expect(deployRun.calls).toHaveLength(1);
+  });
+
+  it("surfaces the boundary's summary counts as the stage line", async () => {
+    const config = makeConfig();
+    const { deps } = makeDeps(manifestOf(fullRecord("a")), {}, {
+      headshots: {
+        processed: ["alice"],
+        skipped: ["bob", "cynthia"],
+        missing: ["edgar"],
+        failed: [],
+        manifest: { version: 1, headshots: {} },
+      },
+    });
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.stages.headshots).toBe("1 processed, 2 skipped, 1 missing, 0 failed");
   });
 });
 
