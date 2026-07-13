@@ -21,6 +21,9 @@ import {
   DEFAULT_RENDER_TIME_ZONE,
   DEFAULT_RENDER_SITE_BASE_URL,
   DEFAULT_RENDER_ANALYTICS,
+  DEFAULT_RENDER_IMAGE_OPTIMIZATION_ENABLED,
+  DEFAULT_RENDER_IMAGE_OPTIMIZATION_WIDTHS,
+  DEFAULT_RENDER_IMAGE_OPTIMIZATION_QUALITY,
   DEFAULT_STORAGE_BLOB_PATH_PREFIX,
   DEFAULT_STORAGE_LOCAL_DIR,
   DEFAULT_STORAGE_LOCAL_PUBLIC_BASE_URL,
@@ -280,6 +283,11 @@ describe("validateConfig", () => {
       siteBaseUrl: DEFAULT_RENDER_SITE_BASE_URL,
       analytics: DEFAULT_RENDER_ANALYTICS,
       share: {},
+      imageOptimization: {
+        enabled: DEFAULT_RENDER_IMAGE_OPTIMIZATION_ENABLED,
+        widths: DEFAULT_RENDER_IMAGE_OPTIMIZATION_WIDTHS,
+        quality: DEFAULT_RENDER_IMAGE_OPTIMIZATION_QUALITY,
+      },
     });
   });
 
@@ -299,6 +307,41 @@ describe("validateConfig", () => {
     expect(() =>
       validateConfig({ ...base, render: { analytics: "google" } }),
     ).toThrow(/render\.analytics/);
+  });
+
+  it("defaults render.imageOptimization to ON with the standard width ladder when absent", () => {
+    const io = validateConfig({ ...base, render: { outputDir: "public" } }).render.imageOptimization;
+    expect(io.enabled).toBe(true);
+    expect(io.widths).toEqual(DEFAULT_RENDER_IMAGE_OPTIMIZATION_WIDTHS);
+    expect(io.quality).toBe(DEFAULT_RENDER_IMAGE_OPTIMIZATION_QUALITY);
+  });
+
+  it("accepts an explicit render.imageOptimization and defaults its fields per-field", () => {
+    const io = validateConfig({
+      ...base,
+      render: { imageOptimization: { enabled: false } },
+    }).render.imageOptimization;
+    expect(io.enabled).toBe(false);
+    expect(io.widths).toEqual(DEFAULT_RENDER_IMAGE_OPTIMIZATION_WIDTHS); // defaulted
+    expect(io.quality).toBe(DEFAULT_RENDER_IMAGE_OPTIMIZATION_QUALITY); // defaulted
+  });
+
+  it("rejects invalid render.imageOptimization values", () => {
+    expect(() =>
+      validateConfig({ ...base, render: { imageOptimization: { enabled: "yes" } } }),
+    ).toThrow(/imageOptimization\.enabled/);
+    expect(() =>
+      validateConfig({ ...base, render: { imageOptimization: { widths: [] } } }),
+    ).toThrow(/imageOptimization\.widths/);
+    expect(() =>
+      validateConfig({ ...base, render: { imageOptimization: { widths: [320, -1] } } }),
+    ).toThrow(/imageOptimization\.widths/);
+    expect(() =>
+      validateConfig({ ...base, render: { imageOptimization: { quality: 0 } } }),
+    ).toThrow(/imageOptimization\.quality/);
+    expect(() =>
+      validateConfig({ ...base, render: { imageOptimization: { quality: 101 } } }),
+    ).toThrow(/imageOptimization\.quality/);
   });
 
   it("defaults render.siteBaseUrl when omitted and keeps a valid explicit one", () => {

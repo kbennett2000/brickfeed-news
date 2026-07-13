@@ -66,6 +66,24 @@ export interface RenderConfig {
   analytics: "vercel" | "none";
   /** Assisted-manual X (Twitter) share-sheet settings (ADR-0009). Both fields optional. */
   share: ShareConfig;
+  /** Responsive image optimization via Vercel's Image Optimization API (ADR-0012). */
+  imageOptimization: ImageOptimizationConfig;
+}
+
+/**
+ * Responsive image optimization (ADR-0012). When `enabled`, the render points each cover/story
+ * `<img>` at Vercel's same-origin `/_vercel/image` endpoint with a `srcset` across `widths`, so
+ * the browser fetches a right-sized AVIF/WebP instead of the full 1280 px source, and the render
+ * emits a `vercel.json` whose `images` block allow-lists the Blob host. Disable to emit today's
+ * plain `<img src=blobUrl>` (byte-identical) and no image config. Metered on Vercel — conservative
+ * `widths` + `quality` keep transformations within the Pro allotment.
+ */
+export interface ImageOptimizationConfig {
+  enabled: boolean;
+  /** Candidate widths (px) for the srcset; each becomes one `/_vercel/image?w=` variant. */
+  widths: number[];
+  /** Optimization quality (1–100); ~75 is a good size/quality balance for photographic art. */
+  quality: number;
 }
 
 /**
@@ -286,6 +304,12 @@ export const DEFAULT_RENDER_SITE_BASE_URL = "https://www.brickfeed.news";
 // Web analytics provider. "none" (default) emits no beacon; "vercel" injects the cookieless
 // Vercel Web Analytics plain-HTML snippet into every page's shell.
 export const DEFAULT_RENDER_ANALYTICS = "none";
+// Responsive image optimization (ADR-0012). On by default so a live config.json without the
+// block still serves right-sized AVIF/WebP; a conservative width ladder + q75 keeps Vercel
+// Image Optimization transformations within the Pro allotment.
+export const DEFAULT_RENDER_IMAGE_OPTIMIZATION_ENABLED = true;
+export const DEFAULT_RENDER_IMAGE_OPTIMIZATION_WIDTHS = [320, 480, 640, 960, 1280];
+export const DEFAULT_RENDER_IMAGE_OPTIMIZATION_QUALITY = 75;
 
 /** Defaults when the config omits the `deploy` block (Slice 8). `cwd` defaults to outputDir. */
 export const DEFAULT_DEPLOY_COMMAND = "vercel --prod --yes";
@@ -739,6 +763,7 @@ function validateRender(raw: unknown, path: string): RenderConfig {
       siteBaseUrl: DEFAULT_RENDER_SITE_BASE_URL,
       analytics: DEFAULT_RENDER_ANALYTICS,
       share: {},
+      imageOptimization: defaultImageOptimization(),
     };
   }
   if (typeof raw !== "object") {
@@ -774,8 +799,56 @@ function validateRender(raw: unknown, path: string): RenderConfig {
   const siteBaseUrl = validateSiteBaseUrl(r.siteBaseUrl, path);
   const analytics = validateAnalytics(r.analytics, path);
   const share = validateShare(r.share, path);
+  const imageOptimization = validateImageOptimization(r.imageOptimization, path);
 
-  return { outputDir, secondaryStoryCount, timeZone, siteBaseUrl, analytics, share };
+  return { outputDir, secondaryStoryCount, timeZone, siteBaseUrl, analytics, share, imageOptimization };
+}
+
+/** The default image-optimization sub-block (a fresh copy so callers can't mutate the defaults). */
+function defaultImageOptimization(): ImageOptimizationConfig {
+  return {
+    enabled: DEFAULT_RENDER_IMAGE_OPTIMIZATION_ENABLED,
+    widths: [...DEFAULT_RENDER_IMAGE_OPTIMIZATION_WIDTHS],
+    quality: DEFAULT_RENDER_IMAGE_OPTIMIZATION_QUALITY,
+  };
+}
+
+/**
+ * Validate the optional `render.imageOptimization` block (ADR-0012). Absent → defaults (enabled,
+ * the standard width ladder, q75). Each present field defaults independently: `enabled` must be a
+ * boolean; `widths` a non-empty array of positive integers; `quality` an integer in 1–100.
+ */
+function validateImageOptimization(raw: unknown, path: string): ImageOptimizationConfig {
+  if (raw == null) return defaultImageOptimization();
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: render.imageOptimization must be an object.`);
+  }
+  const o = raw as Record<string, unknown>;
+
+  const enabled = o.enabled ?? DEFAULT_RENDER_IMAGE_OPTIMIZATION_ENABLED;
+  if (typeof enabled !== "boolean") {
+    throw new Error(`Config at ${path}: render.imageOptimization.enabled must be a boolean.`);
+  }
+
+  const widths = o.widths ?? DEFAULT_RENDER_IMAGE_OPTIMIZATION_WIDTHS;
+  if (
+    !Array.isArray(widths) ||
+    widths.length === 0 ||
+    !widths.every((w) => typeof w === "number" && Number.isInteger(w) && w > 0)
+  ) {
+    throw new Error(
+      `Config at ${path}: render.imageOptimization.widths must be a non-empty array of positive integers.`,
+    );
+  }
+
+  const quality = o.quality ?? DEFAULT_RENDER_IMAGE_OPTIMIZATION_QUALITY;
+  if (typeof quality !== "number" || !Number.isInteger(quality) || quality < 1 || quality > 100) {
+    throw new Error(
+      `Config at ${path}: render.imageOptimization.quality must be an integer between 1 and 100.`,
+    );
+  }
+
+  return { enabled, widths: [...(widths as number[])], quality };
 }
 
 /**

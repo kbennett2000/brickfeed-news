@@ -66,6 +66,11 @@
     "share": {
       "handle": "brickfeednews",
       "hashtags": ["brickfeed", "news"]
+    },
+    "imageOptimization": {
+      "enabled": true,
+      "widths": [320, 480, 640, 960, 1280],
+      "quality": 75
     }
   },
   "deploy": {

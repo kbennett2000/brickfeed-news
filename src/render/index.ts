@@ -23,6 +23,13 @@ import {
   titleCase,
 } from "./format.js";
 import { renderMarkdown } from "./markdown.js";
+import type { Config } from "../config.js";
+import {
+  blobHostname,
+  renderRobotsTxt,
+  renderSitemapXml,
+  renderVercelJson,
+} from "./site-config.js";
 import { adAnimationCss, STYLES } from "./styles.js";
 import {
   adBanner,
@@ -31,6 +38,7 @@ import {
   card,
   emptyState,
   footer,
+  type ImageOptimizeRender,
   leadStory,
   masthead,
   pageShell,
@@ -41,6 +49,7 @@ import {
   sectionHead,
   sectionNav,
   type ShareRow,
+  type StoryRenderOpts,
   utilityStrip,
   type StoryView,
 } from "./templates.js";
@@ -87,6 +96,20 @@ export interface RenderOptions {
    * operator-only share sheet is never tracked. Writers pass `config.render.analytics`.
    */
   analytics?: AnalyticsProvider;
+  /**
+   * Responsive image optimization (ADR-0012). Present only when `render.imageOptimization` is
+   * enabled AND the Blob host resolves (the CLI computes it); absent → images render as plain
+   * `<img src=blobUrl>` (byte-identical) and no `images` block is written to `vercel.json`.
+   */
+  imageOptimize?: ImageOptimizeOptions;
+}
+
+/** Image-optimization inputs threaded from config (ADR-0012): srcset widths/quality + Blob host. */
+export interface ImageOptimizeOptions {
+  widths: number[];
+  quality: number;
+  /** Hostname of the Blob origin the images are served from — allow-listed in vercel.json. */
+  blobHost: string;
 }
 
 /** Optional X share settings threaded into the render (ADR-0009), mirroring the config shape. */
@@ -183,6 +206,7 @@ function renderCover(
   secondaryStoryCount: number,
   banner: string,
   analytics: AnalyticsProvider,
+  storyOpts: StoryRenderOpts,
 ): string {
   const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav() + banner;
 
@@ -204,17 +228,17 @@ function renderCover(
   const overflow = afterRail.slice(HERO_FILL_COUNT);
 
   const fillGrid = heroFill.length
-    ? `<div class="hero__fill">${heroFill.map(card).join("")}</div>`
+    ? `<div class="hero__fill">${heroFill.map((v) => card(v, storyOpts)).join("")}</div>`
     : "";
   const hero = rail.length
-    ? `<div class="container hero"><div class="hero__main">${leadStory(lead)}${fillGrid}</div><div class="rail">${rail
-        .map(railStory)
+    ? `<div class="container hero"><div class="hero__main">${leadStory(lead, storyOpts)}${fillGrid}</div><div class="rail">${rail
+        .map((v) => railStory(v, storyOpts))
         .join("")}</div></div>`
-    : `<div class="container hero hero--solo">${leadStory(lead)}</div>`;
+    : `<div class="container hero hero--solo">${leadStory(lead, storyOpts)}</div>`;
 
   const brickyard = overflow.length
     ? `<div class="container brickyard">${brickyardHead()}<div class="cards">${overflow
-        .map(card)
+        .map((v) => card(v, storyOpts))
         .join("")}</div></div>`
     : "";
 
@@ -234,13 +258,14 @@ function renderSection(
   edition: string,
   banner: string,
   analytics: AnalyticsProvider,
+  storyOpts: StoryRenderOpts,
 ): string {
   const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(category) + banner;
 
   const content = secViews.length
     ? sectionHead(category, secViews.length) +
       `<div class="container section-grid"><div class="cards cards--section">${secViews
-        .map(card)
+        .map((v) => card(v, storyOpts))
         .join("")}</div></div>`
     : sectionHead(category, 0) +
       emptyState(`No ${titleCase(category)} stories have been bricked yet.`);
@@ -262,6 +287,11 @@ export function renderSite(
   const dateStr = formatMastheadDate(opts.now, tz);
   const edition = editionLabel(opts.now, tz);
   const views = records.map((r) => toStoryView(r, opts.now));
+  // Attach each story's absolute landing URL so the per-story share buttons (ADR-0012) can be
+  // drawn wherever the view is rendered (cover, section, landing). Same value the share sheet uses.
+  records.forEach((r, i) => {
+    views[i].shareUrl = storyPageUrl(opts.siteBaseUrl, r.id);
+  });
 
   const ads = opts.ads ?? [];
   const banner = adBanner(ads);
@@ -270,11 +300,22 @@ export function renderSite(
   const twitterSite = share.handle ? `@${share.handle}` : undefined;
   const analytics = opts.analytics ?? "none";
 
+  // Responsive image optimization (ADR-0012): the srcset inputs the story templates need. Present
+  // only when the CLI resolved a Blob host + enabled flag; absent → plain <img src> (byte-identical).
+  const imageOptimizeRender: ImageOptimizeRender | undefined = opts.imageOptimize
+    ? { widths: opts.imageOptimize.widths, quality: opts.imageOptimize.quality }
+    : undefined;
+  const storyOpts: StoryRenderOpts = { imageOptimize: imageOptimizeRender, share };
+
   // Locally hosted articles (ADR-0010): drop expired ones, then build a StoryView per live
   // article once (shared across the cover, its section page, and its own landing page). The
   // rank-0 placement seed shifts each edition so unranked articles wander across cycles.
   const liveArticles = (opts.articles ?? []).filter((a) => !isExpired(a, opts.now));
-  const articleViews = liveArticles.map((article) => ({ article, view: articleToStoryView(article) }));
+  const articleViews = liveArticles.map((article) => {
+    const view = articleToStoryView(article);
+    view.shareUrl = storyPageUrl(opts.siteBaseUrl, article.id);
+    return { article, view };
+  });
   const seed = `${dateStr}|${edition}`;
 
   const coverViews = insertRanked(
@@ -284,7 +325,7 @@ export function renderSite(
   );
 
   const files: Record<string, string> = {
-    "index.html": renderCover(coverViews, dateStr, edition, opts.secondaryStoryCount, banner, analytics),
+    "index.html": renderCover(coverViews, dateStr, edition, opts.secondaryStoryCount, banner, analytics, storyOpts),
     "about.html": renderAbout(dateStr, edition, banner, analytics),
     "styles.css": STYLES + adAnimationCss(ads.length),
   };
@@ -301,27 +342,67 @@ export function renderSite(
       edition,
       banner,
       analytics,
+      storyOpts,
     );
   }
 
   // Per-story landing pages (ADR-0009): one social-card-bearing page per record at
   // s/<id>.html, plus the assisted-manual share sheet. `records` and `views` are aligned by
   // index; the landing/share URL is this record's own absolute URL.
+  const landingOpts = { twitterSite, analytics, imageOptimize: imageOptimizeRender, share };
   const shareRows: ShareRow[] = [];
   records.forEach((record, i) => {
     const view = views[i];
     const pageUrl = storyPageUrl(opts.siteBaseUrl, record.id);
-    files[`s/${record.id}.html`] = renderLandingPage(view, { pageUrl, twitterSite, analytics });
+    files[`s/${record.id}.html`] = renderLandingPage(view, { pageUrl, ...landingOpts });
     shareRows.push({ view, pageUrl });
   });
   // Local articles get the same s/<id>.html page — but it IS the article (body rendered inline),
   // and it's shareable too, so it joins the share sheet.
   for (const { article, view } of articleViews) {
     const pageUrl = storyPageUrl(opts.siteBaseUrl, article.id);
-    files[`s/${article.id}.html`] = renderLandingPage(view, { pageUrl, twitterSite, analytics });
+    files[`s/${article.id}.html`] = renderLandingPage(view, { pageUrl, ...landingOpts });
     shareRows.push({ view, pageUrl });
   }
   files["share.html"] = renderShareSheet(shareRows, share);
 
+  // Deploy-root artifacts (ADR-0012). site/ is git-ignored + rebuilt every render, then deployed
+  // as-is, so these must be produced here alongside the HTML — not committed. robots + sitemap
+  // are always useful; vercel.json always carries security + cache headers, and gains an `images`
+  // block only when optimization is on.
+  const sitemapPaths = [
+    "",
+    "about.html",
+    ...CATEGORIES.map((c) => `${sectionSlug(c)}.html`),
+    ...records.map((r) => `s/${r.id}.html`),
+    ...articleViews.map(({ article }) => `s/${article.id}.html`),
+  ];
+  files["robots.txt"] = renderRobotsTxt(opts.siteBaseUrl);
+  files["sitemap.xml"] = renderSitemapXml(opts.siteBaseUrl, sitemapPaths);
+  files["vercel.json"] = renderVercelJson({
+    imageOptimize: opts.imageOptimize
+      ? {
+          widths: opts.imageOptimize.widths,
+          quality: opts.imageOptimize.quality,
+          blobHost: opts.imageOptimize.blobHost,
+        }
+      : undefined,
+  });
+
   return files;
+}
+
+/**
+ * Resolve the render's `imageOptimize` option from config (ADR-0012). Returns undefined — meaning
+ * "render plain <img>, write no images block" — when optimization is disabled OR when the Blob
+ * `publicBaseUrl` isn't an absolute origin (e.g. a `local` provider serving from a relative path),
+ * since Vercel's `/_vercel/image` needs a real remote host to allow-list. The CLIs call this and
+ * pass the result to renderSite, so both the cycle and the standalone render behave identically.
+ */
+export function imageOptimizeOptionFromConfig(config: Config): ImageOptimizeOptions | undefined {
+  const io = config.render.imageOptimization;
+  if (!io.enabled) return undefined;
+  const blobHost = blobHostname(config.storage.blob.publicBaseUrl);
+  if (!blobHost) return undefined;
+  return { widths: io.widths, quality: io.quality, blobHost };
 }

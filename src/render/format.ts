@@ -129,6 +129,29 @@ export function storyPageUrl(siteBaseUrl: string, id: string): string {
 }
 
 /**
+ * A same-origin Vercel Image Optimization URL (ADR-0012) for a source image at a target width:
+ * `/_vercel/image?url=<encoded src>&w=<width>&q=<quality>`. Vercel proxies the (allow-listed)
+ * source, transcodes it to AVIF/WebP at that width, and caches the result, so the browser
+ * downloads a right-sized image instead of the full-resolution original. `quality` is clamped to
+ * 1–100. The `&` is left literal here; the template attribute-escapes the whole value.
+ */
+export function optimizedUrl(src: string, width: number, quality: number): string {
+  const q = Math.min(100, Math.max(1, Math.round(quality)));
+  return `/_vercel/image?url=${encodeURIComponent(src)}&w=${width}&q=${q}`;
+}
+
+/**
+ * Build a responsive `srcset` of optimized variants (ADR-0012): one `/_vercel/image` entry per
+ * width, e.g. `/_vercel/image?url=…&w=320&q=75 320w, …`. Widths are de-duplicated and sorted
+ * ascending so the browser picks the smallest that fits its slot. Pair with a `sizes` attribute
+ * so the right variant is chosen before layout.
+ */
+export function optimizedSrcset(src: string, widths: number[], quality: number): string {
+  const uniqueSorted = [...new Set(widths.filter((w) => w > 0))].sort((a, b) => a - b);
+  return uniqueSorted.map((w) => `${optimizedUrl(src, w, quality)} ${w}w`).join(", ");
+}
+
+/**
  * A tiny, stable string hash (FNV-1a, 32-bit) returning a non-negative integer. Used to place
  * unranked (Main/Sub Page Rank 0) local articles at a pseudo-random-but-deterministic slot: the
  * render seeds it with the article id + the current edition, so the slot shifts across cycles
