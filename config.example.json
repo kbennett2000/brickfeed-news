@@ -35,6 +35,11 @@
       "command": "grok",
       "args": [],
       "timeoutMs": 180000
+    },
+    "optimize": {
+      "enabled": true,
+      "maxEdge": 1280,
+      "quality": 80
     }
   },
   "storage": {

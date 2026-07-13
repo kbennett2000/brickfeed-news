@@ -140,6 +140,22 @@ export interface ImageConfig {
   local: LocalImageConfig;
   /** Settings for the "grok-terminal" (subscription CLI, no API key) path (Slice 8). */
   grokTerminal: GrokTerminalConfig;
+  /** Build-time bandwidth optimization applied to every stored image (all providers). */
+  optimize: ImageOptimizeConfig;
+}
+
+/**
+ * Build-time image optimization: cap each stored image's longest edge and re-encode to WebP.
+ * Applied at the storage chokepoint (see src/storage/optimizing.ts) so it covers stories,
+ * banner ads, and local articles. Provider-agnostic — the raw bytes any provider generates
+ * are downscaled + WebP'd before upload. Disable to store the original bytes verbatim.
+ */
+export interface ImageOptimizeConfig {
+  enabled: boolean;
+  /** Longest-edge cap in px; larger images are downscaled, smaller ones left as-is. */
+  maxEdge: number;
+  /** WebP quality (1–100). */
+  quality: number;
 }
 
 /** Grok Imagine (xAI) endpoint + generation params. The API key is a secret (env). */
@@ -227,6 +243,15 @@ export const DEFAULT_IMAGE_ASPECT_RATIO = "1:1";
 export const DEFAULT_IMAGE_RESOLUTION = "1k";
 export const DEFAULT_IMAGE_LOCAL_URL = "http://localhost:8189";
 export const DEFAULT_IMAGE_LOCAL_STYLE = "base";
+
+/**
+ * Defaults for build-time image optimization (image.optimize). ON by default: images are
+ * generated at 1024–1376 px / 0.3–2.2 MB but displayed a few hundred px wide, so a 1280 px
+ * WebP at q80 typically cuts image bytes 40–70% with no visible quality loss.
+ */
+export const DEFAULT_IMAGE_OPTIMIZE_ENABLED = true;
+export const DEFAULT_IMAGE_OPTIMIZE_MAX_EDGE = 1280;
+export const DEFAULT_IMAGE_OPTIMIZE_QUALITY = 80;
 
 /** Defaults when the config omits the `storage` block (default = Vercel Blob). */
 export const DEFAULT_STORAGE_PROVIDER: StorageConfig["provider"] = "blob";
@@ -491,6 +516,7 @@ function validateImage(raw: unknown, path: string): ImageConfig {
       grok: defaultImageGrok(),
       local: defaultImageLocal(),
       grokTerminal: defaultGrokTerminal(),
+      optimize: defaultImageOptimize(),
     };
   }
   if (typeof raw !== "object") {
@@ -509,8 +535,47 @@ function validateImage(raw: unknown, path: string): ImageConfig {
   const grok = validateImageGrok(i.grok, path);
   const local = validateImageLocal(i.local, path);
   const grokTerminal = validateGrokTerminal(i.grokTerminal, path, "image.grokTerminal");
+  const optimize = validateImageOptimize(i.optimize, path);
 
-  return { provider, grok, local, grokTerminal };
+  return { provider, grok, local, grokTerminal, optimize };
+}
+
+/** Default image-optimization settings, used when the block or a field is omitted. */
+function defaultImageOptimize(): ImageOptimizeConfig {
+  return {
+    enabled: DEFAULT_IMAGE_OPTIMIZE_ENABLED,
+    maxEdge: DEFAULT_IMAGE_OPTIMIZE_MAX_EDGE,
+    quality: DEFAULT_IMAGE_OPTIMIZE_QUALITY,
+  };
+}
+
+/**
+ * Validate the nested `image.optimize` block. Absent → defaults (optimization ON). `enabled`
+ * must be a boolean; `maxEdge` a positive integer; `quality` an integer in 1–100.
+ */
+function validateImageOptimize(raw: unknown, path: string): ImageOptimizeConfig {
+  if (raw == null) return defaultImageOptimize();
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: image.optimize must be an object.`);
+  }
+  const o = raw as Record<string, unknown>;
+
+  const enabled = o.enabled ?? DEFAULT_IMAGE_OPTIMIZE_ENABLED;
+  if (typeof enabled !== "boolean") {
+    throw new Error(`Config at ${path}: image.optimize.enabled must be a boolean.`);
+  }
+
+  const maxEdge = o.maxEdge ?? DEFAULT_IMAGE_OPTIMIZE_MAX_EDGE;
+  if (typeof maxEdge !== "number" || !Number.isInteger(maxEdge) || maxEdge < 1) {
+    throw new Error(`Config at ${path}: image.optimize.maxEdge must be a positive integer.`);
+  }
+
+  const quality = o.quality ?? DEFAULT_IMAGE_OPTIMIZE_QUALITY;
+  if (typeof quality !== "number" || !Number.isInteger(quality) || quality < 1 || quality > 100) {
+    throw new Error(`Config at ${path}: image.optimize.quality must be an integer in 1–100.`);
+  }
+
+  return { enabled, maxEdge, quality };
 }
 
 /** Default Grok Imagine endpoint/model/params, used when the block or a field is omitted. */

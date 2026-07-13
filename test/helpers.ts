@@ -91,6 +91,10 @@ export function makeConfig(over: Partial<Config> = {}): Config {
       },
       local: { url: "http://imagegen.test", style: "test-base" },
       grokTerminal: { command: "grok-test", args: [] },
+      // Off by default in the fixture so createStorageProvider returns the raw provider —
+      // keeps existing storage/cycle tests byte-identical. Optimization is covered by its
+      // own dedicated tests (optimize + optimizing decorator + factory).
+      optimize: { enabled: false, maxEdge: 1280, quality: 80 },
     },
     storage: {
       provider: "blob",
