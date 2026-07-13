@@ -72,6 +72,13 @@ export async function generateAll(
   let skipped = 0;
   const eligible: string[] = [];
   for (const id of Object.keys(manifest.stories)) {
+    // Opinion pieces (ADR-0015) carry text but no image-prompt fields, so they read as
+    // "pending" to isGenerated — without this exemption the story generator would
+    // overwrite the piece with story-style output on the next cycle.
+    if (manifest.stories[id].author) {
+      skipped++;
+      continue;
+    }
     if (isGenerated(manifest.stories[id])) {
       skipped++;
       continue;

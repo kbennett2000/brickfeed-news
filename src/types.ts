@@ -5,7 +5,9 @@
 import type { AdView } from "./ads.js";
 import type { Article } from "./articles.js";
 import type { Category } from "./category.js";
+import type { TextGenerator } from "./generator/text.js";
 import type { HeadshotsResult } from "./headshots.js";
+import type { OpinionAssets } from "./personas.js";
 
 /** A single item parsed from an RSS feed, before link resolution / identity. */
 export interface FeedItem {
@@ -63,6 +65,20 @@ export interface ManifestRecord {
   imageUrl?: string;
   /** ISO timestamp the image was stored (written together with imageUrl). */
   imageStoredAt?: string;
+
+  // --- Opinion fields (ADR-0015). Present only on generated opinion pieces, whose id is
+  // the idempotency key `opinion-{author}-{YYYY-MM-DD}` rather than a URL hash. ---
+  /**
+   * Canonical persona name (equals the persona file basename) — keys the headshot and the
+   * idempotency key. Its PRESENCE marks the record as an opinion piece and exempts it from
+   * the story generation pass (which would otherwise see the image-less record as pending
+   * and overwrite the piece).
+   */
+  author?: string;
+  /** The letter column's banner title (ADR-0014) — letters personas only. */
+  columnTitle?: string;
+  /** Ids of the articles this piece reacted to (audit trail) — news personas only. */
+  sourceArticleIds?: string[];
 }
 
 /** Normalized output of the generation step, before brick-style wrapping. */
@@ -315,6 +331,12 @@ export interface CycleIo {
     manifestPath: string,
     storage: StorageProvider,
   ): Promise<HeadshotsResult>;
+  /**
+   * Read the persona roster plus the shared/letters prompt blocks from `dir` (ADR-0015).
+   * Disk reads, so it lives on this boundary — tests stub it; production wires the real
+   * loadPersonaAssets from personas.ts.
+   */
+  loadPersonaAssets(dir: string): Promise<OpinionAssets>;
 }
 
 /**
@@ -326,6 +348,8 @@ export interface CycleDeps {
   now: () => Date;
   fetch: FetchLike;
   generator: Generator;
+  /** Free-form text seam for the opinion stage (ADR-0015): piece + topic-gate calls. */
+  textGenerator: TextGenerator;
   imageProvider: ImageProvider;
   storage: StorageProvider;
   deployRun: DeployRunner;

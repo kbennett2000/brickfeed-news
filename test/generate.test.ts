@@ -88,6 +88,28 @@ describe("generateAll", () => {
     expect(result.failed).toBe(0);
   });
 
+  it("never touches an opinion piece (ADR-0015): author-bearing records are skipped", async () => {
+    // An opinion record has text but no image-prompt fields, so it LOOKS pending to
+    // isGenerated — the author exemption is what keeps the piece from being clobbered
+    // with story-style output.
+    const opinion: ManifestRecord = {
+      ...pending("opinion-alice-2026-07-13", "A Piece Title"),
+      headline: "A Piece Title",
+      description: "The full body of the opinion piece.",
+      category: "OPINION",
+      author: "alice",
+    };
+    expect(isGenerated(opinion)).toBe(false);
+
+    const gen = fakeGenerator({});
+    const result = await generateAll(config, manifestOf(opinion), deps(gen));
+
+    expect(gen.calls).toHaveLength(0);
+    expect(result.generated).toHaveLength(0);
+    expect(result.skipped).toBe(1);
+    expect(result.manifest.stories["opinion-alice-2026-07-13"]).toEqual(opinion);
+  });
+
   it("backfills a pre-Slice-6 record missing category/caption (regenerates it)", async () => {
     // The record has the original four gen fields but no category/caption.
     const stale = preSliceDone("a", "Story A");

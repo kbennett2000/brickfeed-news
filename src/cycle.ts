@@ -15,6 +15,8 @@ import {
 import { hasImage, generateImages } from "./image.js";
 import { ingest } from "./ingest.js";
 import { readManifest, writeManifest } from "./manifest.js";
+import { authorsFor, runOpinions, summarizeOpinions, utcDateOf } from "./opinions.js";
+import { PERSONAS_DIR, loadPersonaAssets } from "./personas.js";
 import { publishableRecords, verifiedPublishableRecords, writePublished } from "./publish.js";
 import { imageOptimizeOptionFromConfig, renderSite, staleSectionPages } from "./render/index.js";
 import type { CycleDeps, CycleIo, Manifest, ManifestRecord } from "./types.js";
@@ -43,9 +45,9 @@ export interface CycleOptions {
 }
 
 /**
- * Run one full publish cycle (Slice 8): ingest → generate → image+store → ageout → render
- * → deploy, in that exact order, calling the existing module functions directly in one
- * process. Every stage is already idempotent/never-throw at the STORY level, so a single
+ * Run one full publish cycle (Slice 8): ingest → generate → image+store → ageout →
+ * opinions → render → deploy, in that exact order, calling the existing module functions
+ * directly in one process. Every stage is already idempotent/never-throw at the STORY level, so a single
  * bad story just stays pending and the run continues. A STAGE hard-failure (a thrown
  * error — e.g. a disk write failing) is logged, aborts the run BEFORE deploy, and yields
  * `ok: false` (non-zero exit). Deploy is the last step and only runs when render produced
@@ -91,7 +93,9 @@ export async function runCycle(
   // --- Dry-run: log what each stage WOULD do from the current manifest; mutate nothing. ---
   if (opts.dryRun) {
     const recs = Object.values(manifest.stories);
-    const pending = recs.filter((r) => !isGenerated(r)).length;
+    // Opinion pieces read as "pending" to isGenerated but are exempt from the story
+    // generator (ADR-0015) — keep this count in parity with generateAll's gate.
+    const pending = recs.filter((r) => !isGenerated(r) && !r.author).length;
     const eligibleImages = recs.filter((r) => !!r.wrappedPrompt && !hasImage(r)).length;
     const stale = countStale(recs, config, now().getTime());
     const publishable = publishableRecords(manifest).length;
@@ -104,6 +108,15 @@ export async function runCycle(
     stages.generate = `${pending} pending would be attempted`;
     stages.image = `${eligibleImages} eligible would be attempted`;
     stages.ageout = `${stale} stale would be dropped`;
+    // Derivation only (pure + a disk read) — the cycle dry-run calls no providers, so
+    // gate verdicts/selections are the standalone `npm run opinions -- --dry-run`'s job.
+    try {
+      const assets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
+      const names = authorsFor(utcDateOf(now()), assets.personas).map((p) => p.name);
+      stages.opinions = `would write opinion piece(s) for: ${names.join(", ") || "(none)"}`;
+    } catch (err) {
+      stages.opinions = `would skip — ${errMsg(err)}`;
+    }
     stages.render = `${publishable} publishable would render → ${config.render.outputDir}/`;
     stages.deploy = !opts.deploy
       ? "would skip (--no-deploy)"
@@ -193,6 +206,25 @@ export async function runCycle(
       log(`[${iso()}] cycle: ${stage.name} hard-failed — ${msg}; aborting before deploy.`);
       return { ok: false, dryRun: false, failedStage: stage.name, stages };
     }
+  }
+
+  // Opinion generation (ADR-0015): tolerant like headshots — an opinion problem must
+  // never break the news cycle, so this never sets ok:false. runOpinions isolates
+  // per-author failures internally; the catch is belt-and-braces around the asset read.
+  // No writePublished: opinion records are image-less, hence never publishable yet.
+  log(`[${iso()}] cycle: opinions …`);
+  try {
+    const assets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
+    const r = await runOpinions(manifest, assets, {
+      generate: deps.textGenerator,
+      now,
+      log,
+    });
+    manifest = r.manifest;
+    await deps.io.writeManifest(config.manifestPath, manifest);
+    stages.opinions = summarizeOpinions(r);
+  } catch (err) {
+    stages.opinions = `skipped — ${errMsg(err)}`;
   }
 
   // Render consumes the final in-memory manifest directly (no read-back of published.json).
@@ -285,4 +317,5 @@ export const defaultCycleIo: CycleIo = {
   loadArticles,
   processHeadshots: (dir, manifestPath, storage) =>
     processHeadshots(storage, { dir, manifestPath }),
+  loadPersonaAssets,
 };

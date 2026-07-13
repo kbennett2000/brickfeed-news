@@ -1,7 +1,10 @@
 import type { AdView } from "../src/ads.js";
 import type { Article } from "../src/articles.js";
+import type { Category } from "../src/category.js";
 import type { Config } from "../src/config.js";
+import type { TextGenerator } from "../src/generator/text.js";
 import type { HeadshotsResult } from "../src/headshots.js";
+import type { OpinionAssets, Persona, Weekday } from "../src/personas.js";
 import type {
   ClaudeRunner,
   CycleIo,
@@ -228,6 +231,58 @@ export function fakeGenerator(opts: {
       }
       return impl(input);
     },
+  };
+}
+
+/**
+ * A fake TextGenerator (the free-form seam the opinion stage uses) for opinions/cycle
+ * tests. `impl` maps the full prompt to a completion (return null to simulate the
+ * never-throw failure contract); `throwOn` makes matching prompts throw instead.
+ * Records every prompt (idempotency / call-count assertions). Default impl returns a
+ * valid title+body piece of ~350 body words.
+ */
+export function fakeTextGenerator(
+  opts: {
+    impl?: (prompt: string) => string | null;
+    throwOn?: (prompt: string) => boolean;
+  } = {},
+): TextGenerator & { calls: string[] } {
+  const calls: string[] = [];
+  const impl = opts.impl ?? (() => `A Test Title\n\n${"word ".repeat(350).trim()}`);
+  const generate = async (prompt: string): Promise<string | null> => {
+    calls.push(prompt);
+    if (opts.throwOn?.(prompt)) throw new Error("simulated text generation failure");
+    return impl(prompt);
+  };
+  return Object.assign(generate, { calls });
+}
+
+/** A minimal `source: news` Persona literal for opinions tests. */
+export function newsPersona(
+  name: string,
+  bias: Partial<Record<Category, number>> = { WORLD: 2 },
+): Persona {
+  return {
+    name,
+    displayName: name[0].toUpperCase() + name.slice(1),
+    bylineBlurb: `${name} is a bot.`,
+    source: "news",
+    selectionBias: bias,
+    body: `You are ${name}. React to the articles.`,
+  };
+}
+
+/** A minimal `source: letters` Persona literal for opinions tests. */
+export function lettersPersona(name: string, schedule: Weekday[]): Persona {
+  return {
+    name,
+    displayName: name[0].toUpperCase() + name.slice(1),
+    bylineBlurb: `${name} is a bot.`,
+    source: "letters",
+    selectionBias: {},
+    schedule,
+    columnTitle: `${name}'s Column`,
+    body: `You are ${name}. Answer the letter.`,
   };
 }
 
@@ -486,6 +541,10 @@ export function fakeCycleIo(
     headshots?: HeadshotsResult;
     /** Make the processHeadshots boundary throw (to prove the stage is tolerant). */
     throwOnHeadshots?: boolean;
+    /** Assets the loadPersonaAssets boundary returns. Default: an empty roster. */
+    personaAssets?: OpinionAssets;
+    /** Make the loadPersonaAssets boundary throw (to prove the opinions stage is tolerant). */
+    throwOnPersonaAssets?: boolean;
   } = {},
 ): CycleIo & {
   writes: RecordedIoWrite[];
@@ -505,7 +564,9 @@ export function fakeCycleIo(
     async writeManifest(path, m) {
       if (opts.throwOn === "manifest") throw new Error("simulated manifest write failure");
       state.writes.push({ kind: "manifest", path });
-      state.saved = m;
+      // Assign on the RETURNED object: Object.assign copied `saved` by value (undefined)
+      // at construction, so setting state.saved here would never be visible to tests.
+      out.saved = m;
     },
     async writePublished(path) {
       if (opts.throwOn === "published") throw new Error("simulated published write failure");
@@ -534,6 +595,11 @@ export function fakeCycleIo(
         }
       );
     },
+    async loadPersonaAssets() {
+      if (opts.throwOnPersonaAssets) throw new Error("simulated persona assets failure");
+      return opts.personaAssets ?? { personas: [], shared: "", letters: "" };
+    },
   };
-  return Object.assign(io, state);
+  const out = Object.assign(io, state);
+  return out;
 }

@@ -8,9 +8,12 @@ import {
   fakeGenerator,
   fakeImageProvider,
   fakeStorageProvider,
+  fakeTextGenerator,
   fixedNow,
+  lettersPersona,
   makeConfig,
   makeFetch,
+  newsPersona,
 } from "./helpers.js";
 
 const NOW = "2026-07-10T12:00:00.000Z";
@@ -56,6 +59,7 @@ function makeDeps(
 ) {
   const logs: string[] = [];
   const generator = fakeGenerator({});
+  const textGenerator = fakeTextGenerator();
   const imageProvider = fakeImageProvider({});
   const storage = fakeStorageProvider();
   const deployRun = fakeDeployRunner({ code: 0 });
@@ -64,6 +68,7 @@ function makeDeps(
     now: fixedNow(NOW),
     fetch: makeFetch({}),
     generator,
+    textGenerator,
     imageProvider,
     storage,
     deployRun,
@@ -71,7 +76,7 @@ function makeDeps(
     log: (m) => logs.push(m),
     ...over,
   };
-  return { deps, logs, generator, imageProvider, storage, deployRun, io };
+  return { deps, logs, generator, textGenerator, imageProvider, storage, deployRun, io };
 }
 
 const FULL = { deploy: true, dryRun: false };
@@ -93,6 +98,7 @@ describe("runCycle — full chain (happy path)", () => {
       "generate",
       "image",
       "ageout",
+      "opinions",
       "render",
       "deploy",
     ]);
@@ -108,8 +114,9 @@ describe("runCycle — full chain (happy path)", () => {
     // Deploy ran last with the configured command + cwd.
     expect(deployRun.calls).toEqual([{ command: config.deploy.command, cwd: config.deploy.cwd }]);
     expect(result.deploy?.status).toBe("deployed");
-    // Persistence: manifest after each of the 4 mutating stages, published ×2, site ×1.
-    expect(io.writes.filter((w) => w.kind === "manifest")).toHaveLength(4);
+    // Persistence: manifest after each of the 4 pipeline stages + opinions, published ×2,
+    // site ×1.
+    expect(io.writes.filter((w) => w.kind === "manifest")).toHaveLength(5);
     expect(io.writes.filter((w) => w.kind === "published")).toHaveLength(2);
     expect(io.writes.filter((w) => w.kind === "site")).toHaveLength(1);
     // The rendered site carried a real cover page.
@@ -175,7 +182,7 @@ describe("runCycle — flags", () => {
 
   it("--dry-run mutates nothing: no providers, no writes, no deploy", async () => {
     const config = makeConfig();
-    const { deps, generator, imageProvider, storage, deployRun, io } = makeDeps(
+    const { deps, generator, textGenerator, imageProvider, storage, deployRun, io } = makeDeps(
       manifestOf(pending("a")),
     );
 
@@ -197,6 +204,7 @@ describe("runCycle — flags", () => {
       "generate",
       "image",
       "ageout",
+      "opinions",
       "render",
       "deploy",
     ]);
@@ -204,6 +212,9 @@ describe("runCycle — flags", () => {
     // Headshots report a "would …" line only — the boundary itself is never invoked.
     expect(result.stages.headshots).toContain("would");
     expect(io.headshotCalls).toHaveLength(0);
+    // Opinions report a derivation-only "would …" line — no text-generation calls.
+    expect(result.stages.opinions).toContain("would");
+    expect(textGenerator.calls).toHaveLength(0);
   });
 
   it("--dry-run counts stale records per category window, matching the real ageout gate", async () => {
@@ -269,6 +280,58 @@ describe("runCycle — headshots stage is tolerant", () => {
     const result = await runCycle(config, deps, FULL);
 
     expect(result.stages.headshots).toBe("1 processed, 2 skipped, 1 missing, 0 failed");
+  });
+});
+
+describe("runCycle — opinions stage (ADR-0015) is tolerant and ordered before render", () => {
+  // NOW (2026-07-10) is a Friday, rotation index 20644 % 3 = 1 → edgar+stryker, plus tom
+  // (mon/wed/fri/sun letters schedule).
+  const assets = {
+    personas: [
+      newsPersona("edgar"),
+      newsPersona("stryker"),
+      lettersPersona("tom", ["mon", "wed", "fri", "sun"]),
+    ],
+    shared: "SHARED RULES",
+    letters: "LETTER RULES",
+  };
+
+  it("a throwing persona-assets boundary keeps ok:true and the cycle deploys", async () => {
+    const config = makeConfig();
+    const { deps, deployRun, io } = makeDeps(manifestOf(fullRecord("a")), {}, {
+      throwOnPersonaAssets: true,
+    });
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.ok).toBe(true);
+    expect(result.failedStage).toBeUndefined();
+    expect(result.stages.opinions).toContain("skipped — simulated persona assets failure");
+    expect(io.writes.filter((w) => w.kind === "site")).toHaveLength(1);
+    expect(deployRun.calls).toHaveLength(1);
+  });
+
+  it("runs the stage for real: gate fails closed on non-JSON, letters still publish, manifest persisted", async () => {
+    const config = makeConfig();
+    // The default fakeTextGenerator returns a title+body piece — valid for tom's letter
+    // column, NOT valid JSON for the gate call → the gate fails closed and both news
+    // authors skip. That's the tolerant, isolated behavior in one run.
+    const { deps, io } = makeDeps(manifestOf(fullRecord("a")), {}, { personaAssets: assets });
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.ok).toBe(true);
+    expect(result.stages.opinions).toBe("1 published, 2 skipped, 0 failed");
+    // The published letter piece landed in the persisted manifest, image-less.
+    const saved = io.saved?.stories["opinion-tom-2026-07-10"];
+    expect(saved).toBeDefined();
+    expect(saved?.author).toBe("tom");
+    expect(saved?.columnTitle).toBe("tom's Column");
+    expect(saved?.imageUrl).toBeUndefined();
+    // Opinions runs after ageout and before render (stage-key order is insertion order).
+    const keys = Object.keys(result.stages);
+    expect(keys.indexOf("opinions")).toBeGreaterThan(keys.indexOf("ageout"));
+    expect(keys.indexOf("opinions")).toBeLessThan(keys.indexOf("render"));
   });
 });
 

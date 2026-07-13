@@ -194,6 +194,35 @@ function parseSchedule(raw: string | undefined): Weekday[] | null {
 }
 
 /**
+ * The full asset bundle the opinion generation stage consumes (ADR-0015): the parsed
+ * roster plus the two shared prompt blocks, read once per run.
+ */
+export interface OpinionAssets {
+  personas: Persona[];
+  /** Contents of `_shared.md` — prepended to every opinion prompt. */
+  shared: string;
+  /** Contents of `_letters.md` — prepended after `shared` for letters personas only. */
+  letters: string;
+}
+
+/**
+ * Load the personas plus the shared/letters prompt blocks from `dir`. Unlike
+ * `loadPersonas`, a missing `_shared.md`/`_letters.md` THROWS: the roster degrades
+ * per-file by design, but the shared guardrail blocks are load-bearing for every
+ * generated piece, so generating without them must be impossible.
+ */
+export async function loadPersonaAssets(
+  dir: string = PERSONAS_DIR,
+  deps: Partial<PersonasDeps> = {},
+): Promise<OpinionAssets> {
+  const io: PersonasDeps = { ...defaultDeps, ...deps };
+  const personas = await loadPersonas(dir, deps);
+  const shared = await io.readText(`${dir}/${SHARED_PERSONA_FILE}`);
+  const letters = await io.readText(`${dir}/${LETTERS_PERSONA_FILE}`);
+  return { personas, shared, letters };
+}
+
+/**
  * Read `dir` and parse every persona file: `*.md`, excluding `_`-prefixed files (shared /
  * support assets like `_shared.md`). A missing folder yields []; an unreadable or invalid
  * file — including one whose front-matter `name` differs from its basename, which would

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { loadConfig } from "./config.js";
 import { defaultCycleIo, runCycle } from "./cycle.js";
 import { createGenerator } from "./generator/index.js";
+import { createTextGenerator } from "./generator/text.js";
 import { createImageProvider } from "./image/index.js";
 import { getVercelToken } from "./secrets.js";
 import { createStorageProvider } from "./storage/index.js";
@@ -10,8 +11,8 @@ import type { CycleDeps, DeployRunner, FetchLike } from "./types.js";
 /**
  * CLI entry for the full publish cycle (Slice 8, `npm run cycle`). Loads config.json, wires
  * the real boundaries (fetch, the CONFIGURED providers via their factories, the deploy
- * subprocess, and the filesystem IO), runs ingest → generate → image → ageout → render →
- * deploy in one process, prints a per-stage summary, and exits non-zero on a hard stage
+ * subprocess, and the filesystem IO), runs ingest → generate → image → ageout → opinions →
+ * render → deploy in one process, prints a per-stage summary, and exits non-zero on a hard stage
  * failure (so cron/monitoring catches it). Reads no environment (the secrets guardrail keeps
  * env in secrets.ts; the deploy runner's token comes from getVercelToken()).
  *
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
     // Node's global fetch satisfies the structural FetchLike shape.
     fetch: fetch as unknown as FetchLike,
     generator: createGenerator(config),
+    textGenerator: createTextGenerator(config),
     imageProvider: createImageProvider(config),
     storage: createStorageProvider(config),
     deployRun: defaultDeployRunner,
