@@ -32,9 +32,10 @@ Render-only slice; generation/selection/rotation/config/disclosure constants unt
   `writeSite`) readdir `columnist/` and delete non-emitted pages via the pure, tested
   `staleColumnistPages` helper. The rm loops themselves are untested, mirroring the
   existing stale-section deletion.
-- Landed on master per the standing no-PRs directive. **Not deployed** (render-only;
-  cron launcher still disabled by rename — the next manual deploy publishes the bio
-  pages).
+- Landed on master per the standing no-PRs directive. **Deployed 2026-07-13** at the
+  owner's request (`vercel --prod --yes` from `site/`) — bio pages, byline links, cast
+  strip, and sitemap entries verified live on www.brickfeed.news. Cron launcher still
+  disabled by rename.
 
 ## Opinion operations: publish-hour gate + OPINION-STALE health + runbook (ADR-0018)
 
