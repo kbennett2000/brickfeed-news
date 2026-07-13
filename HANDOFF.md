@@ -1,5 +1,42 @@
 # Handoff
 
+## Opinion operations: publish-hour gate + OPINION-STALE health + runbook (ADR-0018)
+
+**The Opinion infrastructure phase is COMPLETE.** This final slice closed the two
+operational gaps: pieces publishing at ~6 PM Denver the previous evening (first cycle
+after 00:00 UTC), and tolerant-by-design failure degrading invisibly until the
+empty-section rule hid the page.
+
+- **Publish-hour gate**: the CYCLE's opinions stage runs only when
+  `getUTCHours() >= opinionPublishHourUTC` (new config key, integer 0–23, default 13
+  ≈ 7 AM Denver, invalid fails loud). `>=` never `==`, so a missed 13:00 tick
+  self-heals at 14:00. A gated cycle makes ZERO provider calls (gate sits before
+  `loadPersonaAssets` in `src/cycle.ts`) and reports
+  `skipped — before publish hour (12 < 13 UTC)`. Direct `npm run opinions` bypasses
+  the gate by construction (it lives only in the cycle stage). Dry-run prints the
+  gate decision. The real box config gained `"opinionPublishHourUTC": 13`.
+- **Structured health**: `OpinionsResult` gains `gateSummary`; the stage line is now
+  `N published, N skipped, N failed; gate …`, and the cycle logs one JSON outcome line
+  per run — `{"status":"ran"|"skipped-hour","published":[…],"skippedIdempotent":[…],
+  "failed":[…],"gateSummary":…}` (`opinionsStageOutcome`).
+- **OPINION-STALE alarm**: `opinionStaleness(manifest, now)` runs EVERY cycle
+  (skipped-hour, all-idempotent, and dry-run included), after the pipeline so a
+  recovery publish clears it the same run. Newest OPINION record older than 36h — or
+  zero records — logs `cycle: OPINION-STALE — … threshold 36h`. The threshold is a
+  constant (`OPINION_STALE_THRESHOLD_HOURS`), not config: it encodes the seven-day
+  letters-schedule invariant (≥1 piece/day even on an all-tragedy news day).
+  **Future work: alerting beyond logs** — no notify/webhook seam exists in the repo,
+  so the loud greppable line is the current deliverable.
+- **Runbook**: `docs/opinion-runbook.md` — normal-state description, the two knobs,
+  manual runs (CLI bypass), OPINION-STALE triage order (provider auth → fail-closed
+  streak → schema tests), add/punch-up/retire persona, re-launch via
+  `npm run opinions -- --authors all` (no purge CLI exists; manifest-drop + storage
+  delete is the manual path).
+- Landed on master per the standing no-PRs directive. **Not deployed**: infra-only
+  change with no render-output diff; the on-box verification cycle ran with
+  `--no-deploy`. The next manual/cron deploy picks it up incidentally (the cron
+  launcher is still disabled by rename on the box).
+
 ## Ad rotator rebuild + byline sizing + cache-busted CSS (ADR-0017)
 
 Fixed the three live-site defects reported 2026-07-13 (giant stacked byline avatars,
