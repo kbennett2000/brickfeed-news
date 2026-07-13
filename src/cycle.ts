@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ADS_DIR, loadAds } from "./ads.js";
-import { ageOut } from "./ageout.js";
+import { ageOut, retentionHoursFor } from "./ageout.js";
 import { ARTICLES_DIR, loadArticles } from "./articles.js";
 import type { Config } from "./config.js";
 import { deploy, type DeployResult } from "./deploy.js";
@@ -93,7 +93,7 @@ export async function runCycle(
     const recs = Object.values(manifest.stories);
     const pending = recs.filter((r) => !isGenerated(r)).length;
     const eligibleImages = recs.filter((r) => !!r.wrappedPrompt && !hasImage(r)).length;
-    const stale = countStale(recs, config.maxAgeHours, now().getTime());
+    const stale = countStale(recs, config, now().getTime());
     const publishable = publishableRecords(manifest).length;
 
     stages["storage-preflight"] = preflight.ok
@@ -245,12 +245,11 @@ export async function runCycle(
   return { ok: true, dryRun: false, stages, deploy: deployResult };
 }
 
-/** Count records whose lastSeen is older than maxAgeHours relative to nowMs. */
-function countStale(records: ManifestRecord[], maxAgeHours: number, nowMs: number): number {
-  const maxAgeMs = maxAgeHours * 3600_000;
+/** Count records older than their category's retention window (must match ageOut's gate). */
+function countStale(records: ManifestRecord[], config: Config, nowMs: number): number {
   return records.filter((r) => {
     const t = new Date(r.lastSeen).getTime();
-    return Number.isFinite(t) && nowMs - t > maxAgeMs;
+    return Number.isFinite(t) && nowMs - t > retentionHoursFor(r.category, config) * 3600_000;
   }).length;
 }
 

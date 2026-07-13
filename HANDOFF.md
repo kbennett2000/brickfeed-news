@@ -1,5 +1,32 @@
 # Handoff
 
+## Opinion retention split: opinionMaxAgeHours (branch `feat/opinion-retention-split`)
+
+Implements ADR-0013 decision 5: OPINION records retain for `opinionMaxAgeHours` (config key,
+default 168h; absent → 168 in code, NEVER falls back to `maxAgeHours`; present-but-invalid
+fails loud like every other config key), everything else keeps `maxAgeHours` (still 72 in
+prod config — the cycle prompt's "48" was illustrative; `maxAgeHours` untouched).
+
+- **`retentionHoursFor(category, config)` in `src/ageout.ts` is the single retention
+  authority.** Both age gates route through it: the real sweep in `ageOut` (per-record
+  window, boundary semantics unchanged: kept when `now − lastSeen <= window`, NaN kept)
+  and `countStale` in `src/cycle.ts` (dry-run stage line parity). A grep for `3600_000`
+  in `src/` must only ever hit those two lines — any third hit is a rogue gate.
+- **Render needed NO change**: there is no age gate at render time; "live" IS manifest
+  membership after ageout, and `presentSections` derives from presence. A longer opinion
+  window is realized entirely by the sweep keeping records longer.
+- The pinning test (`test/retention.test.ts`) guards the self-masking failure: under 2/day
+  posting an unbranched sweep never empties the section (a fresh piece always masks it)
+  while page depth silently caps at ~4 instead of ~14. Do not weaken it.
+- `npm run ageout` now logs both windows. `docs/CONFIGURATION.md` documents the key.
+  `config.json` (box-local) + `config.example.json` carry `"opinionMaxAgeHours": 168`.
+- Verified: 517 tests / 38 files, tsc clean; live-store `npm run render` byte-identical
+  before/after (206 stories → 224 files) — behavior-invisible until opinion content exists.
+- **Merge order**: PR #51 (delivers the stranded #50 headshots work: it merged into
+  `feat/opinion-personas-bench` AFTER that branch was squash-merged to master as #49, so
+  it never reached master) → then this branch's PR (based on `feat/opinion-personas-bench`).
+  First commit on this branch is the human's five persona voice edits, committed verbatim.
+
 ## Opinion headshots: idempotent optimize + publish step (branch `feat/opinion-headshots`)
 
 Implements ADR-0013 decision 8 (+ a dated amendment: 256×256, i.e. ~128 px display at 2×

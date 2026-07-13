@@ -15,6 +15,7 @@ import {
   DEFAULT_IMAGE_RESOLUTION,
   DEFAULT_MAX_AGE_HOURS,
   DEFAULT_MODEL,
+  DEFAULT_OPINION_MAX_AGE_HOURS,
   DEFAULT_PUBLISHED_PATH,
   DEFAULT_RENDER_OUTPUT_DIR,
   DEFAULT_RENDER_SECONDARY_STORY_COUNT,
@@ -268,6 +269,27 @@ describe("validateConfig", () => {
     expect(() => validateConfig({ ...base, maxAgeHours: 0 })).toThrow();
     expect(() => validateConfig({ ...base, maxAgeHours: -5 })).toThrow();
     expect(() => validateConfig({ ...base, maxAgeHours: "72" })).toThrow();
+  });
+
+  it("defaults opinionMaxAgeHours to 168 when absent", () => {
+    expect(validateConfig(base).opinionMaxAgeHours).toBe(DEFAULT_OPINION_MAX_AGE_HOURS);
+  });
+
+  it("accepts an explicit positive opinionMaxAgeHours", () => {
+    expect(validateConfig({ ...base, opinionMaxAgeHours: 240 }).opinionMaxAgeHours).toBe(240);
+  });
+
+  it("rejects a non-positive or non-number opinionMaxAgeHours", () => {
+    expect(() => validateConfig({ ...base, opinionMaxAgeHours: 0 })).toThrow();
+    expect(() => validateConfig({ ...base, opinionMaxAgeHours: -5 })).toThrow();
+    expect(() => validateConfig({ ...base, opinionMaxAgeHours: "168" })).toThrow();
+  });
+
+  it("opinionMaxAgeHours never falls back to maxAgeHours (ADR-0013 #5)", () => {
+    // An explicit maxAgeHours must not leak into the opinion window when the key is absent.
+    expect(validateConfig({ ...base, maxAgeHours: 24 }).opinionMaxAgeHours).toBe(
+      DEFAULT_OPINION_MAX_AGE_HOURS,
+    );
   });
 
   it("rejects a blank publishedPath", () => {

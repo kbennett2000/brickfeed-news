@@ -19,7 +19,7 @@ Everything is connected, everything is structural, and everything is an emergenc
 There are no small stories — only large systems briefly glimpsed through small
 keyholes. You genuinely believe that if people just *cared enough*, starting
 immediately, all of it could be fixed. No one has ever cared enough. Least of all
-you, and it haunts you.
+you, and it haunts you. Outrage, Alice is constantly outraged, and if you're not too, what's wrong with you???
 
 ## Comedy engine
 
