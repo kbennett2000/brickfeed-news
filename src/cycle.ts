@@ -7,8 +7,10 @@ import type { Config } from "./config.js";
 import { deploy, type DeployResult } from "./deploy.js";
 import { generateAll, isGenerated } from "./generate.js";
 import {
+  emptyHeadshotManifest,
   HEADSHOTS_DIR,
   HEADSHOTS_MANIFEST_PATH,
+  type HeadshotManifest,
   processHeadshots,
   summarizeHeadshots,
 } from "./headshots.js";
@@ -18,7 +20,13 @@ import { readManifest, writeManifest } from "./manifest.js";
 import { authorsFor, runOpinions, summarizeOpinions, utcDateOf } from "./opinions.js";
 import { PERSONAS_DIR, loadPersonaAssets } from "./personas.js";
 import { publishableRecords, verifiedPublishableRecords, writePublished } from "./publish.js";
-import { imageOptimizeOptionFromConfig, renderSite, staleSectionPages } from "./render/index.js";
+import {
+  type AuthorInfo,
+  buildAuthorDirectory,
+  imageOptimizeOptionFromConfig,
+  renderSite,
+  staleSectionPages,
+} from "./render/index.js";
 import type { CycleDeps, CycleIo, Manifest, ManifestRecord } from "./types.js";
 
 /**
@@ -140,10 +148,13 @@ export async function runCycle(
   // Persona headshots (ADR-0013 d.8): hash-gated against data/headshots.json, so the steady
   // state is six hash checks. Tolerant like ads/articles — a headshot problem must never
   // break a publish cycle, so this never sets ok:false (the boundary is already never-throw;
-  // the catch is belt-and-braces).
+  // the catch is belt-and-braces). The manifest is kept for the render's opinion author
+  // directory (ADR-0016) — on failure it stays empty and byline rows degrade avatar-less.
+  let headshotManifest: HeadshotManifest = emptyHeadshotManifest();
   log(`[${iso()}] cycle: headshots …`);
   try {
     const r = await deps.io.processHeadshots(HEADSHOTS_DIR, HEADSHOTS_MANIFEST_PATH, deps.storage);
+    headshotManifest = r.manifest;
     stages.headshots = summarizeHeadshots(r);
   } catch (err) {
     stages.headshots = `skipped — ${errMsg(err)}`;
@@ -252,6 +263,15 @@ export async function runCycle(
     // Locally hosted articles (ADR-0010): upload their images and merge them into the render.
     // Also tolerant (bad/absent articles yield []), so it never fails the cycle.
     const articles = await deps.io.loadArticles(ARTICLES_DIR, deps.storage);
+    // Opinion author directory (ADR-0016): personas + the headshots stage's manifest feed
+    // the byline rows. Tolerant — unavailable persona assets just degrade the bylines.
+    let authors: Record<string, AuthorInfo> = {};
+    try {
+      const personaAssets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
+      authors = buildAuthorDirectory(personaAssets.personas, headshotManifest);
+    } catch (err) {
+      log(`[${iso()}] cycle: render — persona assets unavailable (${errMsg(err)}); opinion bylines degrade`);
+    }
     files = renderSite(records, {
       now: now(),
       secondaryStoryCount: config.render.secondaryStoryCount,
@@ -262,6 +282,8 @@ export async function runCycle(
       imageOptimize: imageOptimizeOptionFromConfig(config),
       ads,
       articles,
+      authors,
+      log,
     });
     await deps.io.writeSite(config.render.outputDir, files);
     stages.render =

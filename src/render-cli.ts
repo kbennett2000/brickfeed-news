@@ -4,7 +4,13 @@ import { ADS_DIR, loadAds } from "./ads.js";
 import { ARTICLES_DIR, loadArticles } from "./articles.js";
 import { loadConfig } from "./config.js";
 import { processHeadshots } from "./headshots.js";
-import { imageOptimizeOptionFromConfig, renderSite, staleSectionPages } from "./render/index.js";
+import { loadPersonas } from "./personas.js";
+import {
+  buildAuthorDirectory,
+  imageOptimizeOptionFromConfig,
+  renderSite,
+  staleSectionPages,
+} from "./render/index.js";
 import { createStorageProvider } from "./storage/index.js";
 import type { ManifestRecord } from "./types.js";
 
@@ -47,10 +53,14 @@ async function main(): Promise<void> {
   const storage = createStorageProvider(config);
   // Persona headshots (ADR-0013 d.8): hash-gated, so the steady state is six hash checks.
   // Never throws; without a token put() returns null and the last-published avatars stay live.
-  await processHeadshots(storage, {}, { log: console.warn });
+  // The returned manifest feeds the opinion author directory (ADR-0016) below.
+  const headshots = await processHeadshots(storage, {}, { log: console.warn });
   const ads = await loadAds(ADS_DIR, storage, { log: console.warn });
   // Locally hosted articles (ADR-0010): upload their images so the preview matches production.
   const articles = await loadArticles(ARTICLES_DIR, storage, { log: console.warn });
+  // Opinion author directory (ADR-0016): persona display info + avatar URLs for byline rows.
+  // loadPersonas is tolerant ([] on a missing dir); missing entries degrade with a warning.
+  const personas = await loadPersonas(undefined, { log: console.warn });
 
   const files = renderSite(records, {
     now: new Date(),
@@ -62,6 +72,8 @@ async function main(): Promise<void> {
     imageOptimize: imageOptimizeOptionFromConfig(config),
     ads,
     articles,
+    authors: buildAuthorDirectory(personas, headshots.manifest),
+    log: console.warn,
   });
 
   await mkdir(config.render.outputDir, { recursive: true });

@@ -324,6 +324,24 @@ describe("runCycle — opinions stage (ADR-0015/0016): tolerant, ordered before 
     });
     const { deps, io } = makeDeps(manifestOf(fullRecord("a")), { textGenerator }, {
       personaAssets: assets,
+      // The headshots stage's manifest feeds the render's author directory (ADR-0016).
+      headshots: {
+        processed: [],
+        skipped: ["tom"],
+        missing: [],
+        failed: [],
+        manifest: {
+          version: 1,
+          headshots: {
+            tom: {
+              persona: "tom",
+              sourceHash: "abc",
+              avatarUrl: "https://cdn.test/headshots/tom.webp",
+              processedAt: NOW,
+            },
+          },
+        },
+      },
     });
 
     const result = await runCycle(config, deps, FULL);
@@ -340,10 +358,13 @@ describe("runCycle — opinions stage (ADR-0015/0016): tolerant, ordered before 
     expect(saved?.wrappedPrompt).toContain("a park scene");
     expect(saved?.caption).toBe("A caption");
     expect(saved?.imageUrl).toBeTruthy();
-    // Publishable piece → the render emitted the Opinion section + the piece page.
+    // Publishable piece → the render emitted the Opinion section + the piece page, with
+    // the byline row resolved through the headshots manifest + persona assets.
     const site = io.writes.find((w) => w.kind === "site");
     expect(site?.files?.["opinion.html"]).toBeTruthy();
-    expect(site?.files?.["s/opinion-tom-2026-07-10.html"]).toBeTruthy();
+    expect(site?.files?.["opinion.html"]).toContain("https://cdn.test/headshots/tom.webp");
+    expect(site?.files?.["opinion.html"]).toContain("Tom"); // displayName from the persona
+    expect(site?.files?.["s/opinion-tom-2026-07-10.html"]).toContain("tom is a bot."); // blurb footer
     // Opinions runs after generate and before image (stage-key order is insertion order).
     const keys = Object.keys(result.stages);
     expect(keys.indexOf("opinions")).toBeGreaterThan(keys.indexOf("generate"));
