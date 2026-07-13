@@ -36,7 +36,7 @@ import {
   renderSitemapXml,
   renderVercelJson,
 } from "./site-config.js";
-import { adAnimationCss, STYLES } from "./styles.js";
+import { STYLES } from "./styles.js";
 import {
   adBanner,
   type AnalyticsProvider,
@@ -461,7 +461,7 @@ export function renderSite(
   const files: Record<string, string> = {
     "index.html": renderCover(coverViews, dateStr, edition, opts.secondaryStoryCount, presentSections, banner, analytics, storyOpts),
     "about.html": renderAbout(dateStr, edition, banner, presentSections, analytics),
-    "styles.css": STYLES + adAnimationCss(ads.length),
+    "styles.css": STYLES,
   };
   for (const category of presentSections) {
     const base = views.filter((v) => v.kicker === category);

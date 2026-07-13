@@ -234,14 +234,22 @@ img { max-width: 100%; display: block; }
 /* ---- banner ad (leaderboard, below the nav) ---- */
 /* All slides share one fixed frame box (needed so the crossfade can stack them absolutely).
    object-fit: contain scales EACH ad to fit whole — never cropped or stretched — so ads of
-   any dimensions sit cleanly, letterboxed against the flat photo field. The crossfade itself
-   (keyframes + per-slide delays) is appended per render by adAnimationCss() when >1 ad. */
+   any dimensions sit cleanly, letterboxed against the flat photo field. Rotation is driven
+   by the inline rotator script (ADR-0017): it adds .is-live to the frame and walks a
+   shuffled queue, toggling .is-active; the opacity transition below is the crossfade.
+   Until/unless it runs (no JS, reduced motion, a single ad), the :not(.is-live) rule shows
+   the first ad statically. pointer-events tracks visibility so only the shown ad is
+   clickable. */
 .adbanner { width: 100%; max-width: 970px; margin: 34px auto 0; }
 .adbanner__label { font: 500 10px/1 var(--mono); letter-spacing: 0.22em; text-transform: uppercase; color: var(--credit); text-align: center; margin-bottom: 10px; }
 .adbanner__frame { position: relative; aspect-ratio: 16 / 5; background-color: var(--photo-field); border: 1px solid var(--photo-border); overflow: hidden; }
-.adbanner__slide { position: absolute; inset: 0; display: flex; opacity: 0; }
-.adbanner__slide:first-child { opacity: 1; }   /* the sole/first ad shows with 1 ad or before animation */
+.adbanner__slide { position: absolute; inset: 0; display: flex; opacity: 0; pointer-events: none; transition: opacity 0.9s ease; }
+.adbanner__frame:not(.is-live) .adbanner__slide:first-child { opacity: 1; pointer-events: auto; }
+.adbanner__slide.is-active { opacity: 1; pointer-events: auto; }
 .adbanner__img { width: 100%; height: 100%; object-fit: contain; }
+@media (prefers-reduced-motion: reduce) {
+  .adbanner__slide { transition: none; }
+}
 
 /* ---- responsive ---- */
 @media (max-width: 900px) {
@@ -340,9 +348,10 @@ img { max-width: 100%; display: block; }
   padding: 12px 0;
   margin: 0;
 }
-.byline-opinion { display: flex; align-items: center; gap: 8px; }
-.byline-opinion__avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex: none; }
+.byline-opinion { display: flex; align-items: center; gap: 10px; }
+.byline-opinion__avatar { width: 48px; height: 48px; object-fit: cover; flex: none; background: var(--photo-field); border: 1px solid var(--photo-border); }
 .byline-opinion__name { color: var(--ink-60); }
+.landing .byline-opinion { margin: 14px 0 18px; }
 .landing__disclosure { margin-top: 28px; border-top: 1px solid var(--hairline); padding-top: 14px; }
 .landing__blurb, .landing__letters {
   font-family: var(--serif);
@@ -444,55 +453,3 @@ img { max-width: 100%; display: block; }
 }
 `;
 
-/** Seconds each ad holds on screen, and the crossfade duration between ads. */
-const AD_HOLD_SECONDS = 7;
-const AD_FADE_SECONDS = 0.9;
-
-/**
- * The banner crossfade, generated for the actual ad count `n` (appended to styles.css per
- * render). Returns "" for n < 2 — a single ad is static (the `:first-child { opacity: 1 }`
- * rule in STYLES already shows it), so no animation is emitted.
- *
- * All slides run one shared `@keyframes adbannerfade` and are staggered by negative
- * `animation-delay` so exactly one is opaque at a time, cross-fading into the next. The
- * whole cycle is `n * AD_HOLD_SECONDS` long. `pointer-events` is toggled in lockstep with
- * opacity so only the visible ad is clickable — the faded ones never intercept clicks.
- * A prefers-reduced-motion fallback freezes on the first ad.
- */
-export function adAnimationCss(n: number): string {
-  if (n < 2) return "";
-
-  const perSlide = AD_HOLD_SECONDS;
-  const total = n * perSlide;
-  // Keyframe stops as a % of the full cycle: fade-in ends, hold ends, fade-out ends.
-  const fadePct = round((AD_FADE_SECONDS / total) * 100);
-  const slotPct = round((perSlide / total) * 100);
-  const outPct = round(slotPct + fadePct);
-
-  const delays = Array.from(
-    { length: n },
-    (_, i) => `.adbanner__slide:nth-child(${i + 1}) { animation-delay: -${i * perSlide}s; }`,
-  ).join("\n");
-
-  return `
-/* ---- banner ad crossfade (generated for ${n} ads) ---- */
-@keyframes adbannerfade {
-  0% { opacity: 0; pointer-events: none; }
-  ${fadePct}% { opacity: 1; pointer-events: auto; }
-  ${slotPct}% { opacity: 1; pointer-events: auto; }
-  ${outPct}% { opacity: 0; pointer-events: none; }
-  100% { opacity: 0; pointer-events: none; }
-}
-.adbanner__slide { animation: adbannerfade ${total}s infinite; }
-${delays}
-@media (prefers-reduced-motion: reduce) {
-  .adbanner__slide { animation: none; opacity: 0; pointer-events: none; }
-  .adbanner__slide:first-child { opacity: 1; pointer-events: auto; }
-}
-`;
-}
-
-/** Round to 4 decimals, dropping any trailing zeros, so generated CSS stays tidy. */
-function round(n: number): number {
-  return Math.round(n * 10000) / 10000;
-}

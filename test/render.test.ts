@@ -22,6 +22,7 @@ import {
   OPINION_BANNER,
   OPINION_META_DESCRIPTION,
 } from "../src/render/templates.js";
+import { AD_ROTATOR_JS } from "../src/render/rotator.js";
 import type { Article } from "../src/articles.js";
 import type { ManifestRecord } from "../src/types.js";
 
@@ -470,11 +471,13 @@ const AD_A = {
   imageUrl: "https://cdn.test/ads/ad-01.png",
   href: "https://github.com/kbennett2000/slopify",
   alt: "Advertisement — github.com",
+  durationMs: 7000,
 };
 const AD_B = {
   imageUrl: "https://cdn.test/ads/ad-02.jpg",
   href: 'https://example.com/two?q="x"', // quote must be escaped in the href attribute
   alt: "Advertisement — example.com",
+  durationMs: 12000,
 };
 
 describe("renderSite — banner ads", () => {
@@ -482,7 +485,6 @@ describe("renderSite — banner ads", () => {
     const files = renderSite(records, OPTS);
     expect(files["index.html"]).not.toContain("adbanner");
     expect(files[`${sectionSlug("WORLD")}.html`]).not.toContain("adbanner");
-    expect(files["styles.css"]).not.toContain("@keyframes adbannerfade");
   });
 
   it("also omits the banner when ads is an empty array", () => {
@@ -520,18 +522,33 @@ describe("renderSite — banner ads", () => {
       expect(index).toContain("Advertisement");
     });
 
-    it("emits the generated crossfade keyframes into styles.css for >1 ad", () => {
+    it("carries each ad's configured duration as data-duration (ADR-0017)", () => {
+      expect(index).toContain('data-duration="7000"');
+      expect(index).toContain('data-duration="12000"');
+    });
+
+    it("ships the inline rotator script once per page, embedding the tested functions", () => {
+      expect(index).toContain(AD_ROTATOR_JS);
+      expect(index.split("function shuffleIndices").length - 1).toBe(1);
+      for (const c of PRESENT) {
+        expect(files[`${sectionSlug(c)}.html`]).toContain(AD_ROTATOR_JS);
+      }
+    });
+
+    it("emits only static rotation CSS — no generated keyframes (ADR-0017)", () => {
       const css = files["styles.css"];
-      expect(css).toContain("@keyframes adbannerfade");
-      expect(css).toContain(".adbanner__slide:nth-child(2)");
+      expect(css).not.toContain("adbannerfade");
+      expect(css).not.toContain("animation-delay");
+      expect(css).toContain(".adbanner__frame:not(.is-live) .adbanner__slide:first-child");
+      expect(css).toContain(".adbanner__slide.is-active");
       expect(css).toContain("prefers-reduced-motion");
     });
   });
 
-  it("renders a single ad statically — no crossfade keyframes", () => {
+  it("renders a single ad statically — no rotator script", () => {
     const files = renderSite(records, { ...OPTS, ads: [AD_A] });
     expect(files["index.html"]).toContain('class="adbanner"');
-    expect(files["styles.css"]).not.toContain("@keyframes adbannerfade");
+    expect(files["index.html"]).not.toContain("shuffleIndices");
   });
 });
 
@@ -572,9 +589,15 @@ describe("renderSite — per-story landing pages", () => {
       expect(page).toContain('rel="noopener noreferrer"');
     });
 
-    it("references the stylesheet from the parent dir (../styles.css)", () => {
-      expect(page).toContain('href="../styles.css"');
-      expect(page).not.toContain('href="styles.css"');
+    it("references the cache-busted stylesheet from the parent dir (ADR-0017)", () => {
+      expect(page).toMatch(/href="\.\.\/styles\.css\?v=[0-9a-z]+"/);
+      expect(page).not.toContain('href="styles.css');
+      // Root pages carry the SAME version (one hash of one sheet), just without the prefix.
+      const version = page.match(/href="\.\.\/styles\.css\?v=([0-9a-z]+)"/)?.[1];
+      expect(files["index.html"]).toContain(`href="styles.css?v=${version}"`);
+      // The hash is content-derived: no page may link the sheet un-versioned, or a browser's
+      // day-old cached copy would silently style fresh markup (the ADR-0017 failure class).
+      expect(files["index.html"]).not.toContain('href="styles.css"');
     });
 
     it("shows the headline, dek, and caption + studio credit", () => {
@@ -1146,7 +1169,9 @@ describe("renderSite — opinion section (ADR-0016)", () => {
 
   it("opinion cards: avatar byline row, internal same-tab link, truncated dek, column title for letters", () => {
     const page = files["opinion.html"];
-    expect(page).toContain('class="byline-opinion__avatar" src="https://cdn.test/headshots/alice.webp"');
+    expect(page).toContain(
+      'class="byline-opinion__avatar" src="https://cdn.test/headshots/alice.webp" width="48" height="48"',
+    );
     expect(page).toContain("Alice Brickland");
     expect(page).toContain('href="s/opinion-alice-2026-07-10.html"');
     // Internal link: the card anchor for the piece must NOT open a new tab. (Feed cards on
@@ -1159,6 +1184,19 @@ describe("renderSite — opinion section (ADR-0016)", () => {
     // Letters card shows the column title; desk byline is replaced on opinion cards.
     expect(page).toContain("Tom's Tech Corner");
     expect(page).not.toContain("By the Opinion Desk");
+  });
+
+  it("byline rows pin the 48px avatar attributes on cards AND piece pages (ADR-0017)", () => {
+    // Presentational size attributes survive a stale stylesheet and reserve layout (no CLS);
+    // the inline flex row is the wrapper's contract: avatar, then name, inside one div.
+    const row =
+      '<div class="byline byline--lead byline-opinion"><img class="byline-opinion__avatar" ' +
+      'src="https://cdn.test/headshots/alice.webp" width="48" height="48"';
+    expect(newsPage).toContain(row);
+    expect(files["opinion.html"]).toContain(
+      '<div class="byline byline-opinion"><img class="byline-opinion__avatar" ' +
+        'src="https://cdn.test/headshots/alice.webp" width="48" height="48"',
+    );
   });
 
   it("piece pages render the paragraphized body and the hero with caption credit", () => {

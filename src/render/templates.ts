@@ -15,11 +15,21 @@ import {
   buildXIntentUrl,
   escapeAttr,
   escapeHtml,
+  hashString,
   optimizedSrcset,
   optimizedUrl,
   sectionSlug,
   titleCase,
 } from "./format.js";
+import { AD_ROTATOR_JS } from "./rotator.js";
+import { STYLES } from "./styles.js";
+
+/**
+ * Cache-buster for the stylesheet link (ADR-0017): a content hash, so a CSS change
+ * propagates on the next HTML revalidation instead of waiting out the 24h asset cache,
+ * while hourly renders of an unchanged sheet keep the same URL.
+ */
+const CSS_VERSION = hashString(STYLES).toString(36);
 
 /**
  * Responsive image optimization settings threaded into the story templates (ADR-0012). Present
@@ -274,13 +284,14 @@ function bylineTail(ago: string): string {
  * when the headshot manifest has no entry — degraded upstream with a warning), the
  * persona's display name, and the column title for letters personas. Replaces the
  * decorative desk byline on opinion cards and piece pages. `extraClass` lets the
- * landing page keep its `byline--lead` sizing.
+ * landing page keep its `byline--lead` sizing. The avatar's 48px size is presentational
+ * attributes, not just CSS (ADR-0017): it survives a stale stylesheet and reserves layout.
  */
 function opinionBylineRow(view: StoryView, extraClass = ""): string {
   const o = view.opinion;
   if (!o) return "";
   const avatar = o.avatarUrl
-    ? `<img class="byline-opinion__avatar" src="${escapeAttr(o.avatarUrl)}" alt="" loading="lazy" decoding="async">`
+    ? `<img class="byline-opinion__avatar" src="${escapeAttr(o.avatarUrl)}" width="48" height="48" alt="" loading="lazy" decoding="async">`
     : "";
   const column = o.columnTitle
     ? ` &middot; <span class="byline-opinion__column">${escapeHtml(o.columnTitle)}</span>`
@@ -412,7 +423,8 @@ export function emptyState(message: string): string {
 /**
  * The rotating leaderboard banner, drawn once per page below the nav. Each ad is a link to
  * its outbound URL wrapping our own image (never a publisher's). With one ad it's static;
- * with several, the stylesheet's crossfade (see adAnimationCss in styles.ts) cycles them.
+ * with several, an inline script (AD_ROTATOR_JS, ADR-0017) shuffles the play order once
+ * per page load and crossfades through it, holding each slide for its `data-duration`.
  * Returns "" for an empty list, so a site with no ads simply renders no banner.
  *
  * `rel="noopener sponsored nofollow"` marks these as paid/creator links per web conventions;
@@ -423,15 +435,16 @@ export function adBanner(ads: AdView[]): string {
   const slides = ads
     .map(
       (ad) =>
-        `<a class="adbanner__slide" href="${escapeAttr(ad.href)}" target="_blank" rel="noopener sponsored nofollow">` +
+        `<a class="adbanner__slide" href="${escapeAttr(ad.href)}" data-duration="${ad.durationMs}" target="_blank" rel="noopener sponsored nofollow">` +
         `<img class="adbanner__img" src="${escapeAttr(ad.imageUrl)}" alt="${escapeAttr(ad.alt)}" loading="lazy" decoding="async"></a>`,
     )
     .join("");
+  const rotator = ads.length > 1 ? `\n    <script>${AD_ROTATOR_JS}</script>` : "";
   return `<div class="container">
     <aside class="adbanner" aria-label="Advertisement">
       <div class="adbanner__label">Advertisement</div>
       <div class="adbanner__frame">${slides}</div>
-    </aside>
+    </aside>${rotator}
   </div>`;
 }
 
@@ -580,7 +593,7 @@ export function pageShell(
 ${headExtra}<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..600&family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="${assetPrefix}styles.css">
+<link rel="stylesheet" href="${assetPrefix}styles.css?v=${CSS_VERSION}">
 </head>
 <body>
 ${bodyHtml}${analyticsSnippet(opts.analytics)}
