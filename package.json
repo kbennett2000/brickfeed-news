@@ -11,13 +11,15 @@
     "ageout": "tsx src/ageout-cli.ts",
     "render": "tsx src/render-cli.ts",
     "cycle": "tsx src/cycle-cli.ts",
+    "backfill-optimize": "tsx src/backfill-optimize.ts",
     "check:claude": "tsx scripts/check-claude-generator.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "fast-xml-parser": "^4.5.0",
-    "marked": "^18.0.6"
+    "marked": "^18.0.6",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

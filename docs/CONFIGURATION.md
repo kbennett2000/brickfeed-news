@@ -62,6 +62,9 @@ minimal config is valid. Only **`feedUrls`** and **`manifestPath`** are strictly
 | `image.grokTerminal.command` | string | `grok` | Executable for the keyless CLI `/imagine` path. |
 | `image.grokTerminal.args` | string[] | `[]` | Extra args passed to the CLI. |
 | `image.grokTerminal.timeoutMs` | number | `180000` | Per-story image timeout for the CLI path. |
+| `image.optimize.enabled` | boolean | `true` | Build-time bandwidth optimization: downscale + WebP re-encode every stored image (all providers; covers stories, ads, articles). Set `false` to store bytes verbatim. |
+| `image.optimize.maxEdge` | number | `1280` | Longest-edge cap in px; larger images are downscaled (smaller ones untouched). |
+| `image.optimize.quality` | number | `80` | WebP quality (1–100). |
 
 ### `storage` — durable image storage
 

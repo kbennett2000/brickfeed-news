@@ -9,6 +9,9 @@ import {
   DEFAULT_IMAGE_GROK_MODEL,
   DEFAULT_IMAGE_LOCAL_STYLE,
   DEFAULT_IMAGE_LOCAL_URL,
+  DEFAULT_IMAGE_OPTIMIZE_ENABLED,
+  DEFAULT_IMAGE_OPTIMIZE_MAX_EDGE,
+  DEFAULT_IMAGE_OPTIMIZE_QUALITY,
   DEFAULT_IMAGE_RESOLUTION,
   DEFAULT_MAX_AGE_HOURS,
   DEFAULT_MODEL,
@@ -135,6 +138,38 @@ describe("validateConfig", () => {
       url: DEFAULT_IMAGE_LOCAL_URL,
       style: DEFAULT_IMAGE_LOCAL_STYLE,
     });
+    expect(cfg.image.optimize).toEqual({
+      enabled: DEFAULT_IMAGE_OPTIMIZE_ENABLED,
+      maxEdge: DEFAULT_IMAGE_OPTIMIZE_MAX_EDGE,
+      quality: DEFAULT_IMAGE_OPTIMIZE_QUALITY,
+    });
+  });
+
+  it("defaults image.optimize to ON (enabled=true) when absent", () => {
+    const cfg = validateConfig(base);
+    expect(cfg.image.optimize.enabled).toBe(true);
+  });
+
+  it("accepts an explicit image.optimize block and defaults its fields per-field", () => {
+    const cfg = validateConfig({
+      ...base,
+      image: { provider: "grok-terminal", optimize: { enabled: false, maxEdge: 1024 } },
+    });
+    expect(cfg.image.optimize.enabled).toBe(false);
+    expect(cfg.image.optimize.maxEdge).toBe(1024);
+    expect(cfg.image.optimize.quality).toBe(DEFAULT_IMAGE_OPTIMIZE_QUALITY);
+  });
+
+  it("rejects invalid image.optimize values", () => {
+    expect(() =>
+      validateConfig({ ...base, image: { optimize: { enabled: "yes" } } }),
+    ).toThrow();
+    expect(() =>
+      validateConfig({ ...base, image: { optimize: { maxEdge: 0 } } }),
+    ).toThrow();
+    expect(() =>
+      validateConfig({ ...base, image: { optimize: { quality: 150 } } }),
+    ).toThrow();
   });
 
   it("accepts the 'local' image provider", () => {
