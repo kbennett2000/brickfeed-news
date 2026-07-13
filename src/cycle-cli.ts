@@ -11,7 +11,7 @@ import type { CycleDeps, DeployRunner, FetchLike } from "./types.js";
 /**
  * CLI entry for the full publish cycle (Slice 8, `npm run cycle`). Loads config.json, wires
  * the real boundaries (fetch, the CONFIGURED providers via their factories, the deploy
- * subprocess, and the filesystem IO), runs ingest → generate → image → ageout → opinions →
+ * subprocess, and the filesystem IO), runs ingest → generate → opinions → image → ageout →
  * render → deploy in one process, prints a per-stage summary, and exits non-zero on a hard stage
  * failure (so cron/monitoring catches it). Reads no environment (the secrets guardrail keeps
  * env in secrets.ts; the deploy runner's token comes from getVercelToken()).

@@ -45,12 +45,15 @@ export interface CycleOptions {
 }
 
 /**
- * Run one full publish cycle (Slice 8): ingest → generate → image+store → ageout →
- * opinions → render → deploy, in that exact order, calling the existing module functions
- * directly in one process. Every stage is already idempotent/never-throw at the STORY level, so a single
- * bad story just stays pending and the run continues. A STAGE hard-failure (a thrown
- * error — e.g. a disk write failing) is logged, aborts the run BEFORE deploy, and yields
- * `ok: false` (non-zero exit). Deploy is the last step and only runs when render produced
+ * Run one full publish cycle (Slice 8): ingest → generate → opinions → image+store →
+ * ageout → render → deploy, in that exact order (opinions before image per ADR-0016 d.5,
+ * so a fresh piece heroes and publishes the same cycle), calling the existing module
+ * functions directly in one process. Every stage is already idempotent/never-throw at the
+ * STORY level, so a single bad story just stays pending and the run continues. A STAGE
+ * hard-failure (a thrown error — e.g. a disk write failing) is logged, aborts the run
+ * BEFORE deploy, and yields `ok: false` (non-zero exit). The opinions stage additionally
+ * never throws AT ALL (internally tolerant) — an opinion problem must never break the
+ * news cycle. Deploy is the last step and only runs when render produced
  * a real site (the deploy module's guard enforces that too).
  *
  * All side-effects are injected via `deps` (clock, fetch, the three configured providers,
@@ -106,10 +109,10 @@ export async function runCycle(
     stages.headshots = "would check persona headshots (hash-gated; unchanged sources skip)";
     stages.ingest = `would fetch ${config.feedUrls.length} feed(s)`;
     stages.generate = `${pending} pending would be attempted`;
-    stages.image = `${eligibleImages} eligible would be attempted`;
-    stages.ageout = `${stale} stale would be dropped`;
     // Derivation only (pure + a disk read) — the cycle dry-run calls no providers, so
     // gate verdicts/selections are the standalone `npm run opinions -- --dry-run`'s job.
+    // Ordered before image to mirror the real pipeline (ADR-0016 d.5); eligibleImages
+    // counts the CURRENT manifest, so pieces this run would write aren't in it.
     try {
       const assets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
       const names = authorsFor(utcDateOf(now()), assets.personas).map((p) => p.name);
@@ -117,6 +120,8 @@ export async function runCycle(
     } catch (err) {
       stages.opinions = `would skip — ${errMsg(err)}`;
     }
+    stages.image = `${eligibleImages} eligible would be attempted`;
+    stages.ageout = `${stale} stale would be dropped`;
     stages.render = `${publishable} publishable would render → ${config.render.outputDir}/`;
     stages.deploy = !opts.deploy
       ? "would skip (--no-deploy)"
@@ -170,6 +175,31 @@ export async function runCycle(
       },
     },
     {
+      // Opinion generation (ADR-0015/0016): BEFORE the image stage, so a piece written
+      // this cycle heroes and publishes in the same cycle. Tolerant by construction —
+      // an opinion problem must never break the news cycle, so every failure collapses
+      // to a "skipped" summary instead of a throw (the pipeline loop aborts on throw).
+      // runOpinions isolates per-author failures internally; the catch is belt-and-braces
+      // around the asset read. No writePublished here: fresh pieces are image-less until
+      // the image stage runs, and it writes published.json itself.
+      name: "opinions",
+      run: async () => {
+        try {
+          const assets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
+          const r = await runOpinions(config, manifest, assets, {
+            generate: deps.textGenerator,
+            now,
+            log,
+          });
+          manifest = r.manifest;
+          await deps.io.writeManifest(config.manifestPath, manifest);
+          return summarizeOpinions(r);
+        } catch (err) {
+          return `skipped — ${errMsg(err)}`;
+        }
+      },
+    },
+    {
       name: "image",
       run: async () => {
         const r = await generateImages(
@@ -206,25 +236,6 @@ export async function runCycle(
       log(`[${iso()}] cycle: ${stage.name} hard-failed — ${msg}; aborting before deploy.`);
       return { ok: false, dryRun: false, failedStage: stage.name, stages };
     }
-  }
-
-  // Opinion generation (ADR-0015): tolerant like headshots — an opinion problem must
-  // never break the news cycle, so this never sets ok:false. runOpinions isolates
-  // per-author failures internally; the catch is belt-and-braces around the asset read.
-  // No writePublished: opinion records are image-less, hence never publishable yet.
-  log(`[${iso()}] cycle: opinions …`);
-  try {
-    const assets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
-    const r = await runOpinions(config, manifest, assets, {
-      generate: deps.textGenerator,
-      now,
-      log,
-    });
-    manifest = r.manifest;
-    await deps.io.writeManifest(config.manifestPath, manifest);
-    stages.opinions = summarizeOpinions(r);
-  } catch (err) {
-    stages.opinions = `skipped — ${errMsg(err)}`;
   }
 
   // Render consumes the final in-memory manifest directly (no read-back of published.json).

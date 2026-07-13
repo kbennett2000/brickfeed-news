@@ -96,9 +96,9 @@ describe("runCycle — full chain (happy path)", () => {
       "headshots",
       "ingest",
       "generate",
+      "opinions",
       "image",
       "ageout",
-      "opinions",
       "render",
       "deploy",
     ]);
@@ -202,9 +202,9 @@ describe("runCycle — flags", () => {
       "headshots",
       "ingest",
       "generate",
+      "opinions",
       "image",
       "ageout",
-      "opinions",
       "render",
       "deploy",
     ]);
@@ -283,7 +283,7 @@ describe("runCycle — headshots stage is tolerant", () => {
   });
 });
 
-describe("runCycle — opinions stage (ADR-0015) is tolerant and ordered before render", () => {
+describe("runCycle — opinions stage (ADR-0015/0016): tolerant, ordered before image", () => {
   // NOW (2026-07-10) is a Friday, rotation index 20644 % 3 = 1 → edgar+stryker, plus tom
   // (mon/wed/fri/sun letters schedule).
   const assets = {
@@ -311,27 +311,43 @@ describe("runCycle — opinions stage (ADR-0015) is tolerant and ordered before 
     expect(deployRun.calls).toHaveLength(1);
   });
 
-  it("runs the stage for real: gate fails closed on non-JSON, letters still publish, manifest persisted", async () => {
+  it("same-cycle hero: the letter piece publishes, images, and reaches the rendered site", async () => {
     const config = makeConfig();
-    // The default fakeTextGenerator returns a title+body piece — valid for tom's letter
-    // column, NOT valid JSON for the gate call → the gate fails closed and both news
-    // authors skip. That's the tolerant, isolated behavior in one run.
-    const { deps, io } = makeDeps(manifestOf(fullRecord("a")), {}, { personaAssets: assets });
+    // The piece impl is valid for tom's letter column but NOT valid JSON for the gate
+    // call → the gate fails closed and both news authors skip (isolated tolerance);
+    // the brief impl gives tom his hero prompt + caption (ADR-0016).
+    const textGenerator = fakeTextGenerator({
+      impl: (prompt) =>
+        prompt.includes("image brief")
+          ? JSON.stringify({ imagePrompt: "a park scene", caption: "A caption" })
+          : `A Test Title\n\n${"word ".repeat(350).trim()}`,
+    });
+    const { deps, io } = makeDeps(manifestOf(fullRecord("a")), { textGenerator }, {
+      personaAssets: assets,
+    });
 
     const result = await runCycle(config, deps, FULL);
 
     expect(result.ok).toBe(true);
     expect(result.stages.opinions).toBe("1 published, 2 skipped, 0 failed");
-    // The published letter piece landed in the persisted manifest, image-less.
+    // The piece carries its brief AND — because opinions now runs before the image
+    // stage (ADR-0016 d.5) — its hero, all within this one cycle.
     const saved = io.saved?.stories["opinion-tom-2026-07-10"];
     expect(saved).toBeDefined();
     expect(saved?.author).toBe("tom");
     expect(saved?.columnTitle).toBe("tom's Column");
-    expect(saved?.imageUrl).toBeUndefined();
-    // Opinions runs after ageout and before render (stage-key order is insertion order).
+    expect(saved?.imagePrompt).toBe("a park scene");
+    expect(saved?.wrappedPrompt).toContain("a park scene");
+    expect(saved?.caption).toBe("A caption");
+    expect(saved?.imageUrl).toBeTruthy();
+    // Publishable piece → the render emitted the Opinion section + the piece page.
+    const site = io.writes.find((w) => w.kind === "site");
+    expect(site?.files?.["opinion.html"]).toBeTruthy();
+    expect(site?.files?.["s/opinion-tom-2026-07-10.html"]).toBeTruthy();
+    // Opinions runs after generate and before image (stage-key order is insertion order).
     const keys = Object.keys(result.stages);
-    expect(keys.indexOf("opinions")).toBeGreaterThan(keys.indexOf("ageout"));
-    expect(keys.indexOf("opinions")).toBeLessThan(keys.indexOf("render"));
+    expect(keys.indexOf("opinions")).toBeGreaterThan(keys.indexOf("generate"));
+    expect(keys.indexOf("opinions")).toBeLessThan(keys.indexOf("image"));
   });
 });
 
