@@ -73,6 +73,50 @@ export interface StoryView {
    * share row is drawn.
    */
   shareUrl?: string;
+  /**
+   * Opinion-piece display info (ADR-0016), set by toStoryView for `author`-bearing records.
+   * Presence swaps the desk byline for the avatar byline row, adds the disclosure footers on
+   * the piece page, and prefixes the share meta. `bylineBlurb` is "" when the persona file is
+   * missing (the blurb footer is then omitted); `avatarUrl` is absent when the headshot
+   * manifest has no entry (the row renders without an avatar) — both warned upstream.
+   */
+  opinion?: {
+    displayName: string;
+    bylineBlurb: string;
+    /** True for a reader-letter column: adds the column title + the letters disclosure. */
+    letters: boolean;
+    columnTitle?: string;
+    avatarUrl?: string;
+  };
+}
+
+/**
+ * The Opinion page disclosure banner (ADR-0013 d.6, ADR-0016 d.6): hand-written,
+ * versioned, never model-generated. Changing this wording is an ADR-level decision.
+ */
+export const OPINION_BANNER =
+  "The opinions expressed on this page are nothing more than the collective hallucinations " +
+  "of a delusional AI trying to read human news.";
+
+/**
+ * The letters-column disclosure line (ADR-0014 d.6) — the ONE versioned definition;
+ * rendered under every reader-letter piece in addition to the author's byline_blurb.
+ */
+export const LETTERS_DISCLOSURE =
+  "Reader letters are as fictional as the columnists. Linda does not exist. No one is " +
+  "writing to Tom.";
+
+/** The static meta description on opinion.html (ADR-0016 d.6): the page is AI satire. */
+export const OPINION_META_DESCRIPTION =
+  "The brickfeed Opinion section: AI-generated satire. Every columnist is a fictional AI " +
+  "persona; every opinion is a machine hallucination, not a human view.";
+
+/**
+ * The share-meta disclosure prefix for opinion piece pages (ADR-0013 d.6): always the
+ * FRONT of og:description/twitter:description, so platform truncation can never remove it.
+ */
+export function opinionMetaPrefix(displayName: string): string {
+  return `Unhinged rantings of a delusional bot named ${displayName}`;
 }
 
 /** Italic descriptor shown under a section masthead. Preserves the design's deadpan tone. */
@@ -225,6 +269,26 @@ function bylineTail(ago: string): string {
   return ago ? ` &middot; ${escapeHtml(ago)}` : "";
 }
 
+/**
+ * The signed byline row for an opinion piece (ADR-0016 d.7): avatar thumbnail (omitted
+ * when the headshot manifest has no entry — degraded upstream with a warning), the
+ * persona's display name, and the column title for letters personas. Replaces the
+ * decorative desk byline on opinion cards and piece pages. `extraClass` lets the
+ * landing page keep its `byline--lead` sizing.
+ */
+function opinionBylineRow(view: StoryView, extraClass = ""): string {
+  const o = view.opinion;
+  if (!o) return "";
+  const avatar = o.avatarUrl
+    ? `<img class="byline-opinion__avatar" src="${escapeAttr(o.avatarUrl)}" alt="" loading="lazy" decoding="async">`
+    : "";
+  const column = o.columnTitle
+    ? ` &middot; <span class="byline-opinion__column">${escapeHtml(o.columnTitle)}</span>`
+    : "";
+  const cls = extraClass ? `byline ${extraClass} byline-opinion` : "byline byline-opinion";
+  return `<div class="${cls}">${avatar}<span class="byline-opinion__name">${escapeHtml(o.displayName)}</span>${column}${bylineTail(view.ago)}</div>`;
+}
+
 /** The utility strip: dateline + time-of-day edition (no Search / Subscribe / Today's Paper). */
 export function utilityStrip(dateStr: string, edition: string): string {
   return `<div class="utility">
@@ -298,13 +362,17 @@ export function railStory(view: StoryView, opts: StoryRenderOpts = {}): string {
 
 /** One grid card (home "Across the Brickyard" + section grids). */
 export function card(view: StoryView, opts: StoryRenderOpts = {}): string {
+  // Opinion pieces swap the decorative desk byline for the signed byline row (ADR-0016).
+  const byline = view.opinion
+    ? opinionBylineRow(view)
+    : `<div class="byline">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>`;
   const link = `<a ${storyLinkAttrs(view.url, "card", view.local)}>
         ${figure(view, "card", opts)}
         <div class="card__body">
           <div class="kicker kicker--sm">${escapeHtml(view.kicker)}</div>
           <h3 class="card__headline">${escapeHtml(view.headline)}</h3>
           <p class="dek">${escapeHtml(view.description)}</p>
-          <div class="byline">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>
+          ${byline}
         </div>
       </a>`;
   return withShare(link, storyShare(view, opts));
@@ -585,9 +653,14 @@ export function renderLandingPage(
     share?: { handle?: string; hashtags?: string[] };
   },
 ): string {
+  // Opinion pieces prefix the share meta with the bot disclosure (ADR-0013 d.6) — prefix
+  // FIRST so platform truncation eats the excerpt tail, never the disclosure.
+  const metaDescription = view.opinion
+    ? `${opinionMetaPrefix(view.opinion.displayName)} — ${view.description}`
+    : view.description;
   const meta = cardMeta({
     title: view.headline,
-    description: view.description,
+    description: metaDescription,
     pageUrl: opts.pageUrl,
     imageUrl: view.imageUrl,
     twitterSite: opts.twitterSite,
@@ -596,11 +669,27 @@ export function renderLandingPage(
   // article. Its shareUrl IS this page's own absolute URL (opts.pageUrl).
   const storyOpts: StoryRenderOpts = { imageOptimize: opts.imageOptimize, share: opts.share };
   const shareRow = storyShare({ ...view, shareUrl: opts.pageUrl }, storyOpts);
-  // Local article: byline then its own hosted body, no outbound CTA. Feed story: dek, byline,
-  // then a prominent read-at-source link (unchanged from ADR-0009).
+  // Opinion piece pages footer the author's byline_blurb, plus the letters disclosure
+  // for reader-letter columns (ADR-0016 d.6). A missing persona file yields "" for the
+  // blurb — that <p> is omitted; the letters line keys off the persisted record signal.
+  const disclosure = view.opinion
+    ? `<div class="landing__disclosure">` +
+      (view.opinion.bylineBlurb
+        ? `<p class="landing__blurb">${escapeHtml(view.opinion.bylineBlurb)}</p>`
+        : "") +
+      (view.opinion.letters
+        ? `<p class="landing__letters">${escapeHtml(LETTERS_DISCLOSURE)}</p>`
+        : "") +
+      `</div>`
+    : "";
+  const localByline = view.opinion
+    ? opinionBylineRow(view, "byline--lead")
+    : `<div class="byline byline--lead">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>`;
+  // Local article / opinion piece: byline then its own hosted body, no outbound CTA. Feed
+  // story: dek, byline, then a prominent read-at-source link (unchanged from ADR-0009).
   const tail = view.local
-    ? `<div class="byline byline--lead">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>
-        <div class="landing__body">${view.bodyHtml ?? ""}</div>`
+    ? `${localByline}
+        <div class="landing__body">${view.bodyHtml ?? ""}</div>${disclosure}`
     : `<p class="dek landing__dek">${escapeHtml(view.description)}</p>
         <div class="byline byline--lead">${escapeHtml(view.byline)} &middot; ${escapeHtml(view.ago)}</div>
         <a class="landing__cta" href="${escapeAttr(view.url)}" target="_blank" rel="noopener noreferrer">Read the full story at the source &rarr;</a>`;

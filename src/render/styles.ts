@@ -327,6 +327,32 @@ img { max-width: 100%; display: block; }
 .landing__body blockquote { margin: 1.2em 0; padding-left: 1em; border-left: 3px solid var(--hairline); color: var(--muted); font-style: italic; }
 .landing__body img { max-width: 100%; height: auto; }
 
+/* ---- Opinion section (ADR-0016): banner, signed byline row, piece disclosures ---- */
+.opinion-banner { margin: 0 0 22px; }
+.opinion-banner__text {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink-60);
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  padding: 12px 0;
+  margin: 0;
+}
+.byline-opinion { display: flex; align-items: center; gap: 8px; }
+.byline-opinion__avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex: none; }
+.byline-opinion__name { color: var(--ink-60); }
+.landing__disclosure { margin-top: 28px; border-top: 1px solid var(--hairline); padding-top: 14px; }
+.landing__blurb, .landing__letters {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--faint);
+  margin: 0 0 0.6em;
+}
+
 .sharesheet__main { max-width: 820px; padding-bottom: 60px; }
 .sharesheet__title {
   font-family: var(--display);

@@ -235,3 +235,34 @@ export function truncateForTweet(headline: string, max: number): string {
   if (max <= 1) return max <= 0 ? "" : "…";
   return `${headline.slice(0, max - 1).trimEnd()}…`;
 }
+
+/**
+ * A card/meta excerpt of long body text (ADR-0016): whitespace runs collapse to single
+ * spaces, then the text is cut at the last word boundary before `max` with a single "…"
+ * appended (the ellipsis counts toward `max`, like truncateForTweet). Short input passes
+ * through unchanged. Opinion pieces store their FULL body in `description` (ADR-0015),
+ * so cards and og/twitter descriptions run through this instead of shipping 500 words.
+ */
+export function excerpt(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  if (max <= 1) return max <= 0 ? "" : "…";
+  const slice = flat.slice(0, max - 1);
+  const lastSpace = slice.lastIndexOf(" ");
+  return `${(lastSpace > 0 ? slice.slice(0, lastSpace) : slice).trimEnd()}…`;
+}
+
+/**
+ * Render plain model-generated text as escaped HTML paragraphs (ADR-0016): blank lines
+ * split paragraphs, single newlines inside a paragraph collapse to spaces, and every
+ * paragraph is HTML-escaped. Deliberately NOT the markdown pipeline — `renderMarkdown`
+ * is reserved for trusted operator-authored articles; opinion bodies are model output.
+ */
+export function paragraphize(text: string): string {
+  return text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim().replace(/\s*\n\s*/g, " "))
+    .filter((p) => p.length > 0)
+    .map((p) => `<p>${escapeHtml(p)}</p>`)
+    .join("");
+}

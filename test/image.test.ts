@@ -71,6 +71,30 @@ describe("generateImages", () => {
     expect(result.manifest.stories.a.imageStoredAt).toBe(NOW);
   });
 
+  it("picks up an opinion record purely via wrappedPrompt — zero special-casing (ADR-0016)", async () => {
+    const provider = fakeImageProvider({});
+    const storage = fakeStorageProvider();
+    // An opinion piece (ADR-0015 shape): dashed non-hex id, author set, wrappedPrompt present.
+    const piece: ManifestRecord = {
+      ...eligible("opinion-alice-2026-07-13"),
+      url: "",
+      sourceName: "",
+      category: "OPINION",
+      author: "alice",
+      caption: "A wry caption",
+    };
+
+    const result = await generateImages(config, manifestOf(piece), depsWith(provider, storage));
+
+    expect(result.stored).toEqual(["opinion-alice-2026-07-13"]);
+    expect(provider.calls).toEqual(["TEST-STYLE Scene: opinion-alice-2026-07-13"]);
+    // The dashed id flows into the storage key verbatim.
+    expect(storage.puts.map((p) => p.id)).toEqual(["opinion-alice-2026-07-13"]);
+    expect(result.manifest.stories["opinion-alice-2026-07-13"].imageUrl).toBe(
+      "https://cdn.test/opinion-alice-2026-07-13.png",
+    );
+  });
+
   it("does not mutate the starting manifest", async () => {
     const provider = fakeImageProvider({});
     const storage = fakeStorageProvider();

@@ -11,13 +11,19 @@
 import type { AdView } from "../ads.js";
 import type { Article } from "../articles.js";
 import { CATEGORIES, type Category, normalizeCategory } from "../category.js";
+import type { HeadshotManifest } from "../headshots.js";
+import type { Persona } from "../personas.js";
 import type { ManifestRecord } from "../types.js";
 import {
   bylineFor,
+  escapeAttr,
+  escapeHtml,
+  excerpt,
   relativeTime,
   formatMastheadDate,
   editionLabel,
   hashString,
+  paragraphize,
   sectionSlug,
   storyPageUrl,
   titleCase,
@@ -41,6 +47,8 @@ import {
   type ImageOptimizeRender,
   leadStory,
   masthead,
+  OPINION_BANNER,
+  OPINION_META_DESCRIPTION,
   pageShell,
   railStory,
   renderAbout,
@@ -102,6 +110,51 @@ export interface RenderOptions {
    * `<img src=blobUrl>` (byte-identical) and no `images` block is written to `vercel.json`.
    */
   imageOptimize?: ImageOptimizeOptions;
+  /**
+   * Opinion author directory (ADR-0016): persona name → display info, resolved by the writers
+   * via buildAuthorDirectory (personas + data/headshots.json). Absent/missing entries degrade
+   * gracefully — the byline row falls back to the record's raw author name, no avatar.
+   */
+  authors?: Record<string, AuthorInfo>;
+  /**
+   * Degradation warnings (missing persona / missing headshot entry). Default noop — the core
+   * stays pure; the writers pass console.warn / the cycle log.
+   */
+  log?: (message: string) => void;
+}
+
+/** Display info for one opinion author, resolved from personas + the headshot manifest. */
+export interface AuthorInfo {
+  displayName: string;
+  bylineBlurb: string;
+  source: "news" | "letters";
+  columnTitle?: string;
+  avatarUrl?: string;
+}
+
+/**
+ * Resolve the opinion author directory (ADR-0016): every loaded persona keyed by name,
+ * with its avatar URL when `data/headshots.json` has an entry. Pure — the writers do the
+ * two reads and pass the results in; a persona with no headshot entry simply has no
+ * `avatarUrl` (the byline row degrades; toStoryView warns).
+ */
+export function buildAuthorDirectory(
+  personas: Persona[],
+  headshots: HeadshotManifest,
+): Record<string, AuthorInfo> {
+  const directory: Record<string, AuthorInfo> = {};
+  for (const p of personas) {
+    directory[p.name] = {
+      displayName: p.displayName,
+      bylineBlurb: p.bylineBlurb,
+      source: p.source,
+      ...(p.columnTitle !== undefined ? { columnTitle: p.columnTitle } : undefined),
+      ...(headshots.headshots[p.name]?.avatarUrl
+        ? { avatarUrl: headshots.headshots[p.name].avatarUrl }
+        : undefined),
+    };
+  }
+  return directory;
 }
 
 /** Image-optimization inputs threaded from config (ADR-0012): srcset widths/quality + Blob host. */
@@ -120,15 +173,29 @@ export interface ShareOptions {
   hashtags?: string[];
 }
 
+/** Card/meta excerpt budget for opinion pieces, whose `description` is the full body. */
+export const OPINION_EXCERPT_MAX = 240;
+
 /**
  * Reduce a persisted ManifestRecord to the display view a template consumes. Tolerant of
  * missing optional fields (degrade gracefully — a publishable record has them all, but the
  * render never crashes on a partial one): headline falls back to the raw title, category is
  * normalized to a valid enum value, text fields default to empty.
+ *
+ * An `author`-bearing record is an opinion piece (ADR-0016): it links internally to its
+ * own `s/<id>.html` page like a local article (`local: true`, body paragraphized from the
+ * stored plain text), its card/meta description is a bounded excerpt of the full body, and
+ * `view.opinion` carries the byline-row/disclosure info resolved from `authors`. Missing
+ * directory data degrades — raw author name, no avatar, no blurb — with a warning to `log`.
  */
-export function toStoryView(record: ManifestRecord, now: Date): StoryView {
+export function toStoryView(
+  record: ManifestRecord,
+  now: Date,
+  authors?: Record<string, AuthorInfo>,
+  log?: (message: string) => void,
+): StoryView {
   const kicker = normalizeCategory(record.category);
-  return {
+  const view: StoryView = {
     url: record.url ?? "",
     kicker,
     headline: record.headline ?? record.title ?? "",
@@ -138,6 +205,31 @@ export function toStoryView(record: ManifestRecord, now: Date): StoryView {
     ago: relativeTime(record.firstSeen ?? "", now),
     imageUrl: record.imageUrl,
   };
+  if (record.author) {
+    const info = authors?.[record.author];
+    if (!info) {
+      log?.(`render: opinion author "${record.author}" has no loaded persona — degrading byline`);
+    } else if (!info.avatarUrl) {
+      log?.(
+        `render: opinion author "${record.author}" has no headshot manifest entry — ` +
+          "rendering without avatar",
+      );
+    }
+    view.url = `s/${record.id}.html`;
+    view.local = true;
+    view.bodyHtml = paragraphize(record.description ?? "");
+    view.description = excerpt(record.description ?? "", OPINION_EXCERPT_MAX);
+    view.opinion = {
+      displayName: info?.displayName ?? record.author,
+      bylineBlurb: info?.bylineBlurb ?? "",
+      // The persisted record signal wins over directory lookup: a letters piece stays a
+      // letters piece (column title + letters disclosure) even if the persona file moved.
+      letters: !!record.columnTitle,
+      ...(record.columnTitle !== undefined ? { columnTitle: record.columnTitle } : undefined),
+      ...(info?.avatarUrl ? { avatarUrl: info.avatarUrl } : undefined),
+    };
+  }
+  return view;
 }
 
 /**
@@ -264,18 +356,32 @@ function renderSection(
 ): string {
   const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(sections, category) + banner;
 
+  // The Opinion page carries its verbatim disclosure banner (ADR-0016 d.6) right under the
+  // section masthead, and — uniquely among section pages — a static meta description naming
+  // the page as AI satire. Both fire ONLY for OPINION so every other page stays byte-identical.
+  const opinionBanner =
+    category === "OPINION"
+      ? `<div class="container opinion-banner"><p class="opinion-banner__text">${escapeHtml(OPINION_BANNER)}</p></div>`
+      : "";
+  const headExtra =
+    category === "OPINION"
+      ? `<meta name="description" content="${escapeAttr(OPINION_META_DESCRIPTION)}">`
+      : undefined;
+
   // Defensive only: renderSite never calls this with an empty section (ADR-0013 omits those
   // pages entirely), but the module stays total if a future caller does.
   const content = secViews.length
     ? sectionHead(category, secViews.length) +
+      opinionBanner +
       `<div class="container section-grid"><div class="cards cards--section">${secViews
         .map((v) => card(v, storyOpts))
         .join("")}</div></div>`
     : sectionHead(category, 0) +
+      opinionBanner +
       emptyState(`No ${titleCase(category)} stories have been bricked yet.`);
 
   const body = chrome + `<main>${content}</main>` + footer(sections);
-  return pageShell(`${titleCase(category)} — brickfeed`, body, { analytics });
+  return pageShell(`${titleCase(category)} — brickfeed`, body, { analytics, headExtra });
 }
 
 /**
@@ -300,7 +406,7 @@ export function renderSite(
   const tz = opts.timeZone ?? "UTC";
   const dateStr = formatMastheadDate(opts.now, tz);
   const edition = editionLabel(opts.now, tz);
-  const views = records.map((r) => toStoryView(r, opts.now));
+  const views = records.map((r) => toStoryView(r, opts.now, opts.authors, opts.log));
   // Attach each story's absolute landing URL so the per-story share buttons (ADR-0012) can be
   // drawn wherever the view is rendered (cover, section, landing). Same value the share sheet uses.
   records.forEach((r, i) => {
@@ -341,8 +447,13 @@ export function renderSite(
   ]);
   const presentSections: Category[] = CATEGORIES.filter((c) => presentSet.has(c));
 
+  // Homepage exclusion (ADR-0016 d.4): opinion pieces render ONLY in the Opinion section —
+  // never on the cover. The kicker check is belt-and-braces for a hypothetical authorless
+  // OPINION record. Section pages need no filter: their per-kicker split already isolates
+  // opinion to opinion.html. Landing pages + sitemap use the unfiltered `views`/`records`.
+  const coverBase = views.filter((v) => !v.opinion && v.kicker !== "OPINION");
   const coverViews = insertRanked(
-    views,
+    coverBase,
     articleViews.map(({ article, view }) => ({ id: article.id, rank: article.mainRank, view })),
     seed,
   );

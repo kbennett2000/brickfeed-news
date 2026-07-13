@@ -1,20 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "../src/category.js";
-import { renderSite, staleSectionPages } from "../src/render/index.js";
+import { type AuthorInfo, renderSite, staleSectionPages } from "../src/render/index.js";
 import {
   buildLinkedInIntentUrl,
   buildXIntentUrl,
   bylineFor,
   editionForHour,
   editionLabel,
+  excerpt,
   formatMastheadDate,
   optimizedSrcset,
   optimizedUrl,
+  paragraphize,
   relativeTime,
   sectionSlug,
   storyPageUrl,
   truncateForTweet,
 } from "../src/render/format.js";
+import {
+  LETTERS_DISCLOSURE,
+  OPINION_BANNER,
+  OPINION_META_DESCRIPTION,
+} from "../src/render/templates.js";
 import type { Article } from "../src/articles.js";
 import type { ManifestRecord } from "../src/types.js";
 
@@ -1031,5 +1038,187 @@ describe("optimizedUrl / optimizedSrcset (ADR-0012)", () => {
       `/_vercel/image?url=${encodeURIComponent("https://cdn.test/x.png")}&w=320&q=75 320w, ` +
         `/_vercel/image?url=${encodeURIComponent("https://cdn.test/x.png")}&w=640&q=75 640w`,
     );
+  });
+});
+
+describe("renderSite — opinion section (ADR-0016)", () => {
+  const BODY_TAIL = "This final sentence is the tail that the excerpt must cut away entirely.";
+  const LONG_BODY =
+    "The first paragraph of the piece considers the news with the gravity it plainly does " +
+    "not deserve, and it does so at considerable length so that the card excerpt has " +
+    "something real to truncate against its fixed character budget.\n\n" +
+    `A second paragraph follows after a blank line. ${BODY_TAIL}`;
+
+  /** A publishable opinion piece (author-bearing, ADR-0015/0016 record shape). */
+  function orec(over: Partial<ManifestRecord> & { id: string; author: string }): ManifestRecord {
+    return rec({
+      url: "",
+      sourceName: "",
+      category: "OPINION",
+      headline: `Opinion Headline ${over.id}`,
+      description: LONG_BODY,
+      caption: `A wry caption for ${over.id}`,
+      ...over,
+    });
+  }
+
+  const news = orec({
+    id: "opinion-alice-2026-07-10",
+    author: "alice",
+    firstSeen: "2026-07-10T09:00:00.000Z",
+  });
+  const letters = orec({
+    id: "opinion-tom-2026-07-10",
+    author: "tom",
+    columnTitle: "Tom's Tech Corner",
+    firstSeen: "2026-07-10T09:30:00.000Z",
+  });
+
+  const AUTHORS: Record<string, AuthorInfo> = {
+    alice: {
+      displayName: "Alice Brickland",
+      bylineBlurb:
+        "Alice is a bot struggling to make sense of a human world. She may be 1's and 0's, " +
+        "but deep down inside she's just as confused as the rest of us.",
+      source: "news",
+      avatarUrl: "https://cdn.test/headshots/alice.webp",
+    },
+    tom: {
+      displayName: "Tom Bricker",
+      bylineBlurb: "Tom is a large language model who believes he owns a soldering iron.",
+      source: "letters",
+      columnTitle: "Tom's Tech Corner",
+      avatarUrl: "https://cdn.test/headshots/tom.webp",
+    },
+  };
+
+  const warnings: string[] = [];
+  const OOPTS = { ...OPTS, authors: AUTHORS, log: (m: string) => warnings.push(m) };
+  const files = renderSite([...records, news, letters], OOPTS);
+  const newsPage = files["s/opinion-alice-2026-07-10.html"];
+  const lettersPage = files["s/opinion-tom-2026-07-10.html"];
+
+  it("DISCLOSURE GATE: opinion.html carries the banner verbatim; other pages do not", () => {
+    expect(files["opinion.html"]).toContain(OPINION_BANNER);
+    expect(files["index.html"]).not.toContain(OPINION_BANNER);
+    expect(files["world.html"]).not.toContain(OPINION_BANNER);
+  });
+
+  it("DISCLOSURE GATE: opinion.html carries the static AI-satire meta description; other section pages carry none", () => {
+    expect(files["opinion.html"]).toContain(
+      `<meta name="description" content="${OPINION_META_DESCRIPTION}">`,
+    );
+    // Byte-parity guard: no other section page gained a meta description.
+    expect(files["world.html"]).not.toContain('name="description"');
+    expect(files["index.html"]).not.toContain('name="description"');
+  });
+
+  it("DISCLOSURE GATE: a news-persona piece footers the byline_blurb verbatim, without the letters line", () => {
+    expect(newsPage).toContain(AUTHORS.alice.bylineBlurb);
+    expect(newsPage).toContain("landing__blurb");
+    expect(newsPage).not.toContain("Linda does not exist");
+  });
+
+  it("DISCLOSURE GATE: a letters piece footers the blurb AND the letters constant, plus its column title", () => {
+    expect(lettersPage).toContain("landing__blurb");
+    expect(lettersPage).toContain(LETTERS_DISCLOSURE);
+    expect(lettersPage).toContain("Tom's Tech Corner");
+    expect(newsPage).not.toContain(LETTERS_DISCLOSURE);
+  });
+
+  it("DISCLOSURE GATE: og/twitter descriptions on a piece page START with the bot prefix", () => {
+    const prefix = `Unhinged rantings of a delusional bot named Alice Brickland — `;
+    expect(newsPage).toContain(`<meta property="og:description" content="${prefix}`);
+    expect(newsPage).toContain(`<meta name="twitter:description" content="${prefix}`);
+    // …and the tail sentence was excerpted away, so truncation can only ever eat excerpt.
+    expect(newsPage).not.toContain(`content="${BODY_TAIL}`);
+  });
+
+  it("EXCLUSION GATE: the homepage contains zero opinion content but does link the Opinion section", () => {
+    const index = files["index.html"];
+    expect(index).not.toContain("Opinion Headline");
+    expect(index).not.toContain('href="s/opinion-');
+    expect(index).not.toContain("byline-opinion");
+    expect(index).toContain('href="opinion.html"'); // nav gained the section
+    // No other section page carries the pieces either.
+    expect(files["world.html"]).not.toContain("Opinion Headline");
+  });
+
+  it("opinion cards: avatar byline row, internal same-tab link, truncated dek, column title for letters", () => {
+    const page = files["opinion.html"];
+    expect(page).toContain('class="byline-opinion__avatar" src="https://cdn.test/headshots/alice.webp"');
+    expect(page).toContain("Alice Brickland");
+    expect(page).toContain('href="s/opinion-alice-2026-07-10.html"');
+    // Internal link: the card anchor for the piece must NOT open a new tab. (Feed cards on
+    // other pages still do; this page has only opinion cards.)
+    const cardAnchor = page.match(/<a class="card" href="s\/opinion-alice[^>]*>/)?.[0] ?? "";
+    expect(cardAnchor).not.toContain("target=");
+    // The dek is the bounded excerpt: ellipsis present, tail sentence gone.
+    expect(page).toContain("…</p>");
+    expect(page).not.toContain(BODY_TAIL);
+    // Letters card shows the column title; desk byline is replaced on opinion cards.
+    expect(page).toContain("Tom's Tech Corner");
+    expect(page).not.toContain("By the Opinion Desk");
+  });
+
+  it("piece pages render the paragraphized body and the hero with caption credit", () => {
+    expect(newsPage).toContain("<p>The first paragraph of the piece");
+    expect(newsPage).toContain(`<p>A second paragraph follows after a blank line. ${BODY_TAIL}</p>`);
+    expect(newsPage).not.toContain("Read the full story at the source"); // no outbound CTA
+    expect(newsPage).toContain('src="https://cdn.test/opinion-alice-2026-07-10.png"');
+    expect(newsPage).toContain("A wry caption for opinion-alice-2026-07-10");
+    expect(newsPage).toContain("/ BRICKFEED STUDIO");
+  });
+
+  it("sitemap keeps the opinion section page and piece URLs (ADR-0016 d.4)", () => {
+    expect(files["sitemap.xml"]).toContain(`${SITE_BASE_URL}/opinion.html`);
+    expect(files["sitemap.xml"]).toContain(`${SITE_BASE_URL}/s/opinion-alice-2026-07-10.html`);
+    expect(files["sitemap.xml"]).toContain(`${SITE_BASE_URL}/s/opinion-tom-2026-07-10.html`);
+  });
+
+  it("avatar fallback: a missing headshot entry renders without the avatar img and warns", () => {
+    const warned: string[] = [];
+    const noAvatar: Record<string, AuthorInfo> = {
+      alice: { ...AUTHORS.alice, avatarUrl: undefined },
+    };
+    const out = renderSite([news], { ...OPTS, authors: noAvatar, log: (m) => warned.push(m) });
+    const page = out["opinion.html"];
+    expect(page).toContain("Alice Brickland"); // row still renders
+    expect(page).not.toContain("byline-opinion__avatar");
+    expect(warned.some((m) => m.includes("no headshot manifest entry"))).toBe(true);
+  });
+
+  it("persona fallback: an unknown author renders with the raw name, no blurb footer, and warns", () => {
+    const warned: string[] = [];
+    const out = renderSite([news], { ...OPTS, authors: {}, log: (m) => warned.push(m) });
+    expect(out["opinion.html"]).toContain(">alice</span>"); // raw record.author as display name
+    expect(out["s/opinion-alice-2026-07-10.html"]).not.toContain("landing__blurb");
+    expect(warned.some((m) => m.includes("no loaded persona"))).toBe(true);
+  });
+
+  it("never contains the trademark, case-insensitive, in any opinion-render output file", () => {
+    for (const file of Object.values(files)) {
+      expect(file.toLowerCase()).not.toContain("lego");
+    }
+  });
+});
+
+describe("format helpers — excerpt + paragraphize (ADR-0016)", () => {
+  it("excerpt passes short text through and cuts long text at a word boundary with …", () => {
+    expect(excerpt("Short and sweet.", 50)).toBe("Short and sweet.");
+    const out = excerpt("alpha beta gamma delta epsilon", 15);
+    expect(out).toBe("alpha beta…");
+    expect(out.length).toBeLessThanOrEqual(15);
+    expect(excerpt("", 10)).toBe("");
+    expect(excerpt("anything", 0)).toBe("");
+  });
+
+  it("excerpt collapses whitespace runs (newlines included) before measuring", () => {
+    expect(excerpt("one\n\ntwo\n three", 100)).toBe("one two three");
+  });
+
+  it("paragraphize escapes HTML, splits on blank lines, and joins inner newlines", () => {
+    expect(paragraphize("a <b> c\n\nsecond\npara")).toBe("<p>a &lt;b&gt; c</p><p>second para</p>");
+    expect(paragraphize("  \n \n ")).toBe("");
   });
 });
