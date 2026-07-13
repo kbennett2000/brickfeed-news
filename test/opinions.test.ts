@@ -288,6 +288,14 @@ describe("prompt assembly + output contract", () => {
       title: "The Title",
       body: "The body.",
     });
+    // Models like to dress the title line up — wrapping bold/quotes are stripped …
+    expect(splitTitleBody("**The Casserole Reckoning**\n\nBody.")?.title).toBe(
+      "The Casserole Reckoning",
+    );
+    expect(splitTitleBody('"Quoted Title"\n\nBody.')?.title).toBe("Quoted Title");
+    // … but interior markup and unbalanced wrappers are left alone.
+    expect(splitTitleBody("Stars * Among * Us\n\nBody.")?.title).toBe("Stars * Among * Us");
+    expect(splitTitleBody('"Unbalanced opener\n\nBody.')?.title).toBe('"Unbalanced opener');
     expect(splitTitleBody("just one line, no body")).toBeNull();
     expect(splitTitleBody("Title\n\n   ")).toBeNull();
     expect(splitTitleBody("")).toBeNull();

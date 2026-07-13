@@ -300,8 +300,9 @@ export function buildOpinionPrompt(
 
 /**
  * Split a completion into its title line and body per the output contract (first line =
- * title, rest = body). Strips a leading markdown-heading marker from the title. Null when
- * either part is empty — the caller fails that author rather than storing a half piece.
+ * title, rest = body). Strips markdown dressing models add to titles (heading markers,
+ * wrapping emphasis, wrapping quotes). Null when either part is empty — the caller fails
+ * that author rather than storing a half piece.
  */
 export function splitTitleBody(text: string): { title: string; body: string } | null {
   const trimmed = text.trim();
@@ -310,6 +311,7 @@ export function splitTitleBody(text: string): { title: string; body: string } | 
   const title = trimmed
     .slice(0, newline)
     .replace(/^#+\s*/, "")
+    .replace(/^(\*{1,3}|_{1,3}|["'“”]+)(.*?)(\1|["'“”]+)$/u, "$2")
     .trim();
   const body = trimmed.slice(newline + 1).trim();
   if (title.length === 0 || body.length === 0) return null;
