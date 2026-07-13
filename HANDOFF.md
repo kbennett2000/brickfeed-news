@@ -1,5 +1,46 @@
 # Handoff
 
+## Opinion personas: voice assets + bench harness (branch `feat/opinion-personas-bench`)
+
+The six ADR-0013 persona prompt assets now exist under `personas/` — `_shared.md` (the REGISTER +
+GUARDRAILS block prepended to every opinion prompt; register decision since the ADR: personas are
+over-the-top SELF-caricatures, the joke lands on the author, never on the people in the news) plus
+`{alice,bob,edgar,stryker,larry,cynthia}.md`, each with front-matter (`name`, `display_name`,
+`byline_blurb`, `selection_bias`) and a voice prompt (worldview / comedy engine / exaggeration
+anchor / signature moves / hard rules). **The byline blurbs are human-owned draft copy committed
+verbatim — flagged for edit.** No pipeline wiring, no site/config/cron changes, no publishing.
+
+What landed in code:
+
+- `src/personas.ts` — hand-rolled front-matter parser (`parsePersona`, strict: null on missing
+  field, non-CATEGORIES `selection_bias` key, or bad weight — typos fail loudly, never launder
+  into WORLD) + tolerant `loadPersonas` (log-and-skip, `_`-prefix excluded, front-matter `name`
+  must equal the file basename). Mirrors `articles.ts`.
+- `src/generator/text.ts` — free-form text seam over the SAME provider abstraction
+  (`createTextGenerator(config)`: grok-terminal | claude | grok; transport-only, never-throw →
+  null; `apikey`/unknown throws at factory time). Reuses the exported runners/extractors; the
+  only existing-src edit was exporting `defaultRunner` in `subscription.ts`. **Next cycle's
+  opinion pipeline stage should build on this seam** (nothing in the pipeline imports it yet).
+- `scripts/persona-bench.ts` (`npm run bench:personas -- --persona <name> | --all`, plus
+  `--fixtures <dir>` | `--recent <n>` | `--provider <p>`) — assembles `_shared` + persona body +
+  article blocks, prints each piece with word count. Offline fixtures in `fixtures/opinion-bench/`
+  (3 neutral fictional articles). `--recent` synthesizes blocks from `published.json`
+  headline/description (the store keeps no article bodies).
+- Tests: `test/personas.test.ts` (parser + loader + schema validation of the real committed
+  persona files; headshot pairing under `describe.skipIf` since `/assets/` is git-ignored) and
+  `test/generator.text.test.ts`. Suite: 484 passing / 36 files.
+
+**Bench voice-read findings** (`--all` over the 3 fixtures, provider claude/Haiku): all six voices
+clearly distinguishable and in-register; all deadpan (no in-body bot acknowledgments); all pieces
+in the 300–500 word range on both runs. Alice and Bob read equally sharp — no observed political
+thumb on the scale. Minor notes for future iteration: Edgar produced only one explicit "and
+another thing" digression (spec wants stacks that never resolve), and 5 of 6 personas chose the
+same fixture article (the streaming redesign) — topic spread will come from the pipeline's
+selection_bias weighting, not the prompt. No persona-file edits were needed this cycle.
+
+Still future per ADR-0013: the opinion pipeline stage (cadence, idempotency, topic gate),
+`opinionMaxAgeHours` config, headshot optimize step, and rendering of opinion pieces.
+
 ## Opinion section: ADR-0013 + conditional section rendering (branch `feat/opinion-section-scaffold`)
 
 The full Opinion-section design (six disclosed AI persona authors) is recorded as **ADR-0013**

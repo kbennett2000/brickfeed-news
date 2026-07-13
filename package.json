@@ -13,6 +13,7 @@
     "cycle": "tsx src/cycle-cli.ts",
     "backfill-optimize": "tsx src/backfill-optimize.ts",
     "check:claude": "tsx scripts/check-claude-generator.ts",
+    "bench:personas": "tsx scripts/persona-bench.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

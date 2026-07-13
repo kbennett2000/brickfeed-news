@@ -89,6 +89,8 @@ export function extractResultText(stdout: string): string | null {
  * CLAUDE_CODE_OAUTH_TOKEN when set — without this module ever touching the
  * environment directly (secrets.ts is the only env reader). A spawn error resolves
  * as a non-zero exit code so generate() degrades to null rather than rejecting.
+ * Exported so the free-form text seam (text.ts) reuses this exact spawn — one
+ * stdin/exit-code truth — mirroring grokTerminal's exported defaultTextRunner.
  *
  * Do NOT add `--bare` here. Minimal mode skips loading the stored subscription
  * login, so `claude -p --bare` returns is_error:true "Not logged in · Please run
@@ -96,7 +98,7 @@ export function extractResultText(stdout: string): string | null {
  * working headless invocation (mirroring photo-wrangler's launcher_core.build_claude_argv)
  * is plain `-p --output-format json --model <m>`.
  */
-const defaultRunner: ClaudeRunner = ({ model, prompt }) =>
+export const defaultRunner: ClaudeRunner = ({ model, prompt }) =>
   new Promise((resolve) => {
     const child = spawn("claude", buildClaudeArgs(model), {
       stdio: ["pipe", "pipe", "pipe"],

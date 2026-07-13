@@ -1,0 +1,18 @@
+Streamline Video Overhauls Its Catalog, Retiring Genre Menus for "Moods"
+
+Streamline Video, a mid-sized regional streaming service, has redesigned its catalog
+interface, replacing its long-standing genre menus with algorithmically assembled
+"mood collections" with names like Rainy Sunday, Big Swings, and Comfort Food. The
+company says the change reflects how subscribers actually browse, citing internal
+data showing most viewers scroll past traditional genre rows.
+
+The redesign also moves the search bar behind an extra tap and introduces a rotating
+"Tonight's Lineup" screen that plays trailers automatically when the app opens.
+Streamline says early testing showed subscribers who used the new home screen
+started watching something 40 seconds faster on average.
+
+Reaction from subscribers has been mixed. Longtime users have complained on the
+company's forums that films they had saved are now harder to find, while others say
+the mood collections surfaced titles they would never have discovered otherwise.
+Streamline says classic genre browsing will remain available in a settings menu it
+describes as "legacy mode."
