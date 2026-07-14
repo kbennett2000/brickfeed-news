@@ -436,6 +436,8 @@ export function fakeStorageFs(opts: {
 export interface RecordedTtsCall {
   url: string;
   body: string;
+  /** The per-call budget the client resolved for this task (30s shared; 120s gate). */
+  timeoutMs?: number;
 }
 
 /**

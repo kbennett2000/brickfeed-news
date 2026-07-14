@@ -150,7 +150,7 @@ export interface OpinionTtsDeps {
 export function createOpinionTtsDeps(config: Config, runner?: TtsHttpRunner): OpinionTtsDeps {
   const tts = config.generator.tts;
   if (!tts || (!tts.opinionGate && !tts.opinionImageBrief)) return {};
-  const client = new TtsClient(resolveTtsUrl(tts.url), runner);
+  const client = new TtsClient(resolveTtsUrl(tts.url), runner, tts.timeoutMs);
   const deps: OpinionTtsDeps = {};
   if (tts.opinionGate) deps.ttsGate = (candidates) => ttsGateVerdicts(client, candidates);
   if (tts.opinionImageBrief) {

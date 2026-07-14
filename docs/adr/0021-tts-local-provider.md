@@ -70,3 +70,27 @@ to TTS today.** New transforms are authored in the TTS repo, not here.
   endpoint; the repo convention keeps such endpoints in `config.json` (per ADR-0003 `local`
   provider) and reserves `secrets.ts` for tokens. A non-secret env *override* accessor is the
   compromise so cron can point at a different host without editing `config.json`.
+
+## Amendment (2026-07-14): per-task timeout override
+
+The TTS client (implemented per ADR-0022) applied a single hard 30 s wall-clock budget to every
+call. That is correct for `story-cover` and `opinion-image-brief` (fast, and they fail *over* to
+Claude), but it blocks `opinion-gate`: the gate runs one **constrained batch classification over
+the whole candidate set** (~34 verdicts) on the LAN 9B, which inherently takes **~42 s**. Because
+the gate fails **closed** (no Claude fallback — excluding is the safe outcome), a 30 s abort
+excludes *every* news-opinion candidate that cycle. Verification at real volume confirmed the gate
+otherwise returns safe, id-set-equal verdicts; latency was the only blocker.
+
+**Decision.** Give the TTS client a **per-task timeout**. Code defaults: the shared **30 s** stays
+for every task, except **`opinion-gate` → 120 s**. An optional `generator.tts.timeoutMs` map (each
+key a routable task, each value a positive-integer ms budget) overrides the code default per task;
+absent, behavior is byte-identical to before for story-cover/brief. The budget is resolved in
+`TtsClient.run(task)` and threaded to the runner's `AbortController`; the **fail-closed posture is
+unchanged** — a genuine timeout still aborts to the excluded-all outcome. This moves the *budget*,
+not the safety behavior.
+
+**Why not speed up TTS instead.** ~42 s is inherent to a 34-verdict constrained batch on the 9B.
+The TTS-side levers are a **model downgrade** (unacceptable on a *safety* classifier) or **chunking**
+the batch (more round-trips, no net wall-clock saving, and it splits the gate's global view of the
+candidate set). A scheduled cron cycle blocking ~42 s **once** per run is acceptable by design, so
+the budget change is the right lever. (This realizes the seam described in ADR-0022.)

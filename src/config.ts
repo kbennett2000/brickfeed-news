@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import type { TtsTask } from "./generator/tts.js";
 
 /**
  * App configuration. File-based only (see CLAUDE.md). Secrets are NEVER config:
@@ -151,6 +152,12 @@ export interface TtsRoutingConfig {
   storyCover: boolean;
   opinionGate: boolean;
   opinionImageBrief: boolean;
+  /**
+   * Optional per-task wall-clock budget (ms) overriding the code defaults (shared 30s; the
+   * fail-closed `opinion-gate` 120s — ADR-0021 2026-07-14 amendment). Absent → code defaults.
+   * Present → each key is a routable task, each value a positive-integer millisecond budget.
+   */
+  timeoutMs?: Partial<Record<TtsTask, number>>;
 }
 
 /**
@@ -525,8 +532,43 @@ function validateGeneratorTts(raw: unknown, path: string): TtsRoutingConfig | un
     path,
     "generator.tts.opinionImageBrief",
   );
+  const timeoutMs = validateTtsTimeouts(t.timeoutMs, path);
 
-  return { url, storyCover, opinionGate, opinionImageBrief };
+  return { url, storyCover, opinionGate, opinionImageBrief, ...(timeoutMs ? { timeoutMs } : {}) };
+}
+
+/** The three routable TTS tasks — the only valid keys of `generator.tts.timeoutMs`. */
+const TTS_TASKS = ["story-cover", "opinion-gate", "opinion-image-brief"] as const;
+
+/**
+ * Validate the optional `generator.tts.timeoutMs` per-task override map (ADR-0021 amendment).
+ * Absent → undefined (code defaults apply: 30s shared, 120s gate). Present → an object whose
+ * keys are all routable tasks and whose values are positive-integer millisecond budgets.
+ */
+function validateTtsTimeouts(
+  raw: unknown,
+  path: string,
+): Partial<Record<TtsTask, number>> | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`Config at ${path}: generator.tts.timeoutMs must be an object.`);
+  }
+  const out: Partial<Record<TtsTask, number>> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!(TTS_TASKS as readonly string[]).includes(key)) {
+      throw new Error(
+        `Config at ${path}: generator.tts.timeoutMs has unknown task "${key}" — ` +
+          `allowed: ${TTS_TASKS.map((t) => `"${t}"`).join(", ")}.`,
+      );
+    }
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+      throw new Error(
+        `Config at ${path}: generator.tts.timeoutMs.${key} must be a positive integer.`,
+      );
+    }
+    out[key as TtsTask] = value;
+  }
+  return out;
 }
 
 /** Validate an optional boolean flag, defaulting to false when omitted. */

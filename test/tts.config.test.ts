@@ -57,6 +57,40 @@ describe("config: generator.tts block (ADR-0022)", () => {
       /generator\.tts\.url must be a non-empty string/,
     );
   });
+
+  it("omits timeoutMs from the parsed block when absent (code defaults apply)", () => {
+    const c = validateConfig({ ...BASE, generator: { provider: "claude", tts: {} } });
+    expect(c.generator.tts).not.toHaveProperty("timeoutMs");
+  });
+
+  it("parses a per-task timeoutMs override map", () => {
+    const c = validateConfig({
+      ...BASE,
+      generator: {
+        provider: "claude",
+        tts: { opinionGate: true, timeoutMs: { "opinion-gate": 120000, "story-cover": 30000 } },
+      },
+    });
+    expect(c.generator.tts?.timeoutMs).toEqual({ "opinion-gate": 120000, "story-cover": 30000 });
+  });
+
+  it("rejects a non-object timeoutMs", () => {
+    expect(() =>
+      validateConfig({ ...BASE, generator: { tts: { timeoutMs: 120000 } } }),
+    ).toThrow(/generator\.tts\.timeoutMs must be an object/);
+  });
+
+  it("rejects an unknown task key in timeoutMs", () => {
+    expect(() =>
+      validateConfig({ ...BASE, generator: { tts: { timeoutMs: { "opinion-piece": 120000 } } } }),
+    ).toThrow(/generator\.tts\.timeoutMs has unknown task "opinion-piece"/);
+  });
+
+  it("rejects a non-positive timeoutMs value", () => {
+    expect(() =>
+      validateConfig({ ...BASE, generator: { tts: { timeoutMs: { "opinion-gate": 0 } } } }),
+    ).toThrow(/generator\.tts\.timeoutMs\.opinion-gate must be a positive integer/);
+  });
 });
 
 describe("resolveTtsUrl — TTS_URL env override (cron)", () => {

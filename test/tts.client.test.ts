@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TtsClient } from "../src/generator/tts.js";
+import {
+  DEFAULT_TTS_GATE_TIMEOUT_MS,
+  DEFAULT_TTS_TIMEOUT_MS,
+  defaultTtsRunner,
+  TtsClient,
+} from "../src/generator/tts.js";
+import { ttsGateVerdicts } from "../src/opinions-tts.js";
+import type { ManifestRecord } from "../src/types.js";
 import { fakeTtsRunner, ttsErr, ttsOk } from "./helpers.js";
 
 describe("TtsClient", () => {
@@ -82,5 +89,106 @@ describe("TtsClient", () => {
     });
     const res = await new TtsClient("http://tts.test", runner).run("story-cover", "t");
     expect(res).toEqual({ ok: false, status: 500, code: "error" });
+  });
+});
+
+describe("TtsClient — per-task timeout budget (ADR-0021 amendment)", () => {
+  it("passes the gate's 120s default and the shared 30s default to the runner per task", async () => {
+    const runner = fakeTtsRunner({
+      routes: {
+        "opinion-gate": { body: ttsOk({ verdicts: [] }) },
+        "story-cover": { body: ttsOk({}) },
+        "opinion-image-brief": { body: ttsOk({}) },
+      },
+    });
+    const client = new TtsClient("http://tts.test", runner);
+
+    await client.run("opinion-gate", "t");
+    await client.run("story-cover", "t");
+    await client.run("opinion-image-brief", "t");
+
+    expect(runner.calls[0].timeoutMs).toBe(DEFAULT_TTS_GATE_TIMEOUT_MS); // 120_000
+    expect(runner.calls[1].timeoutMs).toBe(DEFAULT_TTS_TIMEOUT_MS); // 30_000
+    expect(runner.calls[2].timeoutMs).toBe(DEFAULT_TTS_TIMEOUT_MS); // brief shares the default
+  });
+
+  it("lets a config override win per task, leaving other tasks on the code default", async () => {
+    const runner = fakeTtsRunner({
+      routes: { "opinion-gate": { body: ttsOk({ verdicts: [] }) }, "story-cover": { body: ttsOk({}) } },
+    });
+    const client = new TtsClient("http://tts.test", runner, { "opinion-gate": 5_000 });
+
+    await client.run("opinion-gate", "t");
+    await client.run("story-cover", "t");
+
+    expect(runner.calls[0].timeoutMs).toBe(5_000); // override wins
+    expect(runner.calls[1].timeoutMs).toBe(DEFAULT_TTS_TIMEOUT_MS); // untouched
+  });
+});
+
+/**
+ * Abort behavior of the REAL `defaultTtsRunner` under a per-task budget. Fake timers + a stubbed
+ * fetch that honors the AbortSignal: a response inside the budget resolves; one past it aborts to
+ * the fail-closed shape (ok:false, status 0) — which, through the gate adapter, excludes all.
+ */
+describe("defaultTtsRunner — honors the resolved timeout budget", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /** A fetch that resolves 200 after `responseDelayMs`, or rejects the moment its signal aborts. */
+  function fakeFetch(responseDelayMs: number, body: string) {
+    return (_url: string, init?: { signal?: AbortSignal }) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => resolve({ ok: true, status: 200, text: async () => body }),
+          responseDelayMs,
+        );
+        init?.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+  }
+
+  it("resolves ok when the response lands (45s) inside the gate's 120s budget", async () => {
+    vi.useFakeTimers();
+    const body = ttsOk({ verdicts: [] });
+    vi.stubGlobal("fetch", fakeFetch(45_000, body));
+
+    const p = defaultTtsRunner({ url: "http://tts.test/v1/transform/opinion-gate", body: "{}", timeoutMs: DEFAULT_TTS_GATE_TIMEOUT_MS });
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    expect(await p).toEqual({ ok: true, status: 200, body });
+  });
+
+  it("aborts to fail-closed (ok:false, status 0) when the response (125s) exceeds the 120s budget", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", fakeFetch(125_000, ttsOk({ verdicts: [] })));
+
+    const p = defaultTtsRunner({ url: "http://tts.test/v1/transform/opinion-gate", body: "{}", timeoutMs: DEFAULT_TTS_GATE_TIMEOUT_MS });
+    await vi.advanceTimersByTimeAsync(DEFAULT_TTS_GATE_TIMEOUT_MS);
+
+    expect(await p).toEqual({ ok: false, status: 0, body: "" });
+  });
+
+  it("an over-budget gate call flows through the gate adapter to ALL EXCLUDED (fail-closed)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", fakeFetch(125_000, ttsOk({ verdicts: [] })));
+
+    const candidates = [
+      { id: "a", headline: "Harmless local bake sale", description: "" },
+      { id: "b", headline: "Town plants new trees", description: "" },
+    ] as unknown as ManifestRecord[];
+    const client = new TtsClient("http://tts.test", defaultTtsRunner);
+
+    const p = ttsGateVerdicts(client, candidates);
+    await vi.advanceTimersByTimeAsync(DEFAULT_TTS_GATE_TIMEOUT_MS);
+    const verdicts = await p;
+
+    // null == fail-closed sentinel: the caller excludes every candidate for the cycle.
+    expect(verdicts).toBeNull();
   });
 });

@@ -19,7 +19,10 @@
       "url": "http://G434:8712",
       "storyCover": false,
       "opinionGate": false,
-      "opinionImageBrief": false
+      "opinionImageBrief": false,
+      "timeoutMs": {
+        "opinion-gate": 120000
+      }
     }
   },
   "brickStyle": {

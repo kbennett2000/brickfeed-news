@@ -49,7 +49,7 @@ export function createGenerator(config: Config, opts: GeneratorRunners = {}): Ge
 
   const tts = config.generator.tts;
   if (tts?.storyCover) {
-    const client = new TtsClient(resolveTtsUrl(tts.url), opts.ttsRunner);
+    const client = new TtsClient(resolveTtsUrl(tts.url), opts.ttsRunner, tts.timeoutMs);
     return new TtsFailoverGenerator(createTtsStoryGenerator(client), incumbent);
   }
   return incumbent;

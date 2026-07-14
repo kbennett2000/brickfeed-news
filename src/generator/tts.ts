@@ -26,25 +26,50 @@ export type TtsResult =
 /**
  * The HTTP boundary for the TTS client, injected so tests feed canned responses without a
  * real network call or a running service. `url` is the full transform endpoint; `body` the
- * JSON request. A transport error is surfaced as ok:false (status 0) rather than a rejection
- * so the client degrades to a failover instead of throwing.
+ * JSON request; `timeoutMs` the per-CALL wall-clock budget the client resolved for this task
+ * (the runner applies it; omitted → the runner's own default). A transport error is surfaced
+ * as ok:false (status 0) rather than a rejection so the client degrades to a failover instead
+ * of throwing.
  */
 export type TtsHttpRunner = (args: {
   url: string;
   body: string;
+  timeoutMs?: number;
 }) => Promise<{ ok: boolean; status: number; body: string }>;
 
-/** Per-call wall-clock budget (ms) before the TTS request is aborted, so a hung TTS never stalls a cycle. */
-const DEFAULT_TTS_TIMEOUT_MS = 30_000;
+/** Per-call wall-clock budget (ms) before a TTS request is aborted, so a hung TTS never stalls a cycle. */
+export const DEFAULT_TTS_TIMEOUT_MS = 30_000;
 
 /**
- * Default runner: POST the transform over `fetch` with a hard timeout. Keyless (prod TTS has
- * no `TRANSFORM_API_KEY`). Any transport error / abort resolves ok:false so the client fails
- * over rather than throwing.
+ * The `opinion-gate`'s own budget (ms). It runs a single constrained batch classification over
+ * the whole candidate set (~34 verdicts) on the LAN 9B, which inherently takes ~42s — well over
+ * the shared 30s default. The gate fails CLOSED, so aborting it starves every news author that
+ * cycle; a longer budget lets the one gate call complete. See ADR-0021 (2026-07-14 amendment).
  */
-export const defaultTtsRunner: TtsHttpRunner = async ({ url, body }) => {
+export const DEFAULT_TTS_GATE_TIMEOUT_MS = 120_000;
+
+/**
+ * Resolve the per-call timeout for a task: an explicit config override wins; otherwise the
+ * code default (the shared 30s, except the gate's 120s). Keeps story-cover/brief untouched.
+ */
+export function resolveTtsTimeout(
+  task: TtsTask,
+  overrides?: Partial<Record<TtsTask, number>>,
+): number {
+  return (
+    overrides?.[task] ??
+    (task === "opinion-gate" ? DEFAULT_TTS_GATE_TIMEOUT_MS : DEFAULT_TTS_TIMEOUT_MS)
+  );
+}
+
+/**
+ * Default runner: POST the transform over `fetch` with a hard timeout (`timeoutMs`, or the
+ * shared default when the caller omits it). Keyless (prod TTS has no `TRANSFORM_API_KEY`). Any
+ * transport error / abort resolves ok:false so the client fails over rather than throwing.
+ */
+export const defaultTtsRunner: TtsHttpRunner = async ({ url, body, timeoutMs }) => {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DEFAULT_TTS_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs ?? DEFAULT_TTS_TIMEOUT_MS);
   try {
     const resp = await fetch(url, {
       method: "POST",
@@ -69,17 +94,24 @@ export const defaultTtsRunner: TtsHttpRunner = async ({ url, body }) => {
 export class TtsClient {
   private readonly base: string;
   private readonly runner: TtsHttpRunner;
+  private readonly timeouts?: Partial<Record<TtsTask, number>>;
 
-  constructor(url: string, runner: TtsHttpRunner = defaultTtsRunner) {
+  constructor(
+    url: string,
+    runner: TtsHttpRunner = defaultTtsRunner,
+    timeouts?: Partial<Record<TtsTask, number>>,
+  ) {
     this.base = url.replace(/\/+$/, "");
     this.runner = runner;
+    this.timeouts = timeouts;
   }
 
   async run(task: TtsTask, text: string): Promise<TtsResult> {
     const url = `${this.base}/v1/transform/${task}`;
+    const timeoutMs = resolveTtsTimeout(task, this.timeouts);
     let res: { ok: boolean; status: number; body: string };
     try {
-      res = await this.runner({ url, body: JSON.stringify({ text, options: {} }) });
+      res = await this.runner({ url, body: JSON.stringify({ text, options: {} }), timeoutMs });
     } catch {
       // A runner should surface transport failures as ok:false, but belt-and-braces.
       res = { ok: false, status: 0, body: "" };
