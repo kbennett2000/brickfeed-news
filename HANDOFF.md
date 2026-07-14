@@ -1,5 +1,44 @@
 # Handoff
 
+## Slot-based hero eligibility: pay Grok only for encounterable heroes (ADR-0020)
+
+Image-stage + display-bound slice. Grok spend is entirely the image stage (text is
+Haiku), and it imaged EVERY generated non-opinion story regardless of visibility — plus
+the cover overflow and section listings were unbounded, so there was no real slot. Now
+we image (and list) only the top-K of each section that a reader can encounter.
+
+- **One shared constant** in the new pure `src/eligibility.ts`:
+  `SECTION_SLOT_LIMIT = 30` is BOTH the image budget and the render display bound (can't
+  drift), plus `HERO_MIN_LIFETIME_HOURS = 12`. Code constants (like `HERO_FILL_COUNT`),
+  not config — they encode the image==display invariant.
+- **Eligibility (`heroEligibility`)**: a non-opinion story earns a hero iff it ranks in
+  the top-30 of its section (newest-first `firstSeen`, competing against ALL live stories
+  imaged-or-not — already-imaged records occupy slots) AND has ≥12h life left
+  (`retentionHoursFor` on `lastSeen` — a READ of retention, no change). OPINION exempt
+  (always imaged). Recomputed fresh each cycle; no persisted skip state. Precedence:
+  below-fold before near-ageout.
+- **Image stage** (`src/image.ts`): candidate loop replaced by `heroEligibility` over the
+  post-reclear manifest; `ImageResult` gains `belowFold` + `nearAgeout`. Summary line is
+  now `N generated, N skipped-below-fold, N skipped-near-ageout, N failed`. `maxStoriesPerCycle`
+  cap + newest-first ordering unchanged.
+- **Render** (`src/render/index.ts`): `sectionSlotIds(records, SECTION_SLOT_LIMIT)` filters
+  BOTH the cover overflow and section grids (homepage + section agree). Landing pages,
+  sitemap, and columnist archives keep the FULL record set. `verifiedPublishableRecords` /
+  the deploy guard's `records.length` are untouched.
+- **Dry-run mirror** (`src/cycle.ts`) derives its counts from the same `heroEligibility`.
+- **NOT touched**: provider config, opinions/gate, generate stage, personas, retention
+  semantics, cadence, deploy.
+- **Verification**: tsc clean; full suite green (685 tests, +21: new `test/eligibility.test.ts`
+  plus image/render/cycle additions). Dry-run cycle prints the new line. Real-manifest
+  simulation: display cap trims 64 current below-fold stragglers (33 WORLD, tails elsewhere)
+  from listings — intended tail-only change, top-30 above the fold identical; and a
+  hypothetical "all live records need an image" run reports 218 eligible / 201 below-fold,
+  i.e. ~half the manifest's would-be spend eliminated. `218 eligible == 218 listed` confirms
+  image budget == display.
+- **Delivery**: landed on master per the standing no-PRs directive. **NOT yet deployed** —
+  the next real cycle (or a manual `vercel --prod` from `site/` with `cron.env` sourced) will
+  render the display cap live; watch the Grok panel across a few cycles for the burn drop.
+
 ## Columnist bio pages: author pages, byline links, cast strip (ADR-0019)
 
 Render-only slice; generation/selection/rotation/config/disclosure constants untouched.
