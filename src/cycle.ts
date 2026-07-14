@@ -240,6 +240,7 @@ export async function runCycle(
             generate: deps.textGenerator,
             now,
             log,
+            ...(deps.opinionTts ?? {}),
           });
           manifest = r.manifest;
           await deps.io.writeManifest(config.manifestPath, manifest);

@@ -10,11 +10,27 @@ import { ApiKeyGenerator } from "./apikey.js";
 import { GrokGenerator } from "./grok.js";
 import { GrokTerminalGenerator } from "./grokTerminal.js";
 import { SubscriptionGenerator } from "./subscription.js";
+import {
+  TtsClient,
+  TtsFailoverGenerator,
+  type TtsHttpRunner,
+  createTtsStoryGenerator,
+  resolveTtsUrl,
+} from "./tts.js";
 
 export { SubscriptionGenerator } from "./subscription.js";
 export { ApiKeyGenerator } from "./apikey.js";
 export { GrokGenerator } from "./grok.js";
 export { GrokTerminalGenerator } from "./grokTerminal.js";
+
+/** Injectable transport boundaries; production leaves them undefined for the real boundary. */
+export interface GeneratorRunners {
+  runner?: ClaudeRunner;
+  grokRunner?: GrokChatRunner;
+  terminalRunner?: TerminalTextRunner;
+  /** Injected TTS HTTP boundary (ADR-0022); tests feed canned transform responses. */
+  ttsRunner?: TtsHttpRunner;
+}
 
 /**
  * Select a Generator from config (ADR decision #6). Default is "grok" (xAI). The
@@ -22,15 +38,24 @@ export { GrokTerminalGenerator } from "./grokTerminal.js";
  * keyless subscription CLI (Slice 8); "apikey" is the Slice 2b Messages-API stub. Custom
  * runners can be injected (used by tests); production leaves them undefined so the real
  * HTTP/CLI boundary is used.
+ *
+ * When `generator.tts.storyCover` is opted in (ADR-0022), the selected incumbent is wrapped in
+ * a TtsFailoverGenerator that tries the TTS `story-cover` transform first and falls back to the
+ * incumbent on any failure. Absent that flag, the incumbent is returned unchanged.
  */
-export function createGenerator(
-  config: Config,
-  opts: {
-    runner?: ClaudeRunner;
-    grokRunner?: GrokChatRunner;
-    terminalRunner?: TerminalTextRunner;
-  } = {},
-): Generator {
+export function createGenerator(config: Config, opts: GeneratorRunners = {}): Generator {
+  const incumbent = createIncumbentGenerator(config, opts);
+
+  const tts = config.generator.tts;
+  if (tts?.storyCover) {
+    const client = new TtsClient(resolveTtsUrl(tts.url), opts.ttsRunner);
+    return new TtsFailoverGenerator(createTtsStoryGenerator(client), incumbent);
+  }
+  return incumbent;
+}
+
+/** The provider-selection switch (the incumbent, before any TTS failover wrapping). */
+function createIncumbentGenerator(config: Config, opts: GeneratorRunners): Generator {
   const { provider, model, grok, grokTerminal } = config.generator;
 
   if (provider === "grok-terminal") {

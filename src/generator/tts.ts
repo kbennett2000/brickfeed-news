@@ -1,0 +1,186 @@
+/**
+ * The opt-in TTS local provider (ADR-0022). `text-transform-service` (TTS) is a LAN LLM
+ * service exposing named transforms `text (+options) → schema-constrained JSON` over plain
+ * HTTP (`POST {url}/v1/transform/{name}` → `200 {output, meta}`; errors `{error:{code}}`).
+ * This module is the HTTP client plus the STORY-COVER adapter (the story-text seam); the
+ * opinion-gate / opinion-image-brief adapters live in `src/opinions-tts.ts` (opinion domain).
+ *
+ * Contract (ADR-0022): every image prompt TTS returns is SUBJECT-NEUTRAL — the toy-brick
+ * styling stays a downstream, caller-side chokepoint (`wrapBrickStyle`, applied once in
+ * generate.ts / opinions.ts), so this provider returns the prompt UNWRAPPED, matching the
+ * incumbent's own neutral output. Failover posture: any non-200 or unreachable TTS logs one
+ * structured warning and the caller falls back to the incumbent Claude path. Never throws.
+ */
+import { normalizeCategory } from "../category.js";
+import { getTtsUrl } from "../secrets.js";
+import type { GenerationInput, Generator, GeneratorOutput } from "../types.js";
+
+/** The three Brickfeed tasks TTS can serve (opinion-piece is HELD — never routed). */
+export type TtsTask = "story-cover" | "opinion-gate" | "opinion-image-brief";
+
+/** A validated success (`output` is the transform's JSON) or a typed failure. */
+export type TtsResult =
+  | { ok: true; output: Record<string, unknown> }
+  | { ok: false; status: number; code: string };
+
+/**
+ * The HTTP boundary for the TTS client, injected so tests feed canned responses without a
+ * real network call or a running service. `url` is the full transform endpoint; `body` the
+ * JSON request. A transport error is surfaced as ok:false (status 0) rather than a rejection
+ * so the client degrades to a failover instead of throwing.
+ */
+export type TtsHttpRunner = (args: {
+  url: string;
+  body: string;
+}) => Promise<{ ok: boolean; status: number; body: string }>;
+
+/** Per-call wall-clock budget (ms) before the TTS request is aborted, so a hung TTS never stalls a cycle. */
+const DEFAULT_TTS_TIMEOUT_MS = 30_000;
+
+/**
+ * Default runner: POST the transform over `fetch` with a hard timeout. Keyless (prod TTS has
+ * no `TRANSFORM_API_KEY`). Any transport error / abort resolves ok:false so the client fails
+ * over rather than throwing.
+ */
+export const defaultTtsRunner: TtsHttpRunner = async ({ url, body }) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TTS_TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      signal: controller.signal,
+    });
+    return { ok: resp.ok, status: resp.status, body: await resp.text() };
+  } catch {
+    return { ok: false, status: 0, body: "" };
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/**
+ * Plain-HTTP TTS client. `run` posts a transform and returns a validated `TtsResult`; on any
+ * non-200, unreachable endpoint, or malformed 200 envelope it emits ONE structured warning
+ * (task, status, code) and returns a failure the caller handles (failover, or fail-closed for
+ * the gate). No retries beyond whatever TTS does internally. Never throws.
+ */
+export class TtsClient {
+  private readonly base: string;
+  private readonly runner: TtsHttpRunner;
+
+  constructor(url: string, runner: TtsHttpRunner = defaultTtsRunner) {
+    this.base = url.replace(/\/+$/, "");
+    this.runner = runner;
+  }
+
+  async run(task: TtsTask, text: string): Promise<TtsResult> {
+    const url = `${this.base}/v1/transform/${task}`;
+    let res: { ok: boolean; status: number; body: string };
+    try {
+      res = await this.runner({ url, body: JSON.stringify({ text, options: {} }) });
+    } catch {
+      // A runner should surface transport failures as ok:false, but belt-and-braces.
+      res = { ok: false, status: 0, body: "" };
+    }
+
+    if (!res.ok) {
+      const code = res.status === 0 ? "unreachable" : extractErrorCode(res.body);
+      warnTts(task, res.status, code);
+      return { ok: false, status: res.status, code };
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(res.body);
+    } catch {
+      warnTts(task, res.status, "bad_envelope");
+      return { ok: false, status: res.status, code: "bad_envelope" };
+    }
+    const output = (parsed as { output?: unknown })?.output;
+    if (typeof output !== "object" || output === null || Array.isArray(output)) {
+      warnTts(task, res.status, "bad_envelope");
+      return { ok: false, status: res.status, code: "bad_envelope" };
+    }
+    return { ok: true, output: output as Record<string, unknown> };
+  }
+}
+
+/** Resolve the effective TTS base URL: the `TTS_URL` env override (cron) wins over config. */
+export function resolveTtsUrl(configUrl: string): string {
+  return getTtsUrl() ?? configUrl;
+}
+
+/** Pull the frozen error `code` out of a `{error:{code}}` envelope; "error" if absent. */
+function extractErrorCode(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { code?: unknown } };
+    const code = parsed?.error?.code;
+    return typeof code === "string" && code.length > 0 ? code : "error";
+  } catch {
+    return "error";
+  }
+}
+
+/** The single structured warning emitted on any TTS unavailability (task, status, code). */
+function warnTts(task: TtsTask, status: number, code: string): void {
+  console.warn(`tts unavailable: task=${task} status=${status} code=${code}`);
+}
+
+/** Non-empty trimmed string, or "" if the value isn't a usable string. */
+function str(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Build the `story-cover` transform input: the story's source-context block (mirrors the tail
+ * of `buildGenerationPrompt`). The transform template supplies all instructions, so only the
+ * context travels in `text`.
+ */
+export function buildStoryCoverInput(input: GenerationInput): string {
+  const source = input.sourceName ? input.sourceName : "unknown source";
+  return `Source article title: ${input.title}\nPublisher: ${source}\nSource URL: ${input.url}`;
+}
+
+/** Map a `story-cover` output to a GeneratorOutput; null if a required field is missing/empty. */
+export function mapStoryCoverOutput(output: Record<string, unknown>): GeneratorOutput | null {
+  const headline = str(output.headline);
+  const description = str(output.description);
+  const imagePrompt = str(output.imagePrompt); // NEUTRAL — wrapped downstream, never here
+  const caption = str(output.caption);
+  if (!headline || !description || !imagePrompt || !caption) return null;
+  return { headline, description, imagePrompt, category: normalizeCategory(output.category), caption };
+}
+
+/**
+ * A Generator backed by the TTS `story-cover` transform. Returns a GeneratorOutput on a clean
+ * 200, or null on ANY failure (non-200, unreachable, malformed) so the failover wrapper hands
+ * off to the incumbent. Never throws.
+ */
+export function createTtsStoryGenerator(client: TtsClient): Generator {
+  return {
+    async generate(input: GenerationInput): Promise<GeneratorOutput | null> {
+      const res = await client.run("story-cover", buildStoryCoverInput(input));
+      if (!res.ok) return null;
+      return mapStoryCoverOutput(res.output);
+    },
+  };
+}
+
+/**
+ * Per-task failover Generator: try TTS first, fall back to the incumbent on null. Preserves
+ * the `Generator` contract (never throws; null only when BOTH fail → story stays pending).
+ */
+export class TtsFailoverGenerator implements Generator {
+  constructor(
+    private readonly tts: Generator,
+    private readonly incumbent: Generator,
+  ) {}
+
+  async generate(input: GenerationInput): Promise<GeneratorOutput | null> {
+    const out = await this.tts.generate(input);
+    if (out != null) return out;
+    return this.incumbent.generate(input);
+  }
+}

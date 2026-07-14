@@ -19,6 +19,7 @@
 import { loadConfig } from "./config.js";
 import { createTextGenerator } from "./generator/text.js";
 import { readManifest, writeManifest } from "./manifest.js";
+import { createOpinionTtsDeps } from "./opinions-tts.js";
 import { runOpinions, summarizeOpinions } from "./opinions.js";
 import { loadPersonaAssets } from "./personas.js";
 
@@ -96,7 +97,12 @@ async function main(): Promise<void> {
     config,
     manifest,
     assets,
-    { generate: createTextGenerator(config), now: () => new Date(), log: console.log },
+    {
+      generate: createTextGenerator(config),
+      now: () => new Date(),
+      log: console.log,
+      ...createOpinionTtsDeps(config),
+    },
     { date: args.date, authors, dryRun: args.dryRun },
   );
 

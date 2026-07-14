@@ -27,6 +27,17 @@ export function getBlobReadWriteToken(): string | undefined {
 }
 
 /**
+ * TTS local-provider endpoint OVERRIDE (ADR-0022). NOT a secret — `TTS_URL` is a non-secret
+ * LAN endpoint whose canonical home is `config.json` (`generator.tts.url`); this optional env
+ * override lets a cron cycle point at a different host via `cron.env` without editing config.
+ * Confined here so the `grep process.env src/` single-file gate stays intact. Undefined → use
+ * the config value.
+ */
+export function getTtsUrl(): string | undefined {
+  return process.env.TTS_URL;
+}
+
+/**
  * Vercel deploy token for CI-like/headless contexts, appended as `--token` by the deploy
  * runner (Slice 8). The LAN box normally authenticates via a one-time `vercel login`, so
  * this is usually unset; it exists so the deploy step never reads env outside secrets.ts.

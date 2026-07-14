@@ -7,6 +7,7 @@ import type { Article } from "./articles.js";
 import type { Category } from "./category.js";
 import type { TextGenerator } from "./generator/text.js";
 import type { HeadshotsResult } from "./headshots.js";
+import type { OpinionTtsDeps } from "./opinions-tts.js";
 import type { OpinionAssets } from "./personas.js";
 
 /** A single item parsed from an RSS feed, before link resolution / identity. */
@@ -350,6 +351,8 @@ export interface CycleDeps {
   generator: Generator;
   /** Free-form text seam for the opinion stage (ADR-0015): piece + topic-gate calls. */
   textGenerator: TextGenerator;
+  /** Opt-in TTS routing for the opinion stage (ADR-0022); undefined = incumbent Claude path. */
+  opinionTts?: OpinionTtsDeps;
   imageProvider: ImageProvider;
   storage: StorageProvider;
   deployRun: DeployRunner;

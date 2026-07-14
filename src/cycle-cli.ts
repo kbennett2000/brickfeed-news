@@ -4,6 +4,7 @@ import { defaultCycleIo, runCycle } from "./cycle.js";
 import { createGenerator } from "./generator/index.js";
 import { createTextGenerator } from "./generator/text.js";
 import { createImageProvider } from "./image/index.js";
+import { createOpinionTtsDeps } from "./opinions-tts.js";
 import { getVercelToken } from "./secrets.js";
 import { createStorageProvider } from "./storage/index.js";
 import type { CycleDeps, DeployRunner, FetchLike } from "./types.js";
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
     fetch: fetch as unknown as FetchLike,
     generator: createGenerator(config),
     textGenerator: createTextGenerator(config),
+    opinionTts: createOpinionTtsDeps(config),
     imageProvider: createImageProvider(config),
     storage: createStorageProvider(config),
     deployRun: defaultDeployRunner,

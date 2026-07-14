@@ -131,6 +131,26 @@ export interface GeneratorConfig {
   grok: GrokConfig;
   /** Settings for the "grok-terminal" (subscription CLI, no API key) path (Slice 8). */
   grokTerminal: GrokTerminalConfig;
+  /**
+   * Opt-in TTS local-provider routing (ADR-0022). Absent → disabled (default; behavior is
+   * byte-identical to today). Present → routes the flagged tasks to the LAN `text-transform-
+   * service` at `url` with per-task failover to the incumbent provider. `opinion-piece` is
+   * NOT routable (HELD by product decision — stays on Claude).
+   */
+  tts?: TtsRoutingConfig;
+}
+
+/**
+ * TTS local-provider routing (ADR-0022). `url` is a non-secret LAN endpoint (an optional
+ * `TTS_URL` env var overrides it for cron, via secrets.ts). Each task flag is independent and
+ * defaults false: `storyCover` (story text seam), `opinionGate` (fail-closed classifier),
+ * `opinionImageBrief`. All false = disabled.
+ */
+export interface TtsRoutingConfig {
+  url: string;
+  storyCover: boolean;
+  opinionGate: boolean;
+  opinionImageBrief: boolean;
 }
 
 /**
@@ -250,6 +270,9 @@ const GENERATOR_PROVIDER_ALIASES: Record<string, GeneratorConfig["provider"]> = 
  */
 export const DEFAULT_PROVIDER: GeneratorConfig["provider"] = "grok-terminal";
 export const DEFAULT_MODEL = "claude-sonnet-5";
+
+/** Default TTS endpoint (ADR-0022) when `generator.tts` is present but omits `url`. */
+export const DEFAULT_TTS_URL = "http://G434:8712";
 export const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
 export const DEFAULT_GROK_MODEL = "grok-4.5";
 
@@ -477,8 +500,42 @@ function validateGenerator(raw: unknown, path: string): GeneratorConfig {
 
   const grok = validateGrok(g.grok, path);
   const grokTerminal = validateGrokTerminal(g.grokTerminal, path, "generator.grokTerminal");
+  const tts = validateGeneratorTts(g.tts, path);
 
-  return { provider, model, grok, grokTerminal };
+  return { provider, model, grok, grokTerminal, ...(tts ? { tts } : {}) };
+}
+
+/**
+ * Validate the optional `generator.tts` block (ADR-0022). Absent → undefined (disabled; the
+ * default). Present → `url` defaults to DEFAULT_TTS_URL and must be a non-empty string; each
+ * task flag defaults false and must be a boolean when present.
+ */
+function validateGeneratorTts(raw: unknown, path: string): TtsRoutingConfig | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: generator.tts must be an object.`);
+  }
+  const t = raw as Record<string, unknown>;
+
+  const url = requireStringField(t.url, DEFAULT_TTS_URL, path, "generator.tts.url");
+  const storyCover = validateBoolField(t.storyCover, path, "generator.tts.storyCover");
+  const opinionGate = validateBoolField(t.opinionGate, path, "generator.tts.opinionGate");
+  const opinionImageBrief = validateBoolField(
+    t.opinionImageBrief,
+    path,
+    "generator.tts.opinionImageBrief",
+  );
+
+  return { url, storyCover, opinionGate, opinionImageBrief };
+}
+
+/** Validate an optional boolean flag, defaulting to false when omitted. */
+function validateBoolField(raw: unknown, path: string, field: string): boolean {
+  if (raw == null) return false;
+  if (typeof raw !== "boolean") {
+    throw new Error(`Config at ${path}: ${field} must be a boolean.`);
+  }
+  return raw;
 }
 
 /** Default grok-terminal CLI settings, used when the block or a field is omitted. */

@@ -62,16 +62,20 @@ Parsers / normalizers: `parseGeneratorOutput` (`src/generator/parse.ts`), `parse
 
 ## Mapping table — Brickfeed task → TTS transform
 
-| # | Brickfeed task | TTS transform | Verdict |
-|---|----------------|---------------|---------|
-| 1 | Story cover bundle (5 fields) | none | **GAP** |
-| 2 | Opinion topic-gate classifier | none | **GAP** |
-| 3 | Opinion piece (title+body) | none | **GAP** |
-| 4 | Opinion image brief (imagePrompt+caption) | `image-prompt` covers `imagePrompt` only, not `caption` | **GAP** |
+Updated after the TTS repo shipped the requested transforms (cycles T9/T10) and the Brickfeed
+provider was built (ADR-0022). The binding contract is `docs/brickfeed-2026-07-RESPONSE.md`.
 
-**Key finding.** Brickfeed never issues a standalone image-prompt call — image prompts are
-always sub-fields of a bundled structured call. The `image-prompt` transform therefore binds
-to **zero** current call sites unless a bundled call is decomposed (a prompt rewrite the
-kickoff scope fence forbids). All four tasks are GAPs; nothing routes to TTS until matching
-transforms exist. See `docs/tts-transform-requests.md` for the requested transforms and
-ADR-0021 for the deferral decision.
+| # | Brickfeed task | TTS transform | Status | On TTS error |
+|---|----------------|---------------|--------|--------------|
+| 1 | Story cover bundle (5 fields) | `story-cover` | **SHIPPED — routable** | failover → Claude |
+| 2 | Opinion topic-gate classifier | `opinion-gate` | **SHIPPED — routable** | **fail-closed (exclude)** |
+| 3 | Opinion piece (title+body) | — | **HELD** (out of TTS charter) | n/a — stays on Claude |
+| 4 | Opinion image brief (imagePrompt+caption) | `opinion-image-brief` | **SHIPPED — routable** | failover → Claude |
+
+**Key facts (ADR-0022).** Tasks 1, 2, and 4 route to TTS via the opt-in `generator.tts` block
+(all flags default false → byte-identical to today). Task 3 (`opinion-piece`) is HELD by product
+decision and stays on the incumbent Claude provider permanently. Every TTS image prompt is
+subject-neutral — the toy-brick style is wrapped ONCE downstream (`wrapBrickStyle`), so the
+provider returns prompts unwrapped. The gate fails **closed** on any TTS error (RESPONSE §2 /
+TTS ADR-0007), not over to Claude. The now-superseded `image-prompt` GAP analysis (Brickfeed
+never issues a standalone image-prompt call) is retained below for history.

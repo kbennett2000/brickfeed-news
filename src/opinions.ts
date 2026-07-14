@@ -68,12 +68,26 @@ export interface GateVerdict {
 }
 
 export interface OpinionsDeps {
-  /** The free-form text seam (createTextGenerator) — pieces AND the gate call. */
+  /** The free-form text seam (createTextGenerator) — pieces AND the incumbent gate/brief calls. */
   generate: TextGenerator;
   now: () => Date;
   /** Uniform [0,1) source for weighted sampling; injected in tests. Default Math.random. */
   rng?: () => number;
   log?: (message: string) => void;
+  /**
+   * Opt-in TTS local-provider routing (ADR-0022; built by createOpinionTtsDeps). Undefined →
+   * the incumbent Claude path (default; byte-identical to today).
+   *  - `ttsGate` FAILS CLOSED: null → all candidates excluded (no Claude fallback), a complete
+   *    per-id verdict map on success (uncertain/missing/duplicate → excluded).
+   *  - `ttsBrief` FAILS OVER: null → the incumbent brief call runs as the fallback.
+   */
+  ttsGate?: (candidates: ManifestRecord[]) => Promise<Map<string, GateVerdict> | null>;
+  ttsBrief?: (
+    persona: Persona,
+    title: string,
+    body: string,
+    articles: ManifestRecord[],
+  ) => Promise<ImageBrief | null>;
 }
 
 export interface OpinionsOptions {
@@ -485,14 +499,25 @@ export async function runOpinions(
       gateSummary = "gate not run (no candidates)";
       log(`opinions: no candidate stories in the last ${CANDIDATE_WINDOW_HOURS}h`);
     } else {
-      let response: string | null = null;
-      try {
-        response = await deps.generate(buildGatePrompt(candidates));
-      } catch {
-        response = null;
+      // Opt-in TTS gate (ADR-0022) FAILS CLOSED: null → gateFailed (all excluded) below, with
+      // NO Claude fallback. Default (no ttsGate) → the incumbent classifier, unchanged.
+      let verdicts: Map<string, GateVerdict> | null;
+      if (deps.ttsGate) {
+        try {
+          verdicts = await deps.ttsGate(candidates);
+        } catch {
+          verdicts = null;
+        }
+      } else {
+        let response: string | null = null;
+        try {
+          response = await deps.generate(buildGatePrompt(candidates));
+        } catch {
+          response = null;
+        }
+        verdicts =
+          response == null ? null : parseGateVerdicts(response, candidates.map((r) => r.id));
       }
-      const verdicts =
-        response == null ? null : parseGateVerdicts(response, candidates.map((r) => r.id));
       if (verdicts == null) {
         gateFailed = true;
         gateSummary = `gate failed closed (${candidates.length} candidate(s) excluded)`;
@@ -591,13 +616,24 @@ export async function runOpinions(
       // All-or-nothing with the piece itself — a failed brief stores NO record, so the
       // idempotency key stays free and the next run retries the whole author.
       let brief: ImageBrief | null = null;
-      try {
-        const raw = await deps.generate(
-          buildImageBriefPrompt(persona, split.title, split.body, picks),
-        );
-        brief = raw == null ? null : parseImageBrief(raw);
-      } catch {
-        brief = null;
+      // Opt-in TTS brief (ADR-0022) FAILS OVER: on any TTS failure it returns null and the
+      // incumbent brief call below runs as the transparent fallback (also the default path).
+      if (deps.ttsBrief) {
+        try {
+          brief = await deps.ttsBrief(persona, split.title, split.body, picks);
+        } catch {
+          brief = null;
+        }
+      }
+      if (brief == null) {
+        try {
+          const raw = await deps.generate(
+            buildImageBriefPrompt(persona, split.title, split.body, picks),
+          );
+          brief = raw == null ? null : parseImageBrief(raw);
+        } catch {
+          brief = null;
+        }
       }
       if (brief == null) {
         const detail = "image brief derivation failed";

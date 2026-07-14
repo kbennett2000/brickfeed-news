@@ -3,6 +3,7 @@ import type { Article } from "../src/articles.js";
 import type { Category } from "../src/category.js";
 import type { Config } from "../src/config.js";
 import type { TextGenerator } from "../src/generator/text.js";
+import type { TtsHttpRunner } from "../src/generator/tts.js";
 import type { HeadshotsResult } from "../src/headshots.js";
 import type { OpinionAssets, Persona, Weekday } from "../src/personas.js";
 import type {
@@ -429,6 +430,45 @@ export function fakeStorageFs(opts: {
       return { size: data.length };
     },
   };
+}
+
+/** A single recorded call to a fake TTS runner. */
+export interface RecordedTtsCall {
+  url: string;
+  body: string;
+}
+
+/**
+ * A fake TtsHttpRunner (ADR-0022) routing by TRANSFORM NAME (the URL's last path segment) to a
+ * canned {ok,status,body}. Records every call for request-shape assertions. An unmatched task
+ * resolves to a 404 `unknown_transform` (the real TTS shape); set `throws` to simulate a
+ * transport failure on every call. `ttsOk(output)` / `ttsErr(code)` build the envelope bodies.
+ */
+export function fakeTtsRunner(opts: {
+  routes?: Record<string, { ok?: boolean; status?: number; body?: string }>;
+  throws?: boolean;
+}): TtsHttpRunner & { calls: RecordedTtsCall[] } {
+  const routes = opts.routes ?? {};
+  const calls: RecordedTtsCall[] = [];
+  const runner = async (a: RecordedTtsCall) => {
+    calls.push(a);
+    if (opts.throws) throw new Error("simulated tts transport failure");
+    const task = a.url.split("/").pop() ?? "";
+    const route = routes[task];
+    if (!route) return { ok: false, status: 404, body: ttsErr("unknown_transform") };
+    return { ok: route.ok ?? true, status: route.status ?? 200, body: route.body ?? "" };
+  };
+  return Object.assign(runner, { calls });
+}
+
+/** A TTS success envelope body: `{output, meta}`. */
+export function ttsOk(output: Record<string, unknown>): string {
+  return JSON.stringify({ output, meta: {} });
+}
+
+/** A TTS error envelope body: `{error:{code,message}}`. */
+export function ttsErr(code: string): string {
+  return JSON.stringify({ error: { code, message: code } });
 }
 
 /** A fake ClaudeRunner returning canned stdout/exit code, for subscription-impl tests. */
