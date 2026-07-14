@@ -11,6 +11,7 @@
 import type { AdView } from "../ads.js";
 import type { Article } from "../articles.js";
 import { CATEGORIES, type Category, normalizeCategory } from "../category.js";
+import { SECTION_SLOT_LIMIT, sectionSlotIds } from "../eligibility.js";
 import type { HeadshotManifest } from "../headshots.js";
 import type { Persona } from "../personas.js";
 import type { ManifestRecord } from "../types.js";
@@ -480,11 +481,20 @@ export function renderSite(
   ]);
   const presentSections: Category[] = CATEGORIES.filter((c) => presentSet.has(c));
 
+  // Slot-based display bound (ADR-0020): a story is LISTED on the cover / section pages only when
+  // it's within the top-SECTION_SLOT_LIMIT of its section (newest-first) — the SAME constant that
+  // caps the image budget, so display and imaging can never drift. OPINION is never capped. This
+  // filters LISTINGS only; landing pages, the sitemap, and columnist archives keep the full
+  // `records` (direct access, not a browsable slot). With a generous K it's tail-only — nothing
+  // above the fold changes. `records`/`views` are index-aligned, so filter by the record's id.
+  const listed = sectionSlotIds(records, SECTION_SLOT_LIMIT);
+
   // Homepage exclusion (ADR-0016 d.4): opinion pieces render ONLY in the Opinion section —
   // never on the cover. The kicker check is belt-and-braces for a hypothetical authorless
-  // OPINION record. Section pages need no filter: their per-kicker split already isolates
-  // opinion to opinion.html. Landing pages + sitemap use the unfiltered `views`/`records`.
-  const coverBase = views.filter((v) => !v.opinion && v.kicker !== "OPINION");
+  // OPINION record. Landing pages + sitemap use the unfiltered `views`/`records`.
+  const coverBase = views.filter(
+    (v, i) => !v.opinion && v.kicker !== "OPINION" && listed.has(records[i].id),
+  );
   const coverViews = insertRanked(
     coverBase,
     articleViews.map(({ article, view }) => ({ id: article.id, rank: article.mainRank, view })),
@@ -498,7 +508,9 @@ export function renderSite(
   };
   const cast = castStrip(opts.authors ?? {});
   for (const category of presentSections) {
-    const base = views.filter((v) => v.kicker === category);
+    // Same slot bound as the cover (ADR-0020): list only the section's top-K. OPINION is in
+    // `listed` unconditionally, so opinion.html still shows every piece.
+    const base = views.filter((v, i) => v.kicker === category && listed.has(records[i].id));
     const sectionArticles = articleViews
       .filter(({ article }) => article.category === category)
       .map(({ article, view }) => ({ id: article.id, rank: article.subRank, view }));

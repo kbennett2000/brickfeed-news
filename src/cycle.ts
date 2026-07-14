@@ -5,6 +5,7 @@ import { ageOut, retentionHoursFor } from "./ageout.js";
 import { ARTICLES_DIR, loadArticles } from "./articles.js";
 import type { Config } from "./config.js";
 import { deploy, type DeployResult } from "./deploy.js";
+import { heroEligibility } from "./eligibility.js";
 import { generateAll, isGenerated } from "./generate.js";
 import {
   emptyHeadshotManifest,
@@ -14,7 +15,7 @@ import {
   processHeadshots,
   summarizeHeadshots,
 } from "./headshots.js";
-import { hasImage, generateImages } from "./image.js";
+import { generateImages } from "./image.js";
 import { ingest } from "./ingest.js";
 import { readManifest, writeManifest } from "./manifest.js";
 import {
@@ -118,7 +119,9 @@ export async function runCycle(
     // Opinion pieces read as "pending" to isGenerated but are exempt from the story
     // generator (ADR-0015) — keep this count in parity with generateAll's gate.
     const pending = recs.filter((r) => !isGenerated(r) && !r.author).length;
-    const eligibleImages = recs.filter((r) => !!r.wrappedPrompt && !hasImage(r)).length;
+    // Slot-based eligibility (ADR-0020) — the SAME heroEligibility the real image stage runs, so
+    // the dry-run's counts can never drift from the live run.
+    const heroes = heroEligibility(recs, config, now().getTime());
     const stale = countStale(recs, config, now().getTime());
     const publishable = publishableRecords(manifest).length;
 
@@ -145,7 +148,9 @@ export async function runCycle(
         stages.opinions = `would skip — ${errMsg(err)}`;
       }
     }
-    stages.image = `${eligibleImages} eligible would be attempted`;
+    stages.image =
+      `${heroes.eligible.size} eligible would be attempted ` +
+      `(${heroes.belowFold} below-fold, ${heroes.nearAgeout} near-ageout skipped)`;
     stages.ageout = `${stale} stale would be dropped`;
     stages.render = `${publishable} publishable would render → ${config.render.outputDir}/`;
     stages.deploy = !opts.deploy
@@ -257,7 +262,10 @@ export async function runCycle(
         manifest = r.manifest;
         await deps.io.writeManifest(config.manifestPath, manifest);
         await deps.io.writePublished(config.publishedPath, manifest, deps.storage);
-        return `${r.stored.length} stored, ${r.skipped} skipped, ${r.failed} failed`;
+        return (
+          `${r.stored.length} generated, ${r.belowFold} skipped-below-fold, ` +
+          `${r.nearAgeout} skipped-near-ageout, ${r.failed} failed`
+        );
       },
     },
     {

@@ -1,4 +1,5 @@
 import type { Config } from "./config.js";
+import { heroEligibility } from "./eligibility.js";
 import { mapWithConcurrency } from "./pool.js";
 import type { ImageDeps, Manifest, ManifestRecord } from "./types.js";
 
@@ -39,6 +40,10 @@ export interface ImageResult {
   stored: string[];
   /** Records skipped: already have an image, or not yet generated (no wrappedPrompt). */
   skipped: number;
+  /** Image-needing non-opinion records skipped: ranked below the top-K slot of their section. */
+  belowFold: number;
+  /** Image-needing non-opinion records skipped: in a slot but too close to age-out (ADR-0020). */
+  nearAgeout: number;
   /** Records attempted but left pending (generation or storage returned null/threw). */
   failed: number;
   /** The updated manifest (caller decides when/whether to persist it). */
@@ -66,6 +71,12 @@ export function hasImage(record: ManifestRecord): boolean {
  *  - Idempotent: a record that already has an imageUrl is skipped entirely — the
  *    provider is NOT called and storage is NOT touched (never re-pay, never re-upload).
  *  - Records without a wrappedPrompt are skipped (not generated yet).
+ *  - Slot-based eligibility (ADR-0020): a non-opinion record is imaged only when it ranks
+ *    within the top-SECTION_SLOT_LIMIT of its section (newest-first, competing against ALL
+ *    live stories in that section) AND has >= HERO_MIN_LIFETIME_HOURS of life left. Records
+ *    below the fold or near age-out are left pending (counted separately) — we never pay for a
+ *    hero no reader could encounter. Opinion pieces are exempt (always imaged). The decision is
+ *    heroEligibility() — pure, recomputed fresh each run, no persisted skip state.
  *  - All-or-nothing: imageUrl is written ONLY after a successful put. A null from the
  *    provider OR from storage leaves the record pending (imageUrl absent) — a story is
  *    NEVER persisted with a missing/half image.
@@ -80,7 +91,7 @@ export function hasImage(record: ManifestRecord): boolean {
  *  - deps.log, when present, is called once per attempted story with progress + timing.
  */
 export async function generateImages(
-  _config: Config,
+  config: Config,
   startingManifest: Manifest,
   deps: ImageDeps,
   opts: { limit?: number; concurrency?: number } = {},
@@ -115,22 +126,23 @@ export async function generateImages(
     log(`image: recleared ${recleared} stale image reference(s) — will re-image this run`);
   }
 
-  // Select records that have a wrappedPrompt and no image yet. Order them NEWEST-FIRST by
-  // firstSeen (the same key the render sorts by, publish.ts) BEFORE applying opts.limit, so
-  // the freshest stories get an image — and thus the lead — first. Imaging capacity is finite
-  // (limit + provider throughput), and ingest can outpace it; ordering oldest-first would let
-  // the imaging frontier crawl through stale stories while today's news never gets a picture.
-  // Older un-imaged stragglers left beyond the cap simply age out unpublished (no dangling img).
-  let skipped = 0;
-  const candidates: string[] = [];
-  for (const id of Object.keys(manifest.stories)) {
-    const record = manifest.stories[id];
-    if (hasImage(record) || !record.wrappedPrompt) {
-      skipped++; // already stored (idempotent) or not generated yet — nothing to render
-      continue;
-    }
-    candidates.push(id);
-  }
+  // Slot-based eligibility (ADR-0020): classify every live record. A non-opinion record earns a
+  // hero only when it ranks within the top-K of its section AND isn't about to age out; opinions
+  // are exempt. This is the single source of truth for "which stories to pay Grok for" — the same
+  // SECTION_SLOT_LIMIT bounds the render's listings, so image budget and display can't drift.
+  const decision = heroEligibility(
+    Object.values(manifest.stories),
+    config,
+    deps.now().getTime(),
+  );
+  const { skipped, belowFold, nearAgeout } = decision;
+
+  // Order the eligible ids NEWEST-FIRST by firstSeen (the same key the render sorts by, publish.ts)
+  // BEFORE applying opts.limit, so the freshest stories get an image — and thus the lead — first.
+  // Imaging capacity is finite (limit + provider throughput), and ingest can outpace it; ordering
+  // oldest-first would let the frontier crawl through stale stories while today's news never gets a
+  // picture. Eligible stragglers left beyond the cap retry next run (no dangling img either way).
+  const candidates = [...decision.eligible];
   candidates.sort((a, b) =>
     manifest.stories[b].firstSeen.localeCompare(manifest.stories[a].firstSeen),
   );
@@ -187,5 +199,5 @@ export async function generateImages(
     stored.push(id);
   }
 
-  return { stored, skipped, failed, manifest };
+  return { stored, skipped, belowFold, nearAgeout, failed, manifest };
 }

@@ -123,6 +123,17 @@ describe("runCycle — full chain (happy path)", () => {
     const site = io.writes.find((w) => w.kind === "site");
     expect(site?.files?.["index.html"]).toBeTruthy();
   });
+
+  it("reports the image stage in the ADR-0020 four-bucket shape", async () => {
+    const config = makeConfig();
+    const { deps } = makeDeps(manifestOf(pending("a")));
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.stages.image).toBe(
+      "1 generated, 0 skipped-below-fold, 0 skipped-near-ageout, 0 failed",
+    );
+  });
 });
 
 describe("runCycle — hard stage failure aborts before deploy", () => {

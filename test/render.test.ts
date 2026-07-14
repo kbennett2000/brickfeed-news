@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "../src/category.js";
+import { SECTION_SLOT_LIMIT } from "../src/eligibility.js";
 import {
   type AuthorInfo,
   renderSite,
@@ -220,6 +221,44 @@ describe("renderSite — hero fills the space under the lead", () => {
     expect(index).toContain('class="hero__main"');
     expect(index).not.toContain('class="hero__fill"');
     expect(index).not.toContain("Across the Brickyard");
+  });
+});
+
+describe("renderSite — slot-based display bound (ADR-0020)", () => {
+  // One section, larger than the slot limit; distinct firstSeen so rank is deterministic.
+  const base = Date.parse("2026-07-10T12:00:00.000Z");
+  const many: ManifestRecord[] = Array.from({ length: SECTION_SLOT_LIMIT + 5 }, (_, i) =>
+    rec({
+      id: `slot${i}`,
+      headline: `Slotcheck ${i}`,
+      category: "WORLD",
+      firstSeen: new Date(base - i * 60_000).toISOString(),
+    }),
+  );
+  const files = renderSite(many, OPTS);
+
+  it("caps a section listing at SECTION_SLOT_LIMIT cards, keeping the newest", () => {
+    const world = files["world.html"];
+    // Every story on a section page is a card; count them.
+    const count = world.match(/class="card__headline"/g)?.length ?? 0;
+    expect(count).toBe(SECTION_SLOT_LIMIT);
+    expect(world).toContain("Slotcheck 0<"); // newest, in slot
+    expect(world).toContain(`Slotcheck ${SECTION_SLOT_LIMIT - 1}<`); // rank K-1, in slot
+    expect(world).not.toContain(`Slotcheck ${SECTION_SLOT_LIMIT}<`); // rank K, below fold
+    expect(world).not.toContain(`Slotcheck ${SECTION_SLOT_LIMIT + 4}<`); // oldest, below fold
+  });
+
+  it("caps the homepage overflow per section too — no below-fold straggler leaks onto the cover", () => {
+    const index = files["index.html"];
+    expect(index).toContain("Slotcheck 0<"); // the lead
+    expect(index).not.toContain(`Slotcheck ${SECTION_SLOT_LIMIT}<`); // rank K, below fold
+    expect(index).not.toContain(`Slotcheck ${SECTION_SLOT_LIMIT + 4}<`); // oldest, below fold
+  });
+
+  it("still emits a landing page + sitemap entry for a below-fold record (direct access)", () => {
+    const belowFoldId = `slot${SECTION_SLOT_LIMIT + 4}`;
+    expect(files[`s/${belowFoldId}.html`]).toBeTruthy();
+    expect(files["sitemap.xml"]).toContain(`s/${belowFoldId}.html`);
   });
 });
 

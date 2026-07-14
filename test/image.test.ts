@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SECTION_SLOT_LIMIT } from "../src/eligibility.js";
 import { detectImageContentType, generateImages } from "../src/image.js";
 import type { ImageDeps, Manifest, ManifestRecord } from "../src/types.js";
 import { bytes, fakeImageProvider, fakeStorageProvider, fixedNow, makeConfig } from "./helpers.js";
@@ -268,6 +269,59 @@ describe("generateImages", () => {
     expect(result.skipped).toBe(2); // p1 (no prompt) + s1 (already stored)
     expect(provider.calls).toHaveLength(1);
     expect(result.stored).toHaveLength(1);
+  });
+
+  it("images only the top-K of a section; a below-fold record stays pending (ADR-0020)", async () => {
+    const provider = fakeImageProvider({});
+    const storage = fakeStorageProvider();
+    // One more than a full section, distinct firstSeen so the oldest is unambiguously rank K.
+    const recs = Array.from({ length: SECTION_SLOT_LIMIT + 1 }, (_, i) => ({
+      ...eligible(`w${i}`),
+      firstSeen: new Date(Date.parse(NOW) - i * 60_000).toISOString(),
+    }));
+
+    const result = await generateImages(config, manifestOf(...recs), depsWith(provider, storage));
+
+    // Provider calls == eligible count == the section slot limit; the oldest is left pending.
+    expect(provider.calls).toHaveLength(SECTION_SLOT_LIMIT);
+    expect(result.stored).toHaveLength(SECTION_SLOT_LIMIT);
+    expect(result.belowFold).toBe(1);
+    expect(result.nearAgeout).toBe(0);
+    expect(result.manifest.stories[`w${SECTION_SLOT_LIMIT}`].imageUrl).toBeUndefined();
+  });
+
+  it("skips a near-ageout record, counts it, and images the rest (ADR-0020)", async () => {
+    const provider = fakeImageProvider({});
+    const storage = fakeStorageProvider();
+    // 72h retention − 65h since lastSeen = 7h left < 12h ⇒ near-ageout, no hero.
+    const dying = { ...eligible("dying"), lastSeen: new Date(Date.parse(NOW) - 65 * 3_600_000).toISOString() };
+
+    const result = await generateImages(config, manifestOf(dying, eligible("fresh")), depsWith(provider, storage));
+
+    expect(result.nearAgeout).toBe(1);
+    expect(result.stored).toEqual(["fresh"]);
+    expect(provider.calls).toEqual(["TEST-STYLE Scene: fresh"]);
+    expect(result.manifest.stories.dying.imageUrl).toBeUndefined();
+  });
+
+  it("always images an opinion piece, even below a full section's fold (ADR-0020)", async () => {
+    const provider = fakeImageProvider({});
+    const storage = fakeStorageProvider();
+    const full = Array.from({ length: SECTION_SLOT_LIMIT }, (_, i) => ({
+      ...eligible(`w${i}`),
+      firstSeen: new Date(Date.parse(NOW) - i * 60_000).toISOString(),
+    }));
+    const op: ManifestRecord = {
+      ...eligible("opinion-alice"),
+      category: "OPINION",
+      author: "alice",
+      firstSeen: "2020-01-01T00:00:00.000Z", // ancient, but exempt from the slot test
+    };
+
+    const result = await generateImages(config, manifestOf(...full, op), depsWith(provider, storage));
+
+    expect(result.stored).toContain("opinion-alice");
+    expect(provider.calls).toContain("TEST-STYLE Scene: opinion-alice");
   });
 
   it("runs with concurrency, preserves manifest order, and logs per-story progress", async () => {
