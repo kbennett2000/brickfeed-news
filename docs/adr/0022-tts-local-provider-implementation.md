@@ -10,10 +10,12 @@ until at least one requested transform was registered in the TTS repo. That trig
 satisfied: TTS shipped three of the four requested transforms (cycles T9/T10) —
 `story-cover`, `opinion-gate`, `opinion-image-brief` — and **HELD `opinion-piece`** (long-form
 voiced generation, out of the TTS charter; a product decision, not an executor call). The
-binding contract for what each transform accepts and returns is `docs/brickfeed-2026-07-
-RESPONSE.md` (copied from the TTS repo, provenance PR #11) plus each transform's module
-docstring and the TTS `docs/ai-reference.md`. Where those differ from the original request, the
-RESPONSE rules.
+per-transform accept/return contract (and the gate's fail-closed obligation) is captured
+brickfeed-side in the Decision below and mirrored in `docs/tts-inventory.md`; the authoritative
+transform schemas live in the TTS repo. (Historical note: an earlier revision pointed at a
+vendored `docs/brickfeed-2026-07-RESPONSE.md` and a TTS `docs/ai-reference.md`; both used the
+TTS repo's own ADR numbering and have been removed to avoid colliding with brickfeed's ADR set —
+the binding rules are restated here.)
 
 HTTP shape: `POST {url}/v1/transform/{name}`, body `{text, options}` → `200 {output, meta}`;
 errors `{error:{code,message}}` with a frozen taxonomy (400/401/404/413/422/503/500); keyless
@@ -28,9 +30,10 @@ Phase-1 exploration of the *incumbent code* overturned two premises the kickoff 
    provider must return the image prompt **unwrapped**, identical in kind to the incumbent's
    output — wrapping inside the provider would double-apply the style.
 2. **The gate does not fail *over* — it fails *closed*.** `opinion-gate` is a safety classifier
-   (TTS ADR-0007). RESPONSE §2 requires the caller to treat every 4xx/5xx, every unreachable, every
-   `uncertain` verdict, and any missing/duplicate id as **excluded** — never escalate to another
-   model. This is the opposite of the failover posture used for the two non-safety tasks.
+   (TTS's own safety-classification exception). The caller MUST treat every 4xx/5xx, every
+   unreachable, every `uncertain` verdict, and any missing/duplicate id as **excluded** — never
+   escalate to another model. This is the opposite of the failover posture used for the two
+   non-safety tasks.
 
 ## Decision
 1. **Per-task opt-in, defaults unchanged.** A new optional `generator.tts` block —
@@ -96,6 +99,7 @@ Phase-1 exploration of the *incumbent code* overturned two premises the kickoff 
 ## References
 - ADR-0021 (deferral + intended design), ADR-0011 (Claude/Haiku incumbent), ADR-0007 (grok-terminal
   images), ADR-0003 (non-secret `local` endpoint precedent).
-- `docs/brickfeed-2026-07-RESPONSE.md` (binding TTS disposition), `docs/tts-inventory.md`,
-  `docs/tts-transform-requests.md`. TTS-side: its ADR-0004 (caller-side styling), ADR-0007 (safety
-  classification exception).
+- `docs/tts-inventory.md` (provider seams + task→transform mapping), `docs/tts-transform-requests.md`
+  (the schemas brickfeed asked the TTS repo to build). The authoritative transform schemas and the
+  TTS-side ADRs (caller-side styling, safety-classification exception) live in the TTS repo, which
+  uses its own ADR numbering distinct from brickfeed's.

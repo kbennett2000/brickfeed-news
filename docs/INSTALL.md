@@ -3,10 +3,19 @@
 This guide sets up the brickfeed-news orchestrator on a LAN Ubuntu box and schedules it to
 run on a cron. The orchestrator is one-shot: cron fires a cycle, it publishes, and it exits.
 
-The steps below use the **keyless production default** — the `grok-terminal` provider for both
-text and image (authenticated by a one-time subscription CLI login) with **Vercel Blob**
-storage. That path needs no generation API keys; only a Vercel Blob token. For the API-key
-alternatives (xAI Grok API, Claude subscription/API key) and the LAN imagegen option, see
+The steps below use the fully **keyless** recipe — the `grok-terminal` provider for both text and
+image (authenticated by a one-time subscription CLI login) with **Vercel Blob** storage. That path
+needs no generation API keys; only a Vercel Blob token, and it matches the library's code-level
+defaults, so it's the simplest thing to stand up first.
+
+> **Note — the live site runs text on Claude/Haiku.** Production currently sets
+> `generator.provider: "claude"` (Haiku, `claude-haiku-4-5-20251001`) for **text** while keeping
+> **images** on keyless `grok-terminal` (ADR-0011). To match production, follow the keyless setup
+> below, additionally log the `claude` CLI in (`claude setup-token`, or a stored subscription
+> login), and set `generator.provider` to `"claude"` — see
+> [CONFIGURATION.md](CONFIGURATION.md) ("Live-checking the `claude` text provider").
+
+For the API-key alternatives (xAI Grok API, Claude API key) and the LAN imagegen option, see
 [CONFIGURATION.md](CONFIGURATION.md).
 
 Commands assume Ubuntu 22.04/24.04 and a non-root user (`kris` in the examples). Adjust paths.

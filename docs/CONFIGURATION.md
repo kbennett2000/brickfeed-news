@@ -39,7 +39,7 @@ minimal config is valid. Only **`feedUrls`** and **`manifestPath`** are strictly
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `generator.provider` | enum | `grok-terminal` | One of `grok-terminal` \| `grok` \| `claude` \| `apikey`. See the provider matrix below. |
-| `generator.model` | string | `claude-sonnet-5` | Model for the `claude` (subscription) path. |
+| `generator.model` | string | `claude-sonnet-5` | Model for the `claude` (subscription) path. **Production overrides this to Haiku** (`claude-haiku-4-5-20251001`, ADR-0011) — the committed `config.json` sets it explicitly. |
 | `generator.grok.baseUrl` | string | `https://api.x.ai/v1` | xAI API base URL (the `grok` provider). |
 | `generator.grok.model` | string | `grok-4.5` | Model for the `grok` (xAI API) path. |
 | `generator.grokTerminal.command` | string | `grok` | Executable for the keyless CLI path. |
@@ -49,6 +49,21 @@ minimal config is valid. Only **`feedUrls`** and **`manifestPath`** are strictly
 > **Back-compat alias:** a `generator.provider` of `"subscription"` is accepted and mapped to
 > `"claude"` with a one-time deprecation warning. Image and storage providers were never
 > renamed.
+
+#### `generator.tts` — opt-in local text-transform routing (ADR-0022)
+
+An **optional** block that routes individual text tasks to a LAN `text-transform-service` (TTS)
+instead of the incumbent `generator.provider`, per task, with failover. Omit the whole block (or
+leave every flag `false`) and behavior is byte-identical to today — nothing routes to TTS. Each
+flag is opt-in and independent; `opinion-piece` is intentionally **not** routable (held on the
+incumbent). See ADR-0022 and [ARCHITECTURE.md](ARCHITECTURE.md).
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `generator.tts.url` | string | `http://G434:8712` | Base URL of the TTS service. Non-secret endpoint (lives in config, not env); overridable per cron run via the `TTS_URL` env var. |
+| `generator.tts.storyCover` | boolean | `false` | Route the story-cover bundle to TTS; on any TTS failure, **fails over** to the incumbent provider. |
+| `generator.tts.opinionGate` | boolean | `false` | Route the opinion topic-gate to TTS; on any TTS failure, **fails closed** (all candidates excluded) — never over to another model. |
+| `generator.tts.opinionImageBrief` | boolean | `false` | Route the opinion hero image-brief to TTS; on any TTS failure, **fails over** to the incumbent brief call. |
 
 ### `image` — image generation
 
@@ -115,6 +130,7 @@ default path except the Blob token.
 | `CLAUDE_CODE_OAUTH_TOKEN` | `getSubscriptionToken` — subscription generator | Only if `generator.provider` is `claude` (the subscription `claude -p` path). |
 | `ANTHROPIC_API_KEY` | `getApiKey` — API-key generator | Reserved for the `apikey` generator (a documented stub; not implemented). |
 | `VERCEL_TOKEN` | `getVercelToken` — deploy runner | Only for CI-like/headless deploy. The LAN box normally relies on a one-time `vercel login` and leaves this unset. |
+| `TTS_URL` | `getTtsUrl` — TTS local provider | Optional, **non-secret** override of `generator.tts.url` (e.g. set in `cron.env` to repoint a cron cycle). Only consulted when a `generator.tts.*` task flag is enabled. Not a credential — TTS is keyless in prod. |
 
 ## Provider selection matrix
 

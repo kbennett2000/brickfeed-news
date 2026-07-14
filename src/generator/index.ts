@@ -33,9 +33,10 @@ export interface GeneratorRunners {
 }
 
 /**
- * Select a Generator from config (ADR decision #6). Default is "grok" (xAI). The
- * "claude" provider is the subscription generator (`claude -p`); "grok-terminal" is the
- * keyless subscription CLI (Slice 8); "apikey" is the Slice 2b Messages-API stub. Custom
+ * Select a Generator from config (ADR decision #6). The code-level default is "grok-terminal"
+ * (the keyless subscription CLI; see DEFAULT_PROVIDER in src/config.ts and ADR-0007), though
+ * production sets "claude" for text (Haiku, ADR-0011). The "claude" provider is the subscription
+ * generator (`claude -p`); "grok" is the xAI HTTP API; "apikey" is the Messages-API stub. Custom
  * runners can be injected (used by tests); production leaves them undefined so the real
  * HTTP/CLI boundary is used.
  *

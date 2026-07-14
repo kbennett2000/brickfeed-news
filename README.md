@@ -50,8 +50,9 @@ section, rank, and their own hosted page ([docs/ARTICLES.md](docs/ARTICLES.md)).
 ## Tech stack & conventions
 
 - **TypeScript run directly via `tsx`** — no build step (`tsconfig` is `noEmit`), ES modules.
-- **Minimal deps** — two runtime dependencies: `fast-xml-parser` (RSS parsing) and `marked`
-  (rendering local-article markdown bodies, [docs/ARTICLES.md](docs/ARTICLES.md)).
+- **Minimal deps** — three runtime dependencies: `fast-xml-parser` (RSS parsing), `marked`
+  (rendering local-article markdown bodies, [docs/ARTICLES.md](docs/ARTICLES.md)), and `sharp`
+  (build-time image downscale + WebP re-encode, [docs/CONFIGURATION.md](docs/CONFIGURATION.md)).
 - **ADR-first** — significant decisions are recorded in [docs/adr/](docs/adr/) before code.
 - **Text-only repo** — the manifest (JSON) and rendered HTML are the only artifacts; images
   live in object storage referenced by URL, never committed (so "delete an image" is a real
@@ -68,7 +69,7 @@ git clone https://github.com/kbennett2000/brickfeed-news.git
 cd brickfeed-news
 npm install
 cp config.example.json config.json     # then edit — see docs/CONFIGURATION.md
-npm test                                # vitest, fully mocked; ~393 tests
+npm test                                # vitest, fully mocked; ~740 tests
 ```
 
 Run the pipeline without deploying (nothing is touched with `--dry-run`; `--no-deploy` runs
@@ -87,8 +88,13 @@ Each stage can also be run on its own for debugging:
 | `npm run generate` | `tsx src/generate-cli.ts` | Generate headline/description/prompt/caption for pending stories (`--limit N`) |
 | `npm run images` | `tsx src/image-cli.ts` | Generate + store an image for each un-imaged story (`--limit N`) |
 | `npm run ageout` | `tsx src/ageout-cli.ts` | Drop stories past `maxAgeHours` and delete their images |
+| `npm run opinions` | `tsx src/opinions-cli.ts` | Generate the day's opinion columns (`--date`, `--authors`, `--dry-run`); bypasses the publish-hour gate ([opinion-runbook](docs/opinion-runbook.md)) |
+| `npm run headshots` | `tsx src/headshots-cli.ts` | Hash-gated persona headshot optimize + upload |
 | `npm run render` | `tsx src/render-cli.ts` | Render `published.json` into the static site under `site/` |
 | `npm run cycle` | `tsx src/cycle-cli.ts` | The full orchestrator (all stages + deploy). Flags: `--dry-run`, `--no-deploy` |
+| `npm run backfill-optimize` | `tsx src/backfill-optimize.ts` | One-off: re-run already-stored images through the optimizer |
+| `npm run check:claude` | `tsx scripts/check-claude-generator.ts` | Opt-in **live** harness (real `claude` CLI) validating the text provider before switching ([CONFIGURATION](docs/CONFIGURATION.md)) |
+| `npm run bench:personas` | `tsx scripts/persona-bench.ts` | Read-back a persona's voice against fixtures or recent stories |
 | `npm test` | `vitest run` | Run the test suite once |
 | `npm run test:watch` | `vitest` | Run the test suite in watch mode |
 
@@ -97,9 +103,12 @@ Each stage can also be run on its own for debugging:
 The orchestrator runs on a LAN Ubuntu server. Cron invokes
 [scripts/cycle.sh](scripts/cycle.sh) — a non-blocking `flock` wrapper so overlapping ticks
 skip rather than race — which runs `npm run cycle`. The cycle renders the static site into
-`site/` and deploys it with `vercel --prod`, which Vercel serves. The default production path
-is **keyless** (the `grok-terminal` provider for both text and image, authenticated by a
-subscription CLI login) and needs only a Vercel Blob token in the environment.
+`site/` and deploys it with `vercel --prod`, which Vercel serves. Production runs **text on the
+`claude` subscription CLI (Haiku, `claude-haiku-4-5-20251001`) and images on the keyless
+`grok-terminal` provider** (ADR-0011) — both authenticated by their CLI's own subscription login,
+so no generation API key is read at run time; the cycle needs only a Vercel Blob token in the
+environment. (The library's code-level default when a provider is omitted is `grok-terminal` for
+both seams — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).)
 
 Full setup — prerequisites, config, secrets, first run, and the cron schedule — is in
 **[docs/INSTALL.md](docs/INSTALL.md)**.

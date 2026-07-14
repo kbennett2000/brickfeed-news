@@ -21,6 +21,13 @@
 
 Committing, pushing, and opening a PR are never optional and never require confirmation. A human reviews and merges the PR; you do not close the issue.
 
+> **Current delivery override (owner directive).** After two stranded stacked PRs, the owner
+> directed that cycles **land on `master` directly** — local branch → fast-forward merge → push —
+> **instead of** opening a PR. This override supersedes step 3 above for now: still branch, commit,
+> and push, but merge to `master` yourself rather than leaving an open PR. Everything else (never
+> pause, decide-don't-stall, the end-of-cycle issue update) is unchanged; where the issue protocol
+> below says "PR opened / PR: `<url>`", record the merge commit instead.
+
 **Decide, don't stall.** If something is uncertain but you can proceed, make the reasonable choice and note it in the PR description. "Should I also do X?" is not a blocker — do the obvious thing or note it and move on. Non-blocking uncertainty never stops a cycle.
 
 **Stopping early is rare and only for true blockers.** Stop only when you are missing information you genuinely cannot proceed without. Stopping means: record the blocker on the issue (the `needs-input` state below) and exit. This is recording, not asking — you never wait for a reply. A destructive or unwalkbackable action (force push, history rewrite, deleting branches/data) counts as a blocker: do not do it; record it and stop.
@@ -49,7 +56,7 @@ Every cycle ends in one of these two states, then stops. Never close the issue.
 
 brickfeed-news pulls stories from a news RSS feed (Google News / Drudge-style), rewrites each into an original headline + short description, generates a toy-brick-styled image per story, and renders a static cover page that links out to the source article. It's a personal, non-commercial hobby service.
 
-**Stack:** TypeScript / Node (via `tsx`), built-in `http` + `fetch`, minimal deps (`fast-xml-parser` + `marked`). Static output (HTML under `site/`) is the deploy artifact; the cycle publishes it directly with `vercel --prod --yes` from the box (ADR-0006). `site/` is git-ignored, so a git push does **not** trigger the deploy.
+**Stack:** TypeScript / Node (via `tsx`), built-in `http` + `fetch`, minimal deps (`fast-xml-parser`, `marked`, and `sharp` for build-time image optimization). Static output (HTML under `site/`) is the deploy artifact; the cycle publishes it directly with `vercel --prod --yes` from the box (ADR-0006). `site/` is git-ignored, so a git push does **not** trigger the deploy.
 
 **Runtime topology:** the orchestrator runs on Kris's LAN server (dev PC during development). **Text** generation runs on the **`claude` subscription CLI with Haiku** (`claude-haiku-4-5-20251001`, ADR-0011); **image** generation runs on the **keyless `grok-terminal` provider** (the agentic `grok` CLI driven headlessly, authenticated by a one-time subscription login — ADR-0007). Grok is images-only now. Both are keyless at run time (each CLI carries its own subscription login); no generation API key is read. The generator and image seams are pluggable (see `docs/CONFIGURATION.md`): alternatives include the xAI `grok` API, the Claude subscription CLI, and a `local` LAN imagegen microservice at `http://<devpc>:8189` (`image.provider: local`). Storage defaults to Vercel Blob (needs `BLOB_READ_WRITE_TOKEN`).
 

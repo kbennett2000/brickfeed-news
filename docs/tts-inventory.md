@@ -63,7 +63,7 @@ Parsers / normalizers: `parseGeneratorOutput` (`src/generator/parse.ts`), `parse
 ## Mapping table — Brickfeed task → TTS transform
 
 Updated after the TTS repo shipped the requested transforms (cycles T9/T10) and the Brickfeed
-provider was built (ADR-0022). The binding contract is `docs/brickfeed-2026-07-RESPONSE.md`.
+provider was built (ADR-0022). The routing + failover contract is captured in ADR-0022.
 
 | # | Brickfeed task | TTS transform | Status | On TTS error |
 |---|----------------|---------------|--------|--------------|
@@ -76,6 +76,6 @@ provider was built (ADR-0022). The binding contract is `docs/brickfeed-2026-07-R
 (all flags default false → byte-identical to today). Task 3 (`opinion-piece`) is HELD by product
 decision and stays on the incumbent Claude provider permanently. Every TTS image prompt is
 subject-neutral — the toy-brick style is wrapped ONCE downstream (`wrapBrickStyle`), so the
-provider returns prompts unwrapped. The gate fails **closed** on any TTS error (RESPONSE §2 /
-TTS ADR-0007), not over to Claude. The now-superseded `image-prompt` GAP analysis (Brickfeed
-never issues a standalone image-prompt call) is retained below for history.
+provider returns prompts unwrapped. The gate fails **closed** on any TTS error (ADR-0022 decision
+#3), not over to Claude. The now-superseded `image-prompt` GAP analysis (Brickfeed never issues a
+standalone image-prompt call) is retained below for history.

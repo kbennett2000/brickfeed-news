@@ -1,5 +1,13 @@
 # TTS transform requests (Brickfeed gaps)
 
+> **⚠️ Superseded / historical (2026-07-14).** This doc captured the *original request* handed to
+> the TTS repo when none of the four transforms existed yet. Since then, **three of the four
+> shipped and are routable** — `story-cover`, `opinion-gate`, and `opinion-image-brief` — and the
+> brickfeed-side routing + failover is implemented in **ADR-0022** (opt-in `generator.tts` block).
+> `opinion-piece` remains **HELD** (out of the TTS charter) and stays on the incumbent Claude
+> provider. For current state see **ADR-0022** and **[tts-inventory.md](tts-inventory.md)**; the
+> text below is retained only as the record of the initial request.
+
 Brickfeed News wants a local-first option (via `text-transform-service`, TTS) for the four
 generation tasks it currently routes through Claude/Haiku. **None of the four has a matching
 transform in the live TTS registry** (see `docs/tts-inventory.md` and ADR-0021), so each is a

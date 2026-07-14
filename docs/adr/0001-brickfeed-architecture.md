@@ -1,7 +1,10 @@
 # ADR-0001: brickfeed-news architecture
 
 ## Status
-Accepted
+Accepted. **Partially superseded:** decision #6 (dual Claude generator, default subscription) is
+superseded by ADR-0007 (keyless `grok-terminal` becomes the code default) and ADR-0011 (production
+text runs on `claude`/Haiku, images on `grok-terminal`); decision #1's "redeploys on push" is
+superseded by ADR-0006 (CLI-direct `vercel --prod`). The remaining decisions still hold.
 
 ## Context
 brickfeed-news turns a news RSS feed into a static cover page where each story
@@ -51,5 +54,5 @@ microservice added late; never create trademark/IP exposure.
   story pending, never a half-published entry.
 - Re-rendering is cheap and never re-pays for generation.
 - Legal surface stays minimal: generic brick art only, original text only, no
-  publisher images, no LEGO name/marks anywhere. (See ADR-0002 if/when the feed
-  source, storage backend, or scheduling is pinned down.)
+  publisher images, no LEGO name/marks anywhere. (The feed source, storage backend,
+  and scheduling were subsequently pinned down in ADR-0004, ADR-0006, and ADR-0008.)
