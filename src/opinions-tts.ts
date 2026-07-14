@@ -15,7 +15,12 @@
  *    is NO failover to Claude for the gate — excluding is the safe outcome.
  */
 import type { Config } from "./config.js";
-import { TtsClient, type TtsHttpRunner, resolveTtsUrl } from "./generator/tts.js";
+import {
+  TtsClient,
+  type TtsFailureObserver,
+  type TtsHttpRunner,
+  resolveTtsUrl,
+} from "./generator/tts.js";
 import type { GateVerdict, ImageBrief } from "./opinions.js";
 import type { Persona } from "./personas.js";
 import type { ManifestRecord } from "./types.js";
@@ -147,10 +152,17 @@ export interface OpinionTtsDeps {
  * block is absent or neither opinion task is opted in, so the stage is byte-identical to today.
  * `runner` is injectable for tests. The `TTS_URL` env override (cron) wins over `tts.url`.
  */
-export function createOpinionTtsDeps(config: Config, runner?: TtsHttpRunner): OpinionTtsDeps {
+export function createOpinionTtsDeps(
+  config: Config,
+  runner?: TtsHttpRunner,
+  observer?: TtsFailureObserver,
+): OpinionTtsDeps {
   const tts = config.generator.tts;
   if (!tts || (!tts.opinionGate && !tts.opinionImageBrief)) return {};
-  const client = new TtsClient(resolveTtsUrl(tts.url), runner, tts.timeoutMs);
+  const client = new TtsClient(resolveTtsUrl(tts.url), runner, tts.timeoutMs, {
+    retries: tts.retries,
+    onFailure: observer,
+  });
   const deps: OpinionTtsDeps = {};
   if (tts.opinionGate) deps.ttsGate = (candidates) => ttsGateVerdicts(client, candidates);
   if (tts.opinionImageBrief) {

@@ -354,7 +354,7 @@ describe("runOpinions — publish path", () => {
       ["tom", "published"],
     ]);
     expect(summarizeOpinions(result)).toBe(
-      "4 published, 0 skipped, 0 failed; gate passed 3/3 candidate(s)",
+      "4 published, 0 skipped, 0 failed; gate passed 3/3 candidate(s) via Claude",
     );
     // Exactly ONE gate classification for the whole 4-author run.
     expect(generate.calls.filter(isGateCall)).toHaveLength(1);
@@ -776,12 +776,45 @@ describe("gateSummary (ADR-0018) — one line per topic-gate outcome", () => {
       },
     });
     const result = await runOpinions(CONFIG, manifestOf(story("s1"), story("s2")), assetsOf(newsPersona("alice")), { generate, now: fixedNow(NOW) }, { authors: ["alice"] });
-    expect(result.gateSummary).toBe("gate passed 1/2 candidate(s)");
+    expect(result.gateSummary).toBe("gate passed 1/2 candidate(s) via Claude");
   });
 
   it("reports fail-closed with the excluded count on a provider error", async () => {
     const generate = fakeTextGenerator({ impl: () => { throw new Error("provider down"); } });
     const result = await runOpinions(CONFIG, manifestOf(story("s1"), story("s2")), assetsOf(newsPersona("alice")), { generate, now: fixedNow(NOW) }, { authors: ["alice"] });
+    expect(result.gateSummary).toBe("gate failed closed (2 candidate(s) excluded)");
+  });
+
+  it("FAILS OVER to the Claude gate when the TTS gate is unavailable (owner directive 2026-07-14)", async () => {
+    // TTS gate down (null); the incumbent Claude generate still classifies → the news author
+    // publishes and the summary records the failover, instead of the old fail-closed behavior.
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["s1", "s2"], ["s2"]); // s1 eligible
+        if (isBriefCall(prompt)) return briefJson();
+        return piece(350);
+      },
+    });
+    const result = await runOpinions(
+      CONFIG,
+      manifestOf(story("s1"), story("s2")),
+      assetsOf(newsPersona("alice")),
+      { generate, now: fixedNow(NOW), ttsGate: async () => null },
+      { authors: ["alice"] },
+    );
+    expect(result.gateSummary).toBe("gate passed 1/2 candidate(s) via Claude (TTS failover)");
+    expect(result.authors.find((a) => a.author === "alice")?.status).toBe("published");
+  });
+
+  it("fails closed only when BOTH the TTS gate and the Claude fallback fail", async () => {
+    const generate = fakeTextGenerator({ impl: () => { throw new Error("claude down too"); } });
+    const result = await runOpinions(
+      CONFIG,
+      manifestOf(story("s1"), story("s2")),
+      assetsOf(newsPersona("alice")),
+      { generate, now: fixedNow(NOW), ttsGate: async () => null },
+      { authors: ["alice"] },
+    );
     expect(result.gateSummary).toBe("gate failed closed (2 candidate(s) excluded)");
   });
 

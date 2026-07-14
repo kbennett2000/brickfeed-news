@@ -67,11 +67,20 @@ export async function generateAll(
   };
   const log = deps.log ?? (() => {});
 
-  // Select pending records in manifest order, capped by opts.limit. Already-generated
-  // records are counted as skipped and never consume the attempt budget.
+  // Select pending records NEWEST-first (by firstSeen desc), capped by opts.limit.
+  // Ingest appends new stories to the END of the manifest, so iterating insertion order
+  // drains the OLDEST backlog first; when ingest outruns the per-cycle budget the fresh-story
+  // frontier never advances (the homepage lead and the 24h opinion candidate window both stay
+  // pinned to yesterday). Ordering newest-first spends the budget on today's stories; older
+  // un-generated stragglers simply age out, which is correct for a news site. Already-generated
+  // and opinion records are counted as skipped and never consume the attempt budget.
+  const firstSeenOf = (id: string) => manifest.stories[id].firstSeen || "";
   let skipped = 0;
   const eligible: string[] = [];
-  for (const id of Object.keys(manifest.stories)) {
+  const orderedIds = Object.keys(manifest.stories).sort((a, b) =>
+    firstSeenOf(b).localeCompare(firstSeenOf(a)),
+  );
+  for (const id of orderedIds) {
     // Opinion pieces (ADR-0015) carry text but no image-prompt fields, so they read as
     // "pending" to isGenerated — without this exemption the story generator would
     // overwrite the piece with story-style output on the next cycle.

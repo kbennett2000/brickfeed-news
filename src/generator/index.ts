@@ -13,6 +13,7 @@ import { SubscriptionGenerator } from "./subscription.js";
 import {
   TtsClient,
   TtsFailoverGenerator,
+  type TtsFailureObserver,
   type TtsHttpRunner,
   createTtsStoryGenerator,
   resolveTtsUrl,
@@ -30,6 +31,8 @@ export interface GeneratorRunners {
   terminalRunner?: TerminalTextRunner;
   /** Injected TTS HTTP boundary (ADR-0022); tests feed canned transform responses. */
   ttsRunner?: TtsHttpRunner;
+  /** Observer notified on every final TTS failure, so the cycle can raise a degraded alarm. */
+  ttsObserver?: TtsFailureObserver;
 }
 
 /**
@@ -49,7 +52,10 @@ export function createGenerator(config: Config, opts: GeneratorRunners = {}): Ge
 
   const tts = config.generator.tts;
   if (tts?.storyCover) {
-    const client = new TtsClient(resolveTtsUrl(tts.url), opts.ttsRunner, tts.timeoutMs);
+    const client = new TtsClient(resolveTtsUrl(tts.url), opts.ttsRunner, tts.timeoutMs, {
+      retries: tts.retries,
+      onFailure: opts.ttsObserver,
+    });
     return new TtsFailoverGenerator(createTtsStoryGenerator(client), incumbent);
   }
   return incumbent;

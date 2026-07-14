@@ -1,5 +1,66 @@
 # Handoff
 
+## Frozen-lead + missing news-opinion fix: newest-first generation, deploy exit-code, TTS failover + LOUD reporting
+
+Diagnosed a 2026-07-14 report: afternoon cron published only Priscilla's letters column (no news
+opinion) and the homepage lead didn't refresh. **Both symptoms had ONE root cause** — the
+generate/image pipeline couldn't keep up with ingest, so the newest *publishable* story was ~28h
+old. The lead is the newest publishable by `firstSeen` (frozen), and news-opinion candidates are
+*publishable* stories in the last 24h (empty → both news columnists skipped; letters bypass the
+pool). The opinion-gate never even ran (`gate not run (no candidates)` in the log) — the earlier
+"gate failed closed" theory was **wrong**.
+
+- **Newest-first generation** (`src/generate.ts`): the eligibility loop was `Object.keys(...)`
+  insertion order = OLDEST-first, so the 10/run budget (`maxStoriesPerCycle`) was always spent on
+  yesterday's backlog. Now sorts pending by `firstSeen` **desc** → the budget lands on today's
+  newest stories; old un-generated stragglers age out (correct for news). Real-manifest sim proved
+  it: OLD picks `2026-07-13T18:00`, NEW picks `2026-07-14T22:00`. The lead + the 24h opinion window
+  both track "now" again on the next cron cycle. **No `maxStoriesPerCycle` bump** (owner choice).
+- **resolveUrl/dedup: investigated and DROPPED.** The "duplicate inflation" theory was disproven —
+  520 manifest records, **520 distinct titles, zero dupes**. Dedup works; the Google-News wrapped
+  URL is stable-enough per article. `35 new, 3 known` is real feed velocity, not re-ingestion.
+  `resolveUrl` returning the wrapped URL is cosmetic (outbound link still redirects), and a real
+  decoder needs fragile Google `batchexecute` (POST — the `FetchLike` type can't even do it). Not
+  worth the risk for zero symptom benefit.
+- **Deploy exit-code propagation** (`src/cycle.ts`): a deploy that RAN and failed returned
+  `ok:true` (the noon 18:00Z run logged `deploy: FAILED (exit 1)` yet `cycle finished OK (exit 0)`
+  — stale site 12:06→16:06, invisible). Now `status==="failed"` → `ok:false` / `failedStage:deploy`
+  → non-zero exit (benign skip/refuse states still exit 0). `cycle.sh` already passed the code
+  through. Test added.
+- **TTS: keep enabled, but retry → fail over → REPORT LOUDLY** (owner directive; they had no idea
+  TTS was degraded). "G434" is **this PC**; `text-transform-service` (single-worker uvicorn :8712)
+  was UP all day but returned 503 `busy` (concurrent burst vs one worker) and `model_unavailable`
+  (its Ollama model gets unloaded by a co-tenant app's `cast-mentions` transform). The pipeline
+  logged `unreachable` and **silently** failed over to Claude.
+  - `src/generator/tts.ts`: `TtsClient` gained bounded **retry** (`retries`, short backoff) + a
+    `TtsFailure` **observer** fired once per final failure (task, status, code, attempts).
+  - `src/opinions.ts`: the gate now **fails OVER to the incumbent Claude gate** (still a real
+    safety classification — pre-ADR-0022 behavior) instead of fail-closed; only if BOTH fail does
+    it fail closed. `gateSummary` now records `via TTS` / `via Claude (TTS failover)`.
+  - `src/cycle-cli.ts`: aggregates all TTS failures → a greppable `⚠ TTS-DEGRADED …` line +
+    best-effort `notify-send`. Also a **config-gated preflight restart** (`restartCommand`) run
+    once when TTS is unreachable at cycle start.
+  - Config (`src/config.ts` + `config.example.json`): new optional `generator.tts.retries`
+    (non-neg int) + `restartCommand` (non-empty string), validated.
+- **Box config.json (gitignored):** set `generator.tts.retries: 2`. **Left `restartCommand`
+  UNSET** — tested `systemctl restart text-transform-service` as user `kb`: it **hung ~25s on
+  polkit then failed** (`Method call timed out`, same PID). The cron user can't restart the system
+  unit without a privilege grant, and a hanging command would stall preflight. To enable later: a
+  polkit rule or NOPASSWD sudoers line + `restartCommand: "sudo -n systemctl restart
+  text-transform-service"` (see `docs/CONFIGURATION.md`).
+- **Server-side follow-up (separate repo `text-transform-service`):** the durable fix for today's
+  actual failure (503 busy / model eviction) is server-side — a request queue/concurrency limit +
+  pin/keep-alive the model so a co-tenant can't evict it. A ready-to-paste Claude Code prompt was
+  handed to the owner. Client-side retry+failover+report is the safety net, not the cure.
+- **Verify:** `tsc` clean; **`npm test` 755 pass / 1 skip** (+ new generate-ordering, deploy-fail,
+  gate-failover×2, retry, observer tests). Real dead-endpoint check: gate → null (→ Claude
+  failover), observer captured `attempts:2`, ~518ms (retry backoff). `notify-send` present on box.
+  **Not run: a full real cycle** (heavy, spends Grok, deploys) — the next cron cycle picks up
+  newest-first and unfreezes the lead automatically.
+- **Delivery:** landed on master per the standing no-PRs directive. Code changes committed; the
+  `config.json` edit is gitignored (box-only). No open instruction issue (direct owner report), so
+  no issue-close protocol.
+
 ## TTS per-task timeout → opinion-gate ENABLED; TTS rollout COMPLETE (ADR-0021 amendment)
 
 Opinion-domain + client-seam slice. The TTS client applied one hard **30 s** budget to every

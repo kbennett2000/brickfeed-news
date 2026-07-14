@@ -356,6 +356,14 @@ export async function runCycle(
   stages.deploy =
     deployResult.status + (deployResult.code != null ? ` (exit ${deployResult.code})` : "");
 
+  // A deploy that actually RAN and failed is a hard failure → non-zero exit, so cron/monitoring
+  // sees a stale live site instead of a silent "cycle finished OK". The benign terminal states
+  // (deployed / skipped-flag / skipped-disabled / refused-empty) keep ok:true.
+  if (deployResult.status === "failed") {
+    log(`[${iso()}] cycle: deploy FAILED — live site not updated; exiting non-zero.`);
+    return { ok: false, dryRun: false, failedStage: "deploy", stages, deploy: deployResult };
+  }
+
   return { ok: true, dryRun: false, stages, deploy: deployResult };
 }
 

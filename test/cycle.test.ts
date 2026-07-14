@@ -176,6 +176,24 @@ describe("runCycle — empty/invalid render guard blocks deploy (non-fatal)", ()
   });
 });
 
+describe("runCycle — a deploy that RAN and failed exits non-zero", () => {
+  it("maps a non-zero deploy to ok:false / failedStage:deploy (not a silent OK)", async () => {
+    const config = makeConfig();
+    // Let the pipeline generate + image the record so it's genuinely publishable (storage.exists
+    // passes) and the guard lets the deploy command actually run — which then exits non-zero.
+    // NB: hold our own reference — makeDeps returns its internal (unused) runner, not the override.
+    const deployRun = fakeDeployRunner({ code: 1 });
+    const { deps } = makeDeps(manifestOf(pending("a")), { deployRun });
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(deployRun.calls).toHaveLength(1); // the command ran
+    expect(result.deploy?.status).toBe("failed");
+    expect(result.ok).toBe(false); // → CLI exits 1, cron sees the stale-site failure
+    expect(result.failedStage).toBe("deploy");
+  });
+});
+
 describe("runCycle — flags", () => {
   it("--no-deploy runs every stage but skips deploy", async () => {
     const config = makeConfig();

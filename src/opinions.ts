@@ -499,31 +499,46 @@ export async function runOpinions(
       gateSummary = "gate not run (no candidates)";
       log(`opinions: no candidate stories in the last ${CANDIDATE_WINDOW_HOURS}h`);
     } else {
-      // Opt-in TTS gate (ADR-0022) FAILS CLOSED: null → gateFailed (all excluded) below, with
-      // NO Claude fallback. Default (no ttsGate) → the incumbent classifier, unchanged.
-      let verdicts: Map<string, GateVerdict> | null;
-      if (deps.ttsGate) {
-        try {
-          verdicts = await deps.ttsGate(candidates);
-        } catch {
-          verdicts = null;
-        }
-      } else {
+      // The incumbent Claude classifier (the pre-ADR-0022 gate); null on provider/parse failure.
+      const claudeGate = async (): Promise<Map<string, GateVerdict> | null> => {
         let response: string | null = null;
         try {
           response = await deps.generate(buildGatePrompt(candidates));
         } catch {
           response = null;
         }
-        verdicts =
-          response == null ? null : parseGateVerdicts(response, candidates.map((r) => r.id));
+        return response == null
+          ? null
+          : parseGateVerdicts(response, candidates.map((r) => r.id));
+      };
+
+      // Opt-in TTS gate (ADR-0022). When TTS is unavailable it now FAILS OVER to the Claude gate
+      // (owner directive 2026-07-14) rather than fail-closed: Claude still runs the safety
+      // classification, so news-opinion pieces aren't silently starved by a TTS flap. Only when
+      // BOTH the TTS gate and the Claude fallback fail do we fail closed. The underlying TTS
+      // failure is recorded by the client observer → surfaces in the loud TTS-DEGRADED report.
+      let verdicts: Map<string, GateVerdict> | null;
+      let gateVia = deps.ttsGate ? "TTS" : "Claude";
+      if (deps.ttsGate) {
+        try {
+          verdicts = await deps.ttsGate(candidates);
+        } catch {
+          verdicts = null;
+        }
+        if (verdicts == null) {
+          gateVia = "Claude (TTS failover)";
+          log("opinions: opinion-gate TTS unavailable → failing over to the Claude gate");
+          verdicts = await claudeGate();
+        }
+      } else {
+        verdicts = await claudeGate();
       }
       if (verdicts == null) {
         gateFailed = true;
         gateSummary = `gate failed closed (${candidates.length} candidate(s) excluded)`;
         log(
           `opinions: TOPIC GATE FAILED CLOSED — all ${candidates.length} candidate(s) ` +
-            "excluded this run (provider error or malformed verdict JSON)",
+            "excluded this run (both TTS and Claude gate unavailable, or malformed verdict JSON)",
         );
       } else {
         gate = candidates.map((r) => verdicts.get(r.id) as GateVerdict);
@@ -531,7 +546,7 @@ export async function runOpinions(
           log(`opinions: gate ${v.verdict} ${v.id}${v.reason ? ` — ${v.reason}` : ""}`);
         }
         eligible = candidates.filter((r) => verdicts.get(r.id)?.verdict === "eligible");
-        gateSummary = `gate passed ${eligible.length}/${candidates.length} candidate(s)`;
+        gateSummary = `gate passed ${eligible.length}/${candidates.length} candidate(s) via ${gateVia}`;
         log(`opinions: ${gateSummary}`);
       }
     }

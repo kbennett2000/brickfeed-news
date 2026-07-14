@@ -163,9 +163,20 @@ describe("runOpinions — TTS brief failover (ADR-0022)", () => {
   });
 });
 
-describe("runOpinions — TTS gate fail-closed integration (ADR-0022)", () => {
-  it("ttsGate null excludes ALL candidates (news authors skip); letters unaffected", async () => {
-    const generate = fakeTextGenerator({ impl: (p) => (isBriefCall(p) ? briefJson() : piece(350)) });
+describe("runOpinions — TTS gate failover integration (owner directive 2026-07-14)", () => {
+  const gateJson = (ids: string[]): string =>
+    JSON.stringify({ verdicts: ids.map((id) => ({ id, verdict: "eligible", reason: "ok" })) });
+
+  it("ttsGate null FAILS OVER to the Claude gate (news authors still publish); letters unaffected", async () => {
+    // TTS gate down → the incumbent Claude gate runs instead of fail-closed, so news satire
+    // isn't silently starved. The underlying TTS failure is reported separately (client observer).
+    const generate = fakeTextGenerator({
+      impl: (p) => {
+        if (isGateCall(p)) return gateJson(["s1", "s2"]); // Claude failover: both eligible
+        if (isBriefCall(p)) return briefJson();
+        return piece(350);
+      },
+    });
     const result = await runOpinions(
       CONFIG,
       manifestOf(story("s1"), story("s2")),
@@ -174,16 +185,16 @@ describe("runOpinions — TTS gate fail-closed integration (ADR-0022)", () => {
     );
 
     const byName = new Map(result.authors.map((a) => [a.author, a.status]));
-    expect(byName.get("alice")).toBe("skipped-no-candidates");
-    expect(byName.get("bob")).toBe("skipped-no-candidates");
+    expect(byName.get("alice")).toBe("published");
+    expect(byName.get("bob")).toBe("published");
     expect(byName.get("priscilla")).toBe("published");
     expect(byName.get("tom")).toBe("published");
-    // The incumbent gate prompt is NEVER used when ttsGate is wired.
-    expect(generate.calls.filter(isGateCall)).toHaveLength(0);
-    expect(result.gateSummary).toContain("failed closed");
+    // The incumbent Claude gate IS used on failover — exactly once (one batched classification).
+    expect(generate.calls.filter(isGateCall)).toHaveLength(1);
+    expect(result.gateSummary).toContain("via Claude (TTS failover)");
   });
 
-  it("ttsGate verdicts drive selection when it succeeds", async () => {
+  it("ttsGate verdicts drive selection when it succeeds (no Claude gate call)", async () => {
     const generate = fakeTextGenerator({ impl: (p) => (isBriefCall(p) ? briefJson() : piece(350)) });
     const gate = async (candidates: ManifestRecord[]) => {
       const m = new Map<string, GateVerdict>();
@@ -197,8 +208,8 @@ describe("runOpinions — TTS gate fail-closed integration (ADR-0022)", () => {
       { generate, now: fixedNow(NOW), ttsGate: gate },
     );
 
-    expect(result.gateSummary).toBe("gate passed 2/2 candidate(s)");
+    expect(result.gateSummary).toBe("gate passed 2/2 candidate(s) via TTS");
     expect(result.authors.find((a) => a.author === "alice")?.status).toBe("published");
-    expect(generate.calls.filter(isGateCall)).toHaveLength(0);
+    expect(generate.calls.filter(isGateCall)).toHaveLength(0); // TTS succeeded → no failover
   });
 });

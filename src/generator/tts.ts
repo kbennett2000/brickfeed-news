@@ -24,6 +24,33 @@ export type TtsResult =
   | { ok: false; status: number; code: string };
 
 /**
+ * A FINAL TTS failure (after any retries), reported to an optional observer so the cycle can
+ * raise a loud "TTS-DEGRADED" alarm instead of the failure being silently swallowed by failover.
+ * `code` is the frozen error code (`busy`, `model_unavailable`, `unreachable`, `bad_envelope`, …);
+ * `attempts` is how many tries were made before giving up.
+ */
+export interface TtsFailure {
+  task: TtsTask;
+  status: number;
+  code: string;
+  attempts: number;
+}
+export type TtsFailureObserver = (failure: TtsFailure) => void;
+
+/** Optional client behavior: bounded retry + a failure observer for degradation reporting. */
+export interface TtsClientOptions {
+  /** Extra attempts after the first on a failed call (default 0 → one try, unchanged). */
+  retries?: number;
+  /** Delay between attempts, ms (default 500; only used when retries > 0). */
+  backoffMs?: number;
+  /** Called ONCE per final failure (after retries exhausted) — the degradation signal. */
+  onFailure?: TtsFailureObserver;
+}
+
+/** Default backoff between TTS retries (ms). */
+export const DEFAULT_TTS_BACKOFF_MS = 500;
+
+/**
  * The HTTP boundary for the TTS client, injected so tests feed canned responses without a
  * real network call or a running service. `url` is the full transform endpoint; `body` the
  * JSON request; `timeoutMs` the per-CALL wall-clock budget the client resolved for this task
@@ -95,31 +122,57 @@ export class TtsClient {
   private readonly base: string;
   private readonly runner: TtsHttpRunner;
   private readonly timeouts?: Partial<Record<TtsTask, number>>;
+  private readonly retries: number;
+  private readonly backoffMs: number;
+  private readonly onFailure?: TtsFailureObserver;
 
   constructor(
     url: string,
     runner: TtsHttpRunner = defaultTtsRunner,
     timeouts?: Partial<Record<TtsTask, number>>,
+    opts: TtsClientOptions = {},
   ) {
     this.base = url.replace(/\/+$/, "");
     this.runner = runner;
     this.timeouts = timeouts;
+    this.retries = Math.max(0, opts.retries ?? 0);
+    this.backoffMs = opts.backoffMs ?? DEFAULT_TTS_BACKOFF_MS;
+    this.onFailure = opts.onFailure;
+  }
+
+  /** Emit the structured warning AND notify the observer — the single degradation signal. */
+  private reportFailure(task: TtsTask, status: number, code: string, attempts: number): void {
+    warnTts(task, status, code);
+    this.onFailure?.({ task, status, code, attempts });
   }
 
   async run(task: TtsTask, text: string): Promise<TtsResult> {
     const url = `${this.base}/v1/transform/${task}`;
     const timeoutMs = resolveTtsTimeout(task, this.timeouts);
-    let res: { ok: boolean; status: number; body: string };
-    try {
-      res = await this.runner({ url, body: JSON.stringify({ text, options: {} }), timeoutMs });
-    } catch {
-      // A runner should surface transport failures as ok:false, but belt-and-braces.
-      res = { ok: false, status: 0, body: "" };
+    const body = JSON.stringify({ text, options: {} });
+
+    // Bounded retry: a transient failure (e.g. a 503 `busy` burst against the single worker)
+    // may clear on a second try. `retries` extra attempts, short backoff between them. A clean
+    // 200 short-circuits. Retrying does NOT change the failover contract — the caller still
+    // falls back to Claude if every attempt fails.
+    const tries = 1 + this.retries;
+    let res: { ok: boolean; status: number; body: string } = { ok: false, status: 0, body: "" };
+    let attempts = 0;
+    for (let i = 0; i < tries; i++) {
+      if (i > 0 && this.backoffMs > 0) await delay(this.backoffMs);
+      attempts++;
+      try {
+        res = await this.runner({ url, body, timeoutMs });
+      } catch {
+        // A runner should surface transport failures as ok:false, but belt-and-braces.
+        res = { ok: false, status: 0, body: "" };
+      }
+      if (res.ok) break;
     }
 
     if (!res.ok) {
       const code = res.status === 0 ? "unreachable" : extractErrorCode(res.body);
-      warnTts(task, res.status, code);
+      this.reportFailure(task, res.status, code, attempts);
       return { ok: false, status: res.status, code };
     }
 
@@ -127,16 +180,21 @@ export class TtsClient {
     try {
       parsed = JSON.parse(res.body);
     } catch {
-      warnTts(task, res.status, "bad_envelope");
+      this.reportFailure(task, res.status, "bad_envelope", attempts);
       return { ok: false, status: res.status, code: "bad_envelope" };
     }
     const output = (parsed as { output?: unknown })?.output;
     if (typeof output !== "object" || output === null || Array.isArray(output)) {
-      warnTts(task, res.status, "bad_envelope");
+      this.reportFailure(task, res.status, "bad_envelope", attempts);
       return { ok: false, status: res.status, code: "bad_envelope" };
     }
     return { ok: true, output: output as Record<string, unknown> };
   }
+}
+
+/** Promise-based delay used for retry backoff (kept tiny + injectable-free for testability). */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Resolve the effective TTS base URL: the `TTS_URL` env override (cron) wins over config. */

@@ -205,6 +205,32 @@ describe("generateAll", () => {
     expect(untouched).toHaveLength(1);
   });
 
+  it("spends the limit on the NEWEST pending records (by firstSeen desc)", async () => {
+    // Manifest insertion order is oldest→newest here (like ingest appends); the budget
+    // must still land on the two newest, not the two oldest at the front of the object.
+    const at = (id: string, title: string, firstSeen: string): ManifestRecord => ({
+      ...pending(id, title),
+      firstSeen,
+    });
+    const gen = fakeGenerator({});
+    const result = await generateAll(
+      config,
+      manifestOf(
+        at("old", "OLD", "2025-07-01T00:00:00.000Z"),
+        at("mid", "MID", "2025-07-05T00:00:00.000Z"),
+        at("new", "NEW", "2025-07-08T00:00:00.000Z"),
+      ),
+      deps(gen),
+      { limit: 2 },
+    );
+
+    // The two newest (NEW, MID) are attempted, newest first; OLD stays pending.
+    expect(gen.calls.map((c) => c.title)).toEqual(["NEW", "MID"]);
+    expect(isGenerated(result.manifest.stories.old)).toBe(false);
+    expect(isGenerated(result.manifest.stories.mid)).toBe(true);
+    expect(isGenerated(result.manifest.stories.new)).toBe(true);
+  });
+
   it("limit counts attempts, not skips: already-done records don't consume the budget", async () => {
     const gen = fakeGenerator({});
     const result = await generateAll(

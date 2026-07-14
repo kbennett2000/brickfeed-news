@@ -4,6 +4,8 @@ import {
   DEFAULT_TTS_TIMEOUT_MS,
   defaultTtsRunner,
   TtsClient,
+  type TtsFailure,
+  type TtsHttpRunner,
 } from "../src/generator/tts.js";
 import { ttsGateVerdicts } from "../src/opinions-tts.js";
 import type { ManifestRecord } from "../src/types.js";
@@ -30,6 +32,40 @@ describe("TtsClient", () => {
     const runner = fakeTtsRunner({ routes: { "story-cover": { body: ttsOk({}) } } });
     await new TtsClient("http://tts.test/", runner).run("story-cover", "t");
     expect(runner.calls[0].url).toBe("http://tts.test/v1/transform/story-cover");
+  });
+
+  it("retries a failed call and succeeds on a later attempt (owner directive: try once or twice)", async () => {
+    let n = 0;
+    const runner: TtsHttpRunner = async () => {
+      n += 1;
+      return n < 2
+        ? { ok: false, status: 503, body: ttsErr("busy") }
+        : { ok: true, status: 200, body: ttsOk({ headline: "H" }) };
+    };
+    const res = await new TtsClient("http://tts.test", runner, undefined, {
+      retries: 1,
+      backoffMs: 0,
+    }).run("story-cover", "t");
+
+    expect(n).toBe(2); // first try failed (busy), retry succeeded
+    expect(res).toEqual({ ok: true, output: { headline: "H" } });
+  });
+
+  it("notifies the observer ONCE on a final failure, with the attempt count and code", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const failures: TtsFailure[] = [];
+    const runner: TtsHttpRunner = async () => ({ ok: false, status: 503, body: ttsErr("busy") });
+
+    const res = await new TtsClient("http://tts.test", runner, undefined, {
+      retries: 2,
+      backoffMs: 0,
+      onFailure: (f) => failures.push(f),
+    }).run("story-cover", "t");
+
+    expect(res).toEqual({ ok: false, status: 503, code: "busy" });
+    // Three tries (1 + 2 retries), but exactly ONE warning and ONE observer event — the signal.
+    expect(failures).toEqual([{ task: "story-cover", status: 503, code: "busy", attempts: 3 }]);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it.each([400, 404, 413, 422, 503, 500])(

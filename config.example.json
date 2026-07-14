@@ -22,7 +22,8 @@
       "opinionImageBrief": false,
       "timeoutMs": {
         "opinion-gate": 120000
-      }
+      },
+      "retries": 0
     }
   },
   "brickStyle": {

@@ -62,8 +62,25 @@ incumbent). See ADR-0022 and [ARCHITECTURE.md](ARCHITECTURE.md).
 | --- | --- | --- | --- |
 | `generator.tts.url` | string | `http://G434:8712` | Base URL of the TTS service. Non-secret endpoint (lives in config, not env); overridable per cron run via the `TTS_URL` env var. |
 | `generator.tts.storyCover` | boolean | `false` | Route the story-cover bundle to TTS; on any TTS failure, **fails over** to the incumbent provider. |
-| `generator.tts.opinionGate` | boolean | `false` | Route the opinion topic-gate to TTS; on any TTS failure, **fails closed** (all candidates excluded) — never over to another model. |
+| `generator.tts.opinionGate` | boolean | `false` | Route the opinion topic-gate to TTS; on any TTS failure, **fails over to the incumbent Claude gate** (which still runs the safety classification — owner directive 2026-07-14). Only when BOTH TTS and Claude fail does the gate fail closed (all candidates excluded). |
 | `generator.tts.opinionImageBrief` | boolean | `false` | Route the opinion hero image-brief to TTS; on any TTS failure, **fails over** to the incumbent brief call. |
+| `generator.tts.retries` | number | `0` | Extra attempts (per call) after the first before failing over — a transient 503 `busy` burst against the single-worker service may clear on a retry. Total tries = `1 + retries`. Short backoff between. |
+| `generator.tts.restartCommand` | string | *(unset)* | Optional shell command run **once at cycle preflight** if TTS is enabled but the endpoint is unreachable (best-effort self-heal). Unset → no restart (the cycle still fails over + reports). See the degradation note below. |
+
+**TTS degradation is now LOUD (owner directive 2026-07-14).** Every final TTS failure this run
+is aggregated into a `⚠ TTS-DEGRADED — <task> (<code>, N×); fell back to Claude` line at the end
+of the cycle (greppable, like `OPINION-STALE`) **plus a best-effort `notify-send` desktop popup**.
+From cron, `notify-send` reaches the desktop only when `DISPLAY` (e.g. `:0`) and
+`DBUS_SESSION_BUS_ADDRESS` are present in the environment — add them to `cron.env` to get the
+popup; the greppable log line is the durable signal regardless.
+
+**Enabling `restartCommand`:** the content cron runs as a normal user, which **cannot** restart a
+systemd *system* unit without a privilege grant (a bare `systemctl restart …` hangs on polkit then
+fails). To make auto-restart work, either add a polkit rule allowing the cron user to manage the
+unit, or a NOPASSWD sudoers line (`<user> ALL=(root) NOPASSWD: /usr/bin/systemctl restart
+text-transform-service`) and set `restartCommand` to `sudo -n systemctl restart
+text-transform-service`. Until then leave it unset — retry + failover + the loud report cover the
+outage; the restart is a bonus, not load-bearing.
 
 ### `image` — image generation
 

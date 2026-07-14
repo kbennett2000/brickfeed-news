@@ -158,6 +158,18 @@ export interface TtsRoutingConfig {
    * Present → each key is a routable task, each value a positive-integer millisecond budget.
    */
   timeoutMs?: Partial<Record<TtsTask, number>>;
+  /**
+   * Optional bounded retry (positive int) applied to every TTS call before it fails over to
+   * Claude — a transient 503 `busy` burst against the single worker may clear on a second try.
+   * Absent → 0 (one try, unchanged). Total tries per call = 1 + retries.
+   */
+  retries?: number;
+  /**
+   * Optional shell command run ONCE at cycle preflight when TTS is enabled but unreachable
+   * (best-effort self-heal, e.g. `systemctl restart text-transform-service`). Absent → no
+   * restart is attempted (the cycle still fails over to Claude and reports the degradation).
+   */
+  restartCommand?: string;
 }
 
 /**
@@ -534,7 +546,31 @@ function validateGeneratorTts(raw: unknown, path: string): TtsRoutingConfig | un
   );
   const timeoutMs = validateTtsTimeouts(t.timeoutMs, path);
 
-  return { url, storyCover, opinionGate, opinionImageBrief, ...(timeoutMs ? { timeoutMs } : {}) };
+  let retries: number | undefined;
+  if (t.retries != null) {
+    if (typeof t.retries !== "number" || !Number.isInteger(t.retries) || t.retries < 0) {
+      throw new Error(`Config at ${path}: generator.tts.retries must be a non-negative integer.`);
+    }
+    retries = t.retries;
+  }
+
+  let restartCommand: string | undefined;
+  if (t.restartCommand != null) {
+    if (typeof t.restartCommand !== "string" || t.restartCommand.trim().length === 0) {
+      throw new Error(`Config at ${path}: generator.tts.restartCommand must be a non-empty string.`);
+    }
+    restartCommand = t.restartCommand;
+  }
+
+  return {
+    url,
+    storyCover,
+    opinionGate,
+    opinionImageBrief,
+    ...(timeoutMs ? { timeoutMs } : {}),
+    ...(retries != null ? { retries } : {}),
+    ...(restartCommand != null ? { restartCommand } : {}),
+  };
 }
 
 /** The three routable TTS tasks — the only valid keys of `generator.tts.timeoutMs`. */
