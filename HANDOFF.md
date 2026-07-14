@@ -1,5 +1,40 @@
 # Handoff
 
+## TTS per-task timeout → opinion-gate ENABLED; TTS rollout COMPLETE (ADR-0021 amendment)
+
+Opinion-domain + client-seam slice. The TTS client applied one hard **30 s** budget to every
+call; that starved the **fail-closed `opinion-gate`**, which runs a single constrained batch
+classification (~34 verdicts) on the LAN 9B — inherently **~42–46 s**. A 30 s abort → fail-closed
+→ every news-opinion candidate excluded that cycle. Prior verify proved the gate otherwise returns
+safe, id-set-equal verdicts; latency was the only blocker. Owner chose option (b): a per-task
+timeout override (not a TTS-side speedup — that means a model downgrade on a safety task, or
+chunking with no net saving).
+
+- **Per-task budget** (`src/generator/tts.ts`): new `resolveTtsTimeout(task, overrides?)` — shared
+  `DEFAULT_TTS_TIMEOUT_MS = 30_000`, but `opinion-gate` → `DEFAULT_TTS_GATE_TIMEOUT_MS = 120_000`.
+  `TtsHttpRunner` args gained optional `timeoutMs`; `defaultTtsRunner` uses it (or the 30 s default);
+  `TtsClient` gained an optional 3rd ctor arg `timeouts?` and resolves the budget in `run(task)`.
+  **Fail-closed posture unchanged** — a genuine timeout still aborts to excluded-all.
+- **Config** (`src/config.ts`): optional `generator.tts.timeoutMs` map (keys = routable tasks,
+  values = positive-int ms) overrides the code default per task; absent → code defaults. Validated
+  (unknown key / non-positive / non-object rejected). Wired at both `new TtsClient` sites
+  (`src/generator/index.ts`, `src/opinions-tts.ts`).
+- **Tests**: per-task budget assertions (gate 120 s, others 30 s; override wins) + real
+  `defaultTtsRunner` abort behavior via fake timers (45 s resolves under 120 s; 125 s aborts →
+  fail-closed) + config cases. tsc clean; full suite **749 passed / 1 skipped**.
+- **ADR-0021** amended (2026-07-14): why 120 s, why not a TTS-side speedup, posture unchanged.
+- **Gate ENABLED (thread CLOSED)**: registry confirmed `opinion-gate` 0.3.0; re-verified at real
+  reconstructed volume (newest 34 publishable non-op no-author, 13.7 KB) through the **real default
+  runner** → **200 in 46.5 s (< 120 s budget, no abort)**, raw id-set exactly equal (34/34), 29
+  eligible / 5 excluded, all 5 death/obituary stories excluded, **0 unsafe inclusions**. Flipped
+  gitignored `config.json` `opinionGate: false → true` (no commit — config is gitignored). **All
+  three routable TTS tasks now LIVE on cron**; `opinion-piece` held permanently.
+- **NOT touched**: gate prompt/semantics, story-cover/brief adapters, personas, retention, deploy.
+- **Delivery**: landed on master per the standing no-PRs directive. **Code-only change** (the enable
+  is a gitignored config flip) — no render/deploy needed; the gate takes effect on the next real
+  opinion cycle (it will block ~46 s once per run, by design). No open instruction issue existed for
+  this cycle (direct owner directive), so no issue-close protocol was run.
+
 ## Slot-based hero eligibility: pay Grok only for encounterable heroes (ADR-0020)
 
 Image-stage + display-bound slice. Grok spend is entirely the image stage (text is
