@@ -316,6 +316,44 @@ describe("prompt assembly + output contract", () => {
     expect(splitTitleBody("")).toBeNull();
   });
 
+  it("splitTitleBody: recovers the real title when the model leaks junk before it", () => {
+    // The exact Priscilla "Wisdom's Moat" leak: preamble sentence, then a bare
+    // delimiter, then the real bold title — the real title must win.
+    const leak =
+      "I see the task: write one reader-letter column as Priscilla — advice in her " +
+      "measured voice.\n\n---\n\n**Wisdom's Moat**\n\n" +
+      "Dear Priscilla, my neighbor keeps borrowing my ladder. Signed, Fed Up.";
+    const split = splitTitleBody(leak);
+    expect(split?.title).toBe("Wisdom's Moat");
+    expect(split?.body).toMatch(/^Dear Priscilla/);
+
+    // Bare delimiter first.
+    expect(splitTitleBody("---\n\n**Real Title**\n\nBody.")?.title).toBe("Real Title");
+    // Label lines.
+    expect(splitTitleBody("Title: The Real Title\n\nBody.")?.title).toBe("The Real Title");
+    expect(splitTitleBody("Headline: X\n\nBody.")?.title).toBe("X");
+    // Opener preamble then real title.
+    expect(splitTitleBody("Here is your column:\n\nThe Real Title\n\nBody.")?.title).toBe(
+      "The Real Title",
+    );
+    // Whole-completion code fence unwrapped.
+    expect(splitTitleBody("```\nThe Title\n\nBody.\n```")?.title).toBe("The Title");
+  });
+
+  it("splitTitleBody: fails closed on refusals and paragraph-as-title, keeps legit titles", () => {
+    // Refusals never publish.
+    expect(splitTitleBody("I can't help with that request.\n\nSomething else.")).toBeNull();
+    expect(splitTitleBody("I'm sorry, but I cannot write that.\n\nMore.")).toBeNull();
+    // A paragraph masquerading as a title (no recoverable real title) is rejected.
+    const paragraph = `${"word ".repeat(40).trim()}\n\nBody.`;
+    expect(splitTitleBody(paragraph)).toBeNull();
+    // Conservatism: legit short titles that open with a stop word are preserved.
+    expect(splitTitleBody("Okay Boomer\n\nBody paragraph here.")?.title).toBe("Okay Boomer");
+    expect(splitTitleBody("Sure Thing\n\nBody paragraph here.")?.title).toBe("Sure Thing");
+    // "I Can't Even" is a title, not a refusal (no refusal object follows).
+    expect(splitTitleBody("I Can't Even\n\nBody paragraph here.")?.title).toBe("I Can't Even");
+  });
+
   it("length ranges pin the persona prose (drift guard on the committed assets)", () => {
     expect(DEFAULT_LENGTH_RANGE).toEqual([300, 500]);
     expect(LENGTH_RANGES).toEqual({ tom: [500, 700] });
@@ -432,6 +470,44 @@ describe("runOpinions — publish path", () => {
         authors: ["nobody"],
       }),
     ).rejects.toThrow('unknown persona "nobody"');
+  });
+
+  it("recovers a leaked preamble title end-to-end (record carries the real title)", async () => {
+    const leaked = `Here is your column:\n\n**The Real Title**\n\n${"word ".repeat(350).trim()}`;
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["s1"]);
+        if (isBriefCall(prompt)) return briefJson();
+        return leaked;
+      },
+    });
+    const result = await runOpinions(CONFIG, manifestOf(story("s1")), sundayAssets(), {
+      generate,
+      now: fixedNow(NOW),
+    }, { authors: ["tom"] });
+
+    expect(result.authors[0]).toMatchObject({ author: "tom", status: "published" });
+    expect(result.manifest.stories["opinion-tom-2026-07-12"].title).toBe("The Real Title");
+  });
+
+  it("a refusal completion fails that author closed — never published", async () => {
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isBriefCall(prompt)) return briefJson();
+        return "I can't help with that request.";
+      },
+    });
+    const result = await runOpinions(CONFIG, manifestOf(story("s1")), sundayAssets(), {
+      generate,
+      now: fixedNow(NOW),
+    }, { authors: ["tom"] });
+
+    expect(result.authors[0]).toMatchObject({
+      author: "tom",
+      status: "failed",
+      detail: "output missing title line or body",
+    });
+    expect(result.manifest.stories["opinion-tom-2026-07-12"]).toBeUndefined();
   });
 });
 

@@ -1,5 +1,9 @@
 import { normalizeCategory } from "../category.js";
+import { looksLikeRefusal } from "../sanitize.js";
 import type { GeneratorOutput } from "../types.js";
+
+/** A real headline is one line; well above that is a leaked paragraph, not a headline. */
+const MAX_HEADLINE_CHARS = 300;
 
 /**
  * The defensive inner-JSON parser shared by every text Generator (subscription
@@ -15,6 +19,10 @@ import type { GeneratorOutput } from "../types.js";
  * if a required non-empty string key is missing.
  */
 export function parseGeneratorOutput(text: string): GeneratorOutput | null {
+  // A refusal that happens to carry a stray {...} would otherwise slip through the
+  // brace-slice below; reject it up front so a refusal is never published.
+  if (looksLikeRefusal(text)) return null;
+
   const jsonSlice = extractJsonObject(text);
   if (jsonSlice == null) return null;
 
@@ -36,6 +44,8 @@ export function parseGeneratorOutput(text: string): GeneratorOutput | null {
   // caption is required like the other text fields — missing/empty leaves the story
   // pending. category is NOT: a bad value normalizes to WORLD so generation succeeds.
   if (!headline || !description || !imagePrompt || !caption) return null;
+  // A "headline" the length of a paragraph is leaked prose, not a headline.
+  if (headline.length > MAX_HEADLINE_CHARS) return null;
   const category = normalizeCategory(obj.category);
 
   return { headline, description, imagePrompt, category, caption };

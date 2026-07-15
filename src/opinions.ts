@@ -31,6 +31,14 @@ import type { TextGenerator } from "./generator/text.js";
 import type { OpinionAssets, Persona, Weekday } from "./personas.js";
 import { WEEKDAYS } from "./personas.js";
 import { isPublishable } from "./publish.js";
+import {
+  MAX_TITLE_CHARS,
+  MAX_TITLE_WORDS,
+  looksLikeRefusal,
+  recoverLeadingTitleRegion,
+  stripTitleDressing,
+  stripWrappingFence,
+} from "./sanitize.js";
 import type { Manifest, ManifestRecord } from "./types.js";
 
 /** ADR-0013 decision 3: fixed pairs, active pair = daysSinceUnixEpoch(UTC) % 3. */
@@ -331,21 +339,25 @@ export function buildOpinionPrompt(
 
 /**
  * Split a completion into its title line and body per the output contract (first line =
- * title, rest = body). Strips markdown dressing models add to titles (heading markers,
- * wrapping emphasis, wrapping quotes). Null when either part is empty — the caller fails
- * that author rather than storing a half piece.
+ * title, rest = body). Before splitting it defends against the ways a model ignores the
+ * "no preamble" rule (src/sanitize.ts): a whole-completion code fence is unwrapped, an
+ * outright refusal fails closed (null), and leaked preamble/delimiter/label lines are
+ * skipped so the REAL title is recovered (the Priscilla "Wisdom's Moat" leak). Then the
+ * usual markdown dressing (heading markers, wrapping emphasis/quotes) is stripped and a
+ * title-length bound rejects a paragraph masquerading as a title. Null when either part
+ * is empty or the title is implausibly long — the caller fails that author rather than
+ * storing a half or garbled piece.
  */
 export function splitTitleBody(text: string): { title: string; body: string } | null {
-  const trimmed = text.trim();
+  const unfenced = stripWrappingFence(text);
+  if (looksLikeRefusal(unfenced)) return null;
+  const trimmed = recoverLeadingTitleRegion(unfenced);
   const newline = trimmed.indexOf("\n");
   if (newline < 0) return null;
-  const title = trimmed
-    .slice(0, newline)
-    .replace(/^#+\s*/, "")
-    .replace(/^(\*{1,3}|_{1,3}|["'“”]+)(.*?)(\1|["'“”]+)$/u, "$2")
-    .trim();
+  const title = stripTitleDressing(trimmed.slice(0, newline));
   const body = trimmed.slice(newline + 1).trim();
   if (title.length === 0 || body.length === 0) return null;
+  if (title.length > MAX_TITLE_CHARS || wordCount(title) > MAX_TITLE_WORDS) return null;
   return { title, body };
 }
 

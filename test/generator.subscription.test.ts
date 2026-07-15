@@ -205,4 +205,21 @@ describe("parsing helpers", () => {
       ),
     ).toBeNull();
   });
+
+  it("parseGeneratorOutput rejects refusals and paragraph-length headlines", () => {
+    // A bare refusal — no JSON at all.
+    expect(parseGeneratorOutput("I'm unable to help with that.")).toBeNull();
+    // A refusal that carries stray JSON would otherwise slip through the brace slice.
+    expect(parseGeneratorOutput(`I cannot comply. ${JSON.stringify(INNER)}`)).toBeNull();
+    // A "headline" the length of a paragraph is leaked prose, not a headline.
+    expect(
+      parseGeneratorOutput(
+        JSON.stringify({ ...INNER, headline: "word ".repeat(80).trim() }),
+      ),
+    ).toBeNull();
+    // Regression: an opener that is NOT a refusal (followed by valid JSON) still parses.
+    expect(
+      parseGeneratorOutput(`Sure! Here is the JSON:\n${JSON.stringify(INNER)}\nHope that helps.`),
+    ).toEqual(INNER);
+  });
 });
