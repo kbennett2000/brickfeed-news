@@ -74,8 +74,8 @@ export interface StoryView {
   caption: string;
   /** Decorative byline, e.g. "By the World Desk". */
   byline: string;
-  /** Relative time label, e.g. "2 hr ago". Empty for local articles (no timestamp). */
-  ago: string;
+  /** Absolute timestamp label, e.g. "Jul 14, 2:30 PM". Empty for local articles (no timestamp). */
+  timestamp: string;
   /** Durable image URL; absent → the brick placeholder frame is rendered instead. */
   imageUrl?: string;
   /**
@@ -285,11 +285,12 @@ function storyLinkAttrs(url: string, className: string, local = false): string {
 }
 
 /**
- * The " · 2 hr ago" tail appended after a byline. Local articles carry no timestamp (`ago`
- * is ""), so the separator + time are omitted entirely rather than rendering a dangling "· ".
+ * The " · Jul 14, 2:30 PM" tail appended after a byline. Local articles carry no timestamp
+ * (`timestamp` is ""), so the separator + time are omitted entirely rather than rendering a
+ * dangling "· ".
  */
-function bylineTail(ago: string): string {
-  return ago ? ` &middot; ${escapeHtml(ago)}` : "";
+function bylineTail(timestamp: string): string {
+  return timestamp ? ` &middot; ${escapeHtml(timestamp)}` : "";
 }
 
 /**
@@ -318,7 +319,7 @@ function opinionBylineRow(view: StoryView, extraClass = "", pathPrefix = ""): st
     ? ` &middot; <span class="byline-opinion__column">${escapeHtml(o.columnTitle)}</span>`
     : "";
   const cls = extraClass ? `byline ${extraClass} byline-opinion` : "byline byline-opinion";
-  return `<div class="${cls}">${linked}${column}${bylineTail(view.ago)}</div>`;
+  return `<div class="${cls}">${linked}${column}${bylineTail(view.timestamp)}</div>`;
 }
 
 /** The utility strip: dateline + time-of-day edition (no Search / Subscribe / Today's Paper). */
@@ -374,7 +375,7 @@ export function leadStory(view: StoryView, opts: StoryRenderOpts = {}): string {
         <div class="kicker">${escapeHtml(view.kicker)}</div>
         <h2 class="lead__headline">${escapeHtml(view.headline)}</h2>
         <p class="dek">${escapeHtml(view.description)}</p>
-        <div class="byline byline--lead">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>
+        <div class="byline byline--lead">${escapeHtml(view.byline)}${bylineTail(view.timestamp)}</div>
       </div>
     </a>`;
   return withShare(link, storyShare(view, opts));
@@ -417,7 +418,7 @@ export function card(view: StoryView, opts: StoryRenderOpts = {}): string {
           <div class="kicker kicker--sm">${escapeHtml(view.kicker)}</div>
           <h3 class="card__headline">${escapeHtml(view.headline)}</h3>
           <p class="dek">${escapeHtml(view.description)}</p>
-          <div class="byline">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>
+          <div class="byline">${escapeHtml(view.byline)}${bylineTail(view.timestamp)}</div>
         </div>
       </a>`;
   return withShare(link, storyShare(view, opts));
@@ -733,14 +734,14 @@ export function renderLandingPage(
     : "";
   const localByline = view.opinion
     ? opinionBylineRow(view, "byline--lead", "../")
-    : `<div class="byline byline--lead">${escapeHtml(view.byline)}${bylineTail(view.ago)}</div>`;
+    : `<div class="byline byline--lead">${escapeHtml(view.byline)}${bylineTail(view.timestamp)}</div>`;
   // Local article / opinion piece: byline then its own hosted body, no outbound CTA. Feed
   // story: dek, byline, then a prominent read-at-source link (unchanged from ADR-0009).
   const tail = view.local
     ? `${localByline}
         <div class="landing__body">${view.bodyHtml ?? ""}</div>${disclosure}`
     : `<p class="dek landing__dek">${escapeHtml(view.description)}</p>
-        <div class="byline byline--lead">${escapeHtml(view.byline)} &middot; ${escapeHtml(view.ago)}</div>
+        <div class="byline byline--lead">${escapeHtml(view.byline)} &middot; ${escapeHtml(view.timestamp)}</div>
         <a class="landing__cta" href="${escapeAttr(view.url)}" target="_blank" rel="noopener noreferrer">Read the full story at the source &rarr;</a>`;
   const body = `<div class="standalone landing">
     ${standaloneBrand("../index.html")}

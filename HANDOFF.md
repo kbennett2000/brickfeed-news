@@ -1,5 +1,38 @@
 # Handoff
 
+## Absolute timestamps (kill the stale "· X ago") + live cycle run after TTS upgrade
+
+Owner report (2026-07-14): Priscilla's column went live ~90 min earlier but a fresh incognito load
+still read `· 1 min ago`, while older opinion pieces read `· 1 day ago`. **Root cause:** the byline
+"X ago" label was a *relative* string computed **once at build time** from `record.firstSeen` and
+frozen into the static HTML — there is no client-side updater, so the freshest piece's "1 min ago"
+was baked in during that build's render step and can't advance until the next render+deploy. Not a
+reset; just inherently stale in a build-once static site.
+
+- **Fix = absolute timestamp, no JS** (owner choice over a client-side updater).
+  - `src/render/format.ts`: `relativeTime(iso, now)` **removed**, replaced by
+    `formatTimestamp(iso, timeZone="UTC")` → `Intl.DateTimeFormat` `Jul 14, 2:30 PM` (month/day so
+    multi-day pieces are unambiguous). Hermetic, mirrors `formatMastheadDate`. Empty/unparseable →
+    `""` (no byline tail). An absolute instant never goes stale between deploys.
+  - `src/render/index.ts`: `toStoryView`'s unused `now: Date` param → `timeZone: string`; it now
+    calls `formatTimestamp(record.firstSeen ?? "", timeZone)`. `renderSite` passes the already
+    resolved `tz` (the same `render.timeZone` feeding the dateline/edition). `articleToStoryView`
+    keeps `timestamp: ""` (local articles show no stamp).
+  - `src/render/templates.ts`: `StoryView.ago` → `timestamp`; `bylineTail(ago)` → `bylineTail(timestamp)`.
+    Markup (`· <stamp>`) and the empty→no-tail behavior unchanged.
+  - Tests: `test/render.test.ts` relativeTime cases → `formatTimestamp` cases (zone-explicit exact
+    string; empty/garbage → "").
+- **Verify:** `tsc` clean; **`npm test` 756 pass / 1 skip**.
+- **Live cycle:** ran `scripts/cycle.sh` with the fix in the working tree (TTS server-side upgrades
+  are done). RESULT: finished OK in 139s (deploy exit 0). Ingest 24 new; **generate 10 newest-first
+  + imaged** → the lead refreshed. **No `TTS-DEGRADED` line — TTS healthy post-upgrade** (story-cover
+  ran through it with zero failover). Cover now shows **absolute stamps** varying by `firstSeen`
+  (`Jul 11`–`Jul 14` spread; the 8 freshest = `Jul 14, 6:31 PM`), never "X ago". **Opinions stage
+  SKIPPED — `before publish hour (0 < 13 UTC)`**: opinion pieces are gated to a daily publish hour
+  (13:00 UTC / 07:00 MDT), and the run happened at 00:31 UTC, so **no news-opinion this cycle by
+  design** (not a bug). The next cycle at/after 13 UTC will generate them, and the newest-first fix
+  now keeps the 24h candidate window full so larry/cynthia won't be starved again.
+
 ## Frozen-lead + missing news-opinion fix: newest-first generation, deploy exit-code, TTS failover + LOUD reporting
 
 Diagnosed a 2026-07-14 report: afternoon cron published only Priscilla's letters column (no news

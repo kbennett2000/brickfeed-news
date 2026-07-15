@@ -18,7 +18,7 @@ import {
   optimizedSrcset,
   optimizedUrl,
   paragraphize,
-  relativeTime,
+  formatTimestamp,
   sectionSlug,
   storyPageUrl,
   truncateForTweet,
@@ -474,13 +474,16 @@ describe("format helpers", () => {
     expect(formatMastheadDate(new Date("2026-07-10T23:59:00.000Z"))).toBe("FRIDAY, JULY 10, 2026");
   });
 
-  it("produces deadpan relative-time labels", () => {
-    const now = new Date("2026-07-10T12:00:00.000Z");
-    expect(relativeTime("2026-07-10T11:26:00.000Z", now)).toBe("34 min ago");
-    expect(relativeTime("2026-07-10T10:00:00.000Z", now)).toBe("2 hr ago");
-    expect(relativeTime("2026-07-07T12:00:00.000Z", now)).toBe("3 days ago");
-    expect(relativeTime("2026-07-10T11:59:30.000Z", now)).toBe("just now");
-    expect(relativeTime("not-a-date", now)).toBe("just now");
+  it("formats an absolute timestamp in the given zone; never stale", () => {
+    // Same instant, two zones — deterministic regardless of host clock (hermetic render).
+    expect(formatTimestamp("2026-07-14T20:30:00.000Z", "UTC")).toBe("Jul 14, 8:30 PM");
+    expect(formatTimestamp("2026-07-14T20:30:00.000Z", "America/Denver")).toBe("Jul 14, 2:30 PM");
+    expect(formatTimestamp("2026-07-14T20:30:00.000Z")).toBe("Jul 14, 8:30 PM"); // default UTC
+  });
+
+  it("degrades an empty/unparseable timestamp to '' (no byline tail)", () => {
+    expect(formatTimestamp("", "UTC")).toBe("");
+    expect(formatTimestamp("not-a-date", "UTC")).toBe("");
   });
 
   it("derives a decorative byline from a category", () => {

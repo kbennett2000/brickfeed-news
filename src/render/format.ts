@@ -72,22 +72,24 @@ export function editionLabel(now: Date, timeZone = "UTC"): string {
 }
 
 /**
- * A deadpan relative-time label from an ISO timestamp to `now`, e.g. `34 min ago`,
- * `2 hr ago`, `3 days ago`. This is decorative chrome (the real freshness signal is the
- * live feed), so it degrades to `just now` for future/near/unparseable timestamps rather
- * than throwing.
+ * An ABSOLUTE timestamp label from an ISO instant, e.g. `Jul 14, 2:30 PM`. Formatted in an
+ * explicit `timeZone` (default UTC) so the string is deterministic for a given instant + zone
+ * regardless of the host clock (the render is hermetic; CI runs anywhere) — the render passes
+ * the configured `render.timeZone` so the stamp agrees with the dateline/edition. Absolute by
+ * design: unlike a relative "X ago" label it never goes stale between build+deploy cycles. The
+ * date is included so pieces spanning multiple days are unambiguous. Empty/unparseable input
+ * degrades to "" (no tail rendered) rather than throwing.
  */
-export function relativeTime(iso: string, now: Date): string {
+export function formatTimestamp(iso: string, timeZone = "UTC"): string {
   const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "just now";
-  const seconds = Math.floor((now.getTime() - then) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} ${days === 1 ? "day" : "days"} ago`;
+  if (Number.isNaN(then)) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  }).format(then);
 }
 
 /** The URL slug for a section page, e.g. WORLD → `world`. Lowercased category name. */

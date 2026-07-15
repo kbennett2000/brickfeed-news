@@ -22,7 +22,7 @@ import {
   escapeAttr,
   escapeHtml,
   excerpt,
-  relativeTime,
+  formatTimestamp,
   formatMastheadDate,
   editionLabel,
   hashString,
@@ -198,7 +198,7 @@ export const OPINION_EXCERPT_MAX = 240;
  */
 export function toStoryView(
   record: ManifestRecord,
-  now: Date,
+  timeZone: string,
   authors?: Record<string, AuthorInfo>,
   log?: (message: string) => void,
 ): StoryView {
@@ -210,7 +210,7 @@ export function toStoryView(
     description: record.description ?? "",
     caption: record.caption ?? "",
     byline: bylineFor(kicker),
-    ago: relativeTime(record.firstSeen ?? "", now),
+    timestamp: formatTimestamp(record.firstSeen ?? "", timeZone),
     imageUrl: record.imageUrl,
   };
   if (record.author) {
@@ -246,7 +246,7 @@ export function toStoryView(
 /**
  * Reduce a locally hosted Article to the same StoryView the templates consume (ADR-0010).
  * Unlike a feed story, its `url` is its own internal hosted page (`s/<id>.html`), it carries no
- * timestamp (`ago` is ""), its byline is the article's own, and it ships the rendered body HTML
+ * timestamp (`timestamp` is ""), its byline is the article's own, and it ships the rendered body HTML
  * for the landing page. `local: true` flips links to same-tab/internal and swaps the landing
  * page's outbound CTA for the body.
  */
@@ -258,7 +258,7 @@ export function articleToStoryView(article: Article): StoryView {
     description: article.description,
     caption: "",
     byline: article.byline,
-    ago: "",
+    timestamp: "",
     imageUrl: article.imageUrl,
     local: true,
     bodyHtml: renderMarkdown(article.bodyMarkdown),
@@ -440,7 +440,7 @@ export function renderSite(
   const tz = opts.timeZone ?? "UTC";
   const dateStr = formatMastheadDate(opts.now, tz);
   const edition = editionLabel(opts.now, tz);
-  const views = records.map((r) => toStoryView(r, opts.now, opts.authors, opts.log));
+  const views = records.map((r) => toStoryView(r, tz, opts.authors, opts.log));
   // Attach each story's absolute landing URL so the per-story share buttons (ADR-0012) can be
   // drawn wherever the view is rendered (cover, section, landing). Same value the share sheet uses.
   records.forEach((r, i) => {
