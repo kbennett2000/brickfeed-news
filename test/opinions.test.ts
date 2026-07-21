@@ -5,6 +5,7 @@ import {
   CANDIDATE_WINDOW_HOURS,
   DEFAULT_LENGTH_RANGE,
   LENGTH_RANGES,
+  MAX_PIECE_ATTEMPTS,
   OPINION_STALE_THRESHOLD_HOURS,
   ROTATION,
   authorsFor,
@@ -661,6 +662,53 @@ describe("runOpinions — failure isolation + length sanity", () => {
       status: "failed",
       detail: "output missing title line or body",
     });
+  });
+
+  it("retries a malformed piece in-cycle and publishes on the second attempt (ADR-0023)", async () => {
+    let aliceCalls = 0;
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["s1"]);
+        if (isBriefCall(prompt)) return briefJson();
+        if (prompt.includes("You are alice")) {
+          aliceCalls++;
+          return aliceCalls === 1 ? "a single line with no body" : piece(350);
+        }
+        return piece(350);
+      },
+    });
+    const result = await runOpinions(CONFIG, manifestOf(story("s1")), sundayAssets(), {
+      generate,
+      now: fixedNow(NOW),
+    });
+    expect(result.authors.find((a) => a.author === "alice")).toMatchObject({ status: "published" });
+    expect(aliceCalls).toBe(2); // one retry, then success
+    expect(result.manifest.stories["opinion-alice-2026-07-12"]).toBeDefined();
+  });
+
+  it("stops retrying after MAX_PIECE_ATTEMPTS and fails the author", async () => {
+    let aliceCalls = 0;
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["s1"]);
+        if (isBriefCall(prompt)) return briefJson();
+        if (prompt.includes("You are alice")) {
+          aliceCalls++;
+          return "a single line with no body"; // never recovers
+        }
+        return piece(350);
+      },
+    });
+    const result = await runOpinions(CONFIG, manifestOf(story("s1")), sundayAssets(), {
+      generate,
+      now: fixedNow(NOW),
+    });
+    expect(result.authors.find((a) => a.author === "alice")).toMatchObject({
+      status: "failed",
+      detail: "output missing title line or body",
+    });
+    expect(aliceCalls).toBe(MAX_PIECE_ATTEMPTS); // bounded — no runaway retries
+    expect(result.manifest.stories["opinion-alice-2026-07-12"]).toBeUndefined();
   });
 
   it("length: >2x out of band fails; merely out of range publishes with a warning", async () => {

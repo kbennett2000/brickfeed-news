@@ -82,12 +82,16 @@ export function hasImage(record: ManifestRecord): boolean {
  *    NEVER persisted with a missing/half image.
  *  - Resilient: a null/throwing provider or a null from storage fails just that record;
  *    the run continues with the rest.
- *  - Eligible records are ordered NEWEST-FIRST by firstSeen, then opts.limit caps how many
- *    are ATTEMPTED (keeps live runs cheap) — so the freshest stories are imaged first and a
- *    growing backlog can't starve today's news of a picture (and thus the lead).
+ *  - Eligible records are ordered OPINION-first (ADR-0023), then NEWEST-FIRST by firstSeen,
+ *    then opts.limit caps how many are ATTEMPTED (keeps live runs cheap) — so opinion pieces
+ *    (already-published text, few per day) never lose their image slot to fresh news, while
+ *    within each group the freshest stories still image first and a growing backlog can't
+ *    starve today's news of a picture (and thus the lead).
+ *  - A failed OPINION image is retried once inline (ADR-0023) so a piece isn't left dark for a
+ *    whole cron cycle; non-opinion misses stay pending and retry next run.
  *  - opts.concurrency runs that many gen→store passes at once (each grok image call is
  *    ~90% idle waiting on the server). Default 1 (serial). Results apply in eligibility
- *    (newest-first) order, so output is independent of finish order.
+ *    (opinion-first, newest-first) order, so output is independent of finish order.
  *  - deps.log, when present, is called once per attempted story with progress + timing.
  */
 export async function generateImages(
@@ -142,10 +146,19 @@ export async function generateImages(
   // Imaging capacity is finite (limit + provider throughput), and ingest can outpace it; ordering
   // oldest-first would let the frontier crawl through stale stories while today's news never gets a
   // picture. Eligible stragglers left beyond the cap retry next run (no dangling img either way).
+  // OPINION records sort ahead of everything else (ADR-0023), newest-first within each group.
+  // Opinions are exempt from the section slot cap (ADR-0020) so they're always eligible, but they
+  // still competed newest-first for opts.limit against fresh news — an opinion whose image failed
+  // once got buried behind newer ingest and could stay unpublished for cycles. Opinions are ≤~4/day
+  // vs. a budget of 10, so ordering them first guarantees their slot while news still keeps ≥6.
+  const isOpinion = (id: string) => manifest.stories[id].category === "OPINION";
   const candidates = [...decision.eligible];
-  candidates.sort((a, b) =>
-    manifest.stories[b].firstSeen.localeCompare(manifest.stories[a].firstSeen),
-  );
+  candidates.sort((a, b) => {
+    const oa = isOpinion(a);
+    const ob = isOpinion(b);
+    if (oa !== ob) return oa ? -1 : 1;
+    return manifest.stories[b].firstSeen.localeCompare(manifest.stories[a].firstSeen);
+  });
   const eligible =
     opts.limit != null ? candidates.slice(0, opts.limit) : candidates;
   if (opts.limit != null && candidates.length > eligible.length) {
@@ -155,10 +168,8 @@ export async function generateImages(
   }
 
   const total = eligible.length;
-  const outcomes = await mapWithConcurrency(eligible, opts.concurrency ?? 1, async (id, i) => {
-    const record = manifest.stories[id];
-    const t0 = deps.now().getTime();
-
+  // One gen→store pass: null url on any provider/storage miss.
+  const attemptImage = async (record: ManifestRecord): Promise<string | null> => {
     let bytes;
     try {
       bytes = await deps.provider.generate(record.wrappedPrompt as string);
@@ -166,16 +177,27 @@ export async function generateImages(
       // A provider should return null on failure, but treat any throw as a miss.
       bytes = null;
     }
+    if (bytes == null) return null;
+    // Storage never throws (returns null on failure), but guard anyway. The content-type
+    // is sniffed from the bytes so the stored extension is correct (grok emits JPEG).
+    try {
+      return await deps.storage.put(record.id, bytes, detectImageContentType(bytes));
+    } catch {
+      return null;
+    }
+  };
+  const outcomes = await mapWithConcurrency(eligible, opts.concurrency ?? 1, async (id, i) => {
+    const record = manifest.stories[id];
+    const t0 = deps.now().getTime();
 
-    let url: string | null = null;
-    if (bytes != null) {
-      // Storage never throws (returns null on failure), but guard anyway. The content-type
-      // is sniffed from the bytes so the stored extension is correct (grok emits JPEG).
-      try {
-        url = await deps.storage.put(record.id, bytes, detectImageContentType(bytes));
-      } catch {
-        url = null;
-      }
+    let url = await attemptImage(record);
+    // Single inline retry for OPINION images only (ADR-0023): a piece whose text already published
+    // is invisible without an image, and prioritization alone would still leave a *failed* (not
+    // merely deferred) opinion image dark until the next cron. Bounded to opinions (≤~4) so it
+    // can't blow up Grok latency for the news pool. Won't help if Grok is out of credit entirely.
+    if (url == null && isOpinion(id)) {
+      log(`image ${i + 1}/${total} ${id}: retrying (opinion image miss)`);
+      url = await attemptImage(record);
     }
 
     const secs = ((deps.now().getTime() - t0) / 1000).toFixed(1);

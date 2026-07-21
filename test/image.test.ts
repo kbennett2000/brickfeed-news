@@ -106,6 +106,61 @@ describe("generateImages", () => {
     expect(manifest.stories.a.imageUrl).toBeUndefined();
   });
 
+  it("images an older OPINION ahead of newer news within the budget (ADR-0023)", async () => {
+    const provider = fakeImageProvider({});
+    const storage = fakeStorageProvider();
+    // An OPINION older than two fresh news records. Newest-first alone would spend a limit-2
+    // budget on the two news items and defer the opinion; opinion-first must rescue it.
+    const opinion: ManifestRecord = {
+      ...eligible("opinion-alice-2026-07-13"),
+      firstSeen: "2025-07-02T00:00:00.000Z",
+      category: "OPINION",
+      author: "alice",
+      caption: "A wry caption",
+    };
+    const news1 = { ...eligible("n1"), firstSeen: "2025-07-06T00:00:00.000Z" };
+    const news2 = { ...eligible("n2"), firstSeen: "2025-07-07T00:00:00.000Z" };
+    const manifest = manifestOf(opinion, news1, news2);
+
+    const result = await generateImages(config, manifest, depsWith(provider, storage), {
+      limit: 2,
+    });
+
+    expect(result.stored).toContain("opinion-alice-2026-07-13"); // never starved
+    expect(result.stored).toHaveLength(2); // opinion + the single newest news
+    expect(result.stored).toContain("n2");
+    expect(result.stored).not.toContain("n1"); // oldest news deferred, not the opinion
+  });
+
+  it("retries a failed OPINION image once inline; a non-opinion miss is not retried (ADR-0023)", async () => {
+    const opinionPrompt = "TEST-STYLE Scene: opinion-alice-2026-07-13";
+    const newsPrompt = "TEST-STYLE Scene: n1";
+    const seen: Record<string, number> = {};
+    const provider = fakeImageProvider({
+      impl: (wrappedPrompt) => {
+        seen[wrappedPrompt] = (seen[wrappedPrompt] ?? 0) + 1;
+        // Opinion fails once then succeeds; news always fails.
+        if (wrappedPrompt === opinionPrompt) return seen[wrappedPrompt] === 1 ? null : bytes("ok");
+        return null;
+      },
+    });
+    const storage = fakeStorageProvider();
+    const opinion: ManifestRecord = {
+      ...eligible("opinion-alice-2026-07-13"),
+      category: "OPINION",
+      author: "alice",
+      caption: "A wry caption",
+    };
+    const manifest = manifestOf(opinion, eligible("n1"));
+
+    const result = await generateImages(config, manifest, depsWith(provider, storage));
+
+    expect(result.stored).toEqual(["opinion-alice-2026-07-13"]); // recovered on the inline retry
+    expect(seen[opinionPrompt]).toBe(2); // one retry
+    expect(seen[newsPrompt]).toBe(1); // news miss NOT retried
+    expect(result.failed).toBe(1); // n1 still pending
+  });
+
   it("hands storage the content-type sniffed from the bytes (grok emits JPEG)", async () => {
     // Real JPEG magic (FF D8 FF) → storage is told image/jpeg, so the file gets a .jpg name.
     const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);

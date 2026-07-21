@@ -1,5 +1,35 @@
 # Handoff
 
+## Opinion in-cycle recovery: generation retry + opinion-first imaging (ADR-0023)
+
+Fixes two ways opinions missed the 04:00 Sunrise target, both of which previously recovered only on
+the *next* 4-hour cron tick (or, for images, not for many cycles). Diagnosed from `cycle.log`:
+
+- **Late text (Tom 7/19 → 08:01, Cynthia 7/20 → 08:02):** a transient malformed / out-of-band Haiku
+  piece failed validation at 04:00 with **no in-cycle retry**, so the `>=` publish-hour self-heal
+  (ADR-0018) deferred the author a full 4 hours.
+- **Missing piece (Bob 7/21):** his text published on time (04:03) but his Grok hero **image failed**;
+  per the no-image-no-publish guardrail he was invisible, and the newest-first `maxStoriesPerCycle:10`
+  image budget kept deferring his 04:00 opinion behind fresher news every cycle (the starvation class
+  already flagged lower in this file).
+
+**Changes (code-only; no config, no `maxStoriesPerCycle` bump — owner directive honored):**
+- `src/opinions.ts`: `MAX_PIECE_ATTEMPTS = 2` — the per-author generate→validate→brief sequence
+  retries once in the same cycle before failing. Selection/gate stay outside the loop.
+- `src/image.ts`: eligibility sort now **OPINION-first**, newest-first within each group, so opinions
+  (≤~4/day vs. budget 10) never lose a slot to fresh news (news still keeps ≥6). Plus a **single
+  inline retry for a failed OPINION image** so a transient Grok miss recovers same-cycle. Won't help
+  if Grok is out of credit entirely.
+- New `docs/adr/0023-opinion-in-cycle-recovery.md`; new tests in `test/opinions.test.ts` +
+  `test/image.test.ts`. `npx tsc --noEmit` clean; full vitest **777 passed / 1 skipped**.
+
+**Not done here (operational, needs the box):** these fixes take effect once the box's checkout
+updates. To clear **today's** stuck Bob immediately: on the box, `source cron.env` then
+`npm run images` (opinion-first ordering images him first) → it will re-image and the next
+render/deploy publishes him. The live dry-run (`npm run opinions … --dry-run`) was intentionally
+skipped — it makes a live gate call, and author derivation/selection is pure and untouched (covered
+by unit tests).
+
 ## Parser hardening: preamble/refusal/junk guard on generated articles (closes the fragility flag)
 
 The "latent fragility to watch" flagged below (opinion parser trusts line 1 as the title) is now

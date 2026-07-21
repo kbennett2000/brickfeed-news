@@ -68,6 +68,15 @@ export const LENGTH_RANGES: Record<string, readonly [number, number]> = {
   tom: [500, 700],
 };
 
+/**
+ * Max in-cycle attempts at generating a usable piece before an author is marked failed.
+ * Haiku intermittently emits a malformed piece (missing title/body) or wildly out-of-band
+ * length; those are transient, so we retry the whole generate→validate→brief sequence in the
+ * SAME cycle instead of waiting for the next 4-hour publish-hour tick to self-heal (ADR-0023).
+ * Bounded at 2 (one retry) — each attempt is one Haiku call (~9s), far cheaper than a 4h delay.
+ */
+export const MAX_PIECE_ATTEMPTS = 2;
+
 /** One classified candidate verdict from the topic gate. */
 export interface GateVerdict {
   id: string;
@@ -596,107 +605,115 @@ export async function runOpinions(
         continue;
       }
 
-      let piece: string | null = null;
-      try {
-        piece = await deps.generate(buildOpinionPrompt(assets, persona, picks));
-      } catch {
-        piece = null;
-      }
-      if (piece == null) {
-        outcomes.push({
-          author: persona.name,
-          key,
-          status: "failed",
-          detail: "generation returned null",
-        });
-        log(`opinions: ${persona.name} FAILED — generation returned null`);
-        continue;
-      }
-
-      const split = splitTitleBody(piece);
-      if (split == null) {
-        outcomes.push({
-          author: persona.name,
-          key,
-          status: "failed",
-          detail: "output missing title line or body",
-        });
-        log(`opinions: ${persona.name} FAILED — output missing title line or body`);
-        continue;
-      }
-
-      // Length sanity per the persona's spec: wildly out of band (>2x) fails the author;
-      // merely out of range is a warning — voice beats word count.
-      const [min, max] = lengthRangeFor(persona);
-      const words = wordCount(split.body);
-      if (words < min / 2 || words > max * 2) {
-        const detail = `body is ${words} words — out of band for ${min}-${max}`;
-        outcomes.push({ author: persona.name, key, status: "failed", detail });
-        log(`opinions: ${persona.name} FAILED — ${detail}`);
-        continue;
-      }
-      if (words < min || words > max) {
-        log(`opinions: ${persona.name} length warning — ${words} words (range ${min}-${max})`);
-      }
-
-      // Image brief (ADR-0016): derive the hero prompt + caption for the finished piece.
-      // All-or-nothing with the piece itself — a failed brief stores NO record, so the
-      // idempotency key stays free and the next run retries the whole author.
-      let brief: ImageBrief | null = null;
-      // Opt-in TTS brief (ADR-0022) FAILS OVER: on any TTS failure it returns null and the
-      // incumbent brief call below runs as the transparent fallback (also the default path).
-      if (deps.ttsBrief) {
-        try {
-          brief = await deps.ttsBrief(persona, split.title, split.body, picks);
-        } catch {
-          brief = null;
-        }
-      }
-      if (brief == null) {
-        try {
-          const raw = await deps.generate(
-            buildImageBriefPrompt(persona, split.title, split.body, picks),
+      // Generate → validate → derive brief, retried in-cycle up to MAX_PIECE_ATTEMPTS (ADR-0023).
+      // The transient failure modes below (null piece, missing title/body, out-of-band length,
+      // brief derivation) are re-rolled by regenerating the piece THIS cycle rather than deferring
+      // to the next 4-hour tick. Only when every attempt is exhausted is the author marked failed.
+      let published = false;
+      let lastDetail = "";
+      for (let attempt = 1; attempt <= MAX_PIECE_ATTEMPTS && !published; attempt++) {
+        const note = (detail: string) => {
+          lastDetail = detail;
+          const more = attempt < MAX_PIECE_ATTEMPTS;
+          log(
+            `opinions: ${persona.name} attempt ${attempt}/${MAX_PIECE_ATTEMPTS} failed — ${detail}` +
+              (more ? "; retrying" : ""),
           );
-          brief = raw == null ? null : parseImageBrief(raw);
-        } catch {
-          brief = null;
-        }
-      }
-      if (brief == null) {
-        const detail = "image brief derivation failed";
-        outcomes.push({ author: persona.name, key, status: "failed", detail });
-        log(`opinions: ${persona.name} FAILED — ${detail} (piece discarded, retried next run)`);
-        continue;
-      }
+        };
 
-      const nowIso = deps.now().toISOString();
-      const record: ManifestRecord = {
-        id: key,
-        url: "",
-        title: split.title,
-        sourceName: "",
-        firstSeen: nowIso,
-        lastSeen: nowIso,
-        headline: split.title,
-        description: split.body,
-        imagePrompt: brief.imagePrompt,
-        wrappedPrompt: wrapBrickStyle(brief.imagePrompt, config.brickStyle.styleLanguage),
-        caption: brief.caption,
-        category: "OPINION",
-        author: persona.name,
-        ...(persona.source === "letters" ? { columnTitle: persona.columnTitle } : undefined),
-        ...(persona.source === "news"
-          ? { sourceArticleIds: picks.map((r) => r.id) }
-          : undefined),
-      };
-      manifest.stories[key] = record;
-      outcomes.push({
-        author: persona.name,
-        key,
-        status: "published",
-        ...(persona.source === "news" ? { sourceArticleIds: picks.map((r) => r.id) } : undefined),
-      });
-      log(`opinions: ${persona.name} published ${key} (${words} words)`);
+        let piece: string | null = null;
+        try {
+          piece = await deps.generate(buildOpinionPrompt(assets, persona, picks));
+        } catch {
+          piece = null;
+        }
+        if (piece == null) {
+          note("generation returned null");
+          continue;
+        }
+
+        const split = splitTitleBody(piece);
+        if (split == null) {
+          note("output missing title line or body");
+          continue;
+        }
+
+        // Length sanity per the persona's spec: wildly out of band (>2x) fails the author;
+        // merely out of range is a warning — voice beats word count.
+        const [min, max] = lengthRangeFor(persona);
+        const words = wordCount(split.body);
+        if (words < min / 2 || words > max * 2) {
+          note(`body is ${words} words — out of band for ${min}-${max}`);
+          continue;
+        }
+        if (words < min || words > max) {
+          log(`opinions: ${persona.name} length warning — ${words} words (range ${min}-${max})`);
+        }
+
+        // Image brief (ADR-0016): derive the hero prompt + caption for the finished piece.
+        // All-or-nothing with the piece itself — a failed brief stores NO record, so the
+        // idempotency key stays free and the next attempt/run retries the whole author.
+        let brief: ImageBrief | null = null;
+        // Opt-in TTS brief (ADR-0022) FAILS OVER: on any TTS failure it returns null and the
+        // incumbent brief call below runs as the transparent fallback (also the default path).
+        if (deps.ttsBrief) {
+          try {
+            brief = await deps.ttsBrief(persona, split.title, split.body, picks);
+          } catch {
+            brief = null;
+          }
+        }
+        if (brief == null) {
+          try {
+            const raw = await deps.generate(
+              buildImageBriefPrompt(persona, split.title, split.body, picks),
+            );
+            brief = raw == null ? null : parseImageBrief(raw);
+          } catch {
+            brief = null;
+          }
+        }
+        if (brief == null) {
+          note("image brief derivation failed");
+          continue;
+        }
+
+        const nowIso = deps.now().toISOString();
+        const record: ManifestRecord = {
+          id: key,
+          url: "",
+          title: split.title,
+          sourceName: "",
+          firstSeen: nowIso,
+          lastSeen: nowIso,
+          headline: split.title,
+          description: split.body,
+          imagePrompt: brief.imagePrompt,
+          wrappedPrompt: wrapBrickStyle(brief.imagePrompt, config.brickStyle.styleLanguage),
+          caption: brief.caption,
+          category: "OPINION",
+          author: persona.name,
+          ...(persona.source === "letters" ? { columnTitle: persona.columnTitle } : undefined),
+          ...(persona.source === "news"
+            ? { sourceArticleIds: picks.map((r) => r.id) }
+            : undefined),
+        };
+        manifest.stories[key] = record;
+        outcomes.push({
+          author: persona.name,
+          key,
+          status: "published",
+          ...(persona.source === "news"
+            ? { sourceArticleIds: picks.map((r) => r.id) }
+            : undefined),
+        });
+        log(`opinions: ${persona.name} published ${key} (${words} words)`);
+        published = true;
+      }
+      if (!published) {
+        outcomes.push({ author: persona.name, key, status: "failed", detail: lastDetail });
+        log(`opinions: ${persona.name} FAILED — ${lastDetail} (${MAX_PIECE_ATTEMPTS} attempts)`);
+      }
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       outcomes.push({ author: persona.name, key, status: "failed", detail });
