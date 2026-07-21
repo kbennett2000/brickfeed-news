@@ -22,6 +22,15 @@ describe("GENERATION_INSTRUCTIONS (legal guardrail regression anchor)", () => {
     expect(text).toContain("written words");
   });
 
+  it("forbids naming or depicting real, identifiable people in the scene (ADR-0024)", () => {
+    // Grok's image skill refuses from-scratch likenesses of named real people; our sandbox
+    // can't fetch a reference, so any real name in the scene fails to image. Push generic roles.
+    expect(text).toContain("identifiable");
+    expect(text).toContain("generic role");
+    // the old allowance for a named public-figure caricature must be gone.
+    expect(text).not.toContain("caricature");
+  });
+
   it("asks for a short, humorous, cartoonish image prompt", () => {
     expect(text).toContain("playful");
     expect(text).toContain("cartoonish");

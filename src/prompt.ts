@@ -33,8 +33,12 @@ Given the story below, produce FIVE things:
    - Describe it as a real, physical scene as if photographed. Do NOT stylize it as
      a miniature model, a plastic figurine, a sculpture, or an assembled-block
      build — that styling is added later, downstream, not by you.
-   - A caricature of a well-known public figure is fine, but never state or imply a
-     fabricated factual claim about anyone.
+   - NO real, identifiable people: never name or depict a specific real individual
+     (politician, official, celebrity, executive, or private person). Refer to any
+     person ONLY by a generic role or appearance — "a former mayor", "a government
+     official", "a vice-president", "a scientist in a lab coat". This scene is drawn
+     from scratch as our own generic art, never a real person's likeness. Never
+     state or imply a fabricated factual claim about anyone.
 
 4. "category": the single best-fitting section for this story. Pick EXACTLY ONE of
    these values, copied verbatim (uppercase), and nothing else:

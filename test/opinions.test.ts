@@ -763,6 +763,9 @@ describe("image brief (ADR-0016) — prompt, parse, all-or-nothing", () => {
     expect(prompt).toContain("as if photographed");
     expect(prompt).toContain("Do NOT stylize");
     expect(prompt).toContain("never the author");
+    // No named real people in the scene (ADR-0024): Grok refuses from-scratch likenesses.
+    expect(prompt).toContain("identifiable people");
+    expect(prompt).toContain("generic role");
     expect(prompt).toContain("STRICT JSON");
     // The persona voice prompt is NOT part of the brief.
     expect(prompt).not.toContain(alice.body);

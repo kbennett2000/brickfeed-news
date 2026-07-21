@@ -386,7 +386,9 @@ export interface ImageBrief {
  * The image-brief prompt (ADR-0016 decision 1): one single-purpose completion per
  * published piece asking for the standard neutral scene + a caption, as strict JSON.
  * The hard rules mirror the story generation contract (src/prompt.ts): purely visual,
- * no text or brands, a real photographed scene — never pre-stylized, never the author.
+ * no text or brands, a real photographed scene — never pre-stylized, never the author,
+ * and never a named real individual (ADR-0024): Grok's image skill refuses from-scratch
+ * likenesses of named people, so any real name in the scene fails to image entirely.
  * The subject comes from the piece's topic: the reacted-to articles for news personas,
  * the invented letter's situation for letters personas.
  */
@@ -422,7 +424,11 @@ export function buildImageBriefPrompt(
       "kind anywhere in the scene. NO brand names, trademarks, company names, or product " +
       "names. Describe it as a real, physical scene as if photographed. Do NOT stylize " +
       "it as a miniature model, a plastic figurine, a sculpture, or an assembled-block " +
-      "build - that styling is added later, downstream, not by you.",
+      "build - that styling is added later, downstream, not by you. NO real, " +
+      "identifiable people: never name or depict a specific real individual (politician, " +
+      "official, celebrity, or private person). Refer to any person ONLY by a generic role " +
+      "or appearance - \"a former mayor\", \"a government official\" - never a real name. " +
+      "This scene is our own generic art, never a real person's likeness.",
     '2. "caption": ONE short line - roughly 8 to 15 words - describing that same scene ' +
       "as a wry photo caption. Same hard rules; do NOT append any credit, byline, or " +
       "attribution (added later, downstream).",

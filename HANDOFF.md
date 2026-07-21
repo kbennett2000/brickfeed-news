@@ -1,5 +1,34 @@
 # Handoff
 
+## Image prompts name no real people — Grok refuses named likenesses (ADR-0024)
+
+**Root cause of Bob 7/21 staying dark, found by direct reproduction — NOT a code bug, NOT
+storage/credit, NOT transient.** Grok's `/imagine` skill now **refuses to draw a named real person
+from scratch**: it demands a reference photo to use `image_edit`. Our headless provider sandbox
+denies `Bash`/`Shell`/`Terminal` (`grokHeadlessArgs`), so Grok can't download the reference, gives
+up asking the operator to upload one, and **exits 0 with no image**. The provider sees no file →
+`null` → the story fails to image every cycle. The ADR-0023 opinion retry can't help — retrying a
+refusal yields another refusal. Reproduced: Bob's "Former mayor Andy Burnham…" fails; a generic
+prompt succeeds. A latent second case was found (POLITICS story naming "JD Vance and Usha").
+
+**Durable fix (branch `fix/image-prompts-no-real-names`, code-only):**
+- `src/prompt.ts`: removed the "a caricature of a well-known public figure is fine" allowance;
+  added a hard rule — never name/depict an identifiable real individual in `imagePrompt`; use a
+  generic role ("a former mayor", "a government official"). `caption` (display text, not sent to
+  Grok) may still name people.
+- `src/opinions.ts` `buildImageBriefPrompt`: same hard rule added; doc comment cites ADR-0024.
+- New `docs/adr/0024-image-prompts-no-real-names.md`; regression anchors in `test/prompt.test.ts`
+  + `test/opinions.test.ts`. `npx tsc --noEmit` clean; full vitest **774 passed / 1 skipped**.
+- Enforcement is prompt-side (best-effort); a future deterministic name-guard is possible if the
+  model keeps leaking names.
+
+**Operational unstick (done this cycle, out-of-band — manifest is git-ignored so not committed):**
+Anonymized Bob's and the JD-Vance story's `wrappedPrompt` in `data/manifest.json`, re-ran
+`npm run images` (**6 stored, 0 failed**, incl. Bob), `npm run render`, and `vercel --prod` →
+Bob is **LIVE** (deploy `dpl_FqSkLjqiWiTVf1a7Kpb6VQqjuvU6`, READY). Both required `source cron.env`
+first (Blob token). The `images` CLI wires **no logger**, so it prints nothing until its final
+summary line — silence ≠ hung.
+
 ## Opinion in-cycle recovery: generation retry + opinion-first imaging (ADR-0023)
 
 Fixes two ways opinions missed the 04:00 Sunrise target, both of which previously recovered only on

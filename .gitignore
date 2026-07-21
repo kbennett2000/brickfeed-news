@@ -32,3 +32,4 @@ PAUSE
 /assets/
 
 /cron.env
+.vercel
