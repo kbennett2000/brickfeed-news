@@ -24,10 +24,17 @@ prompt succeeds. A latent second case was found (POLITICS story naming "JD Vance
 
 **Operational unstick (done this cycle, out-of-band — manifest is git-ignored so not committed):**
 Anonymized Bob's and the JD-Vance story's `wrappedPrompt` in `data/manifest.json`, re-ran
-`npm run images` (**6 stored, 0 failed**, incl. Bob), `npm run render`, and `vercel --prod` →
-Bob is **LIVE** (deploy `dpl_FqSkLjqiWiTVf1a7Kpb6VQqjuvU6`, READY). Both required `source cron.env`
-first (Blob token). The `images` CLI wires **no logger**, so it prints nothing until its final
-summary line — silence ≠ hung.
+`npm run images` (**6 stored, 0 failed**, incl. Bob), `npm run render`, then deployed → Bob is
+**LIVE** on `www.brickfeed.news` + apex (story page 200). Both `images`/`render` required
+`source cron.env` first (Blob token). The `images` CLI wires **no logger**, so it prints nothing
+until its final summary line — silence ≠ hung.
+
+> **DEPLOY GOTCHA (cost a wasted deploy):** production deploys MUST run from `site/`.
+> `site/.vercel` links to the **`brickfeed`** project — the one `www.brickfeed.news` actually
+> serves — and that's where the cron deploys (default `deploy.cwd` = the render `outputDir`).
+> The repo **root** `.vercel` links to a *different, non-live* `brickfeed-news` project, so
+> `vercel --prod` from the root deploys to a URL nobody sees. Always `cd site && vercel --prod
+> --yes` (or `npm run cycle`, which uses the config default cwd).
 
 ## Opinion in-cycle recovery: generation retry + opinion-first imaging (ADR-0023)
 
