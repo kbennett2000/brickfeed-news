@@ -105,12 +105,14 @@ export const defaultRunner: ClaudeRunner = ({ model, prompt }) =>
     });
 
     let stdout = "";
+    let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
-    // Drain stderr so the pipe never blocks; we don't surface it.
-    child.stderr.on("data", () => {});
+    // Accumulate stderr (still drained so the pipe never blocks) — the story path ignores
+    // it, but the free-form text seam surfaces it in its null-cause diagnostic (text.ts).
+    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
 
-    child.on("error", () => resolve({ stdout: "", code: 1 }));
-    child.on("close", (code) => resolve({ stdout, code: code ?? 1 }));
+    child.on("error", (err) => resolve({ stdout: "", code: 1, stderr: err.message }));
+    child.on("close", (code) => resolve({ stdout, code: code ?? 1, stderr }));
 
     child.stdin.on("error", () => {}); // ignore EPIPE if the child exits early
     child.stdin.write(prompt);

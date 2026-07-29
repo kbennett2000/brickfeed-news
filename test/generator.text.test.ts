@@ -38,6 +38,38 @@ describe("createTextGenerator", () => {
     await expect(generate("p")).resolves.toBeNull();
   });
 
+  it("claude: non-zero exit logs ONE diagnostic line with the exit code + stderr, still null", async () => {
+    const lines: string[] = [];
+    const generate = createTextGenerator(
+      withProvider("claude"),
+      { runner: async () => ({ stdout: "", code: 2, stderr: "Not logged in" }) },
+      (m) => lines.push(m),
+    );
+    await expect(generate("p")).resolves.toBeNull();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("text(claude) returned null");
+    expect(lines[0]).toContain("exit=2");
+    expect(lines[0]).toContain("Not logged in");
+  });
+
+  it("claude: an is_error envelope logs the error message from stdout, still null", async () => {
+    const lines: string[] = [];
+    const generate = createTextGenerator(
+      withProvider("claude"),
+      {
+        runner: async () => ({
+          stdout: JSON.stringify({ type: "result", is_error: true, result: "Not logged in · /login" }),
+          code: 0,
+        }),
+      },
+      (m) => lines.push(m),
+    );
+    await expect(generate("p")).resolves.toBeNull();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("text(claude) returned null");
+    expect(lines[0]).toContain("Not logged in");
+  });
+
   it("grok-terminal: passes command/args/timeout from config and unwraps the text envelope", async () => {
     const config = withProvider("grok-terminal");
     config.generator.grokTerminal = { command: "grok-test", args: ["--fast"], timeoutMs: 5 };

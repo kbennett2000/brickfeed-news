@@ -61,6 +61,15 @@ existing image budget — by ordering and a bounded retry, not by enlarging the 
   backlog exceeding the budget could in theory crowd news, but opinions age out and are few.
 - No config surface changes; `MAX_PIECE_ATTEMPTS` is a module constant, `maxStoriesPerCycle` and the
   publish-hour gate are untouched.
+- **Diagnosing a repeated failure (2026-07-29 hardening).** When every retry is exhausted the stage
+  logs a bare `generation returned null`, which hid the real cause when all three authors failed on
+  2026-07-29 (the `claude` free-form runner discarded stderr and collapsed non-zero-exit /
+  `is_error` / empty-output into one null). The free-form seam (`src/generator/text.ts`, claude
+  branch) now emits one diagnostic line per null — `text(claude) returned null — exit=… stdout="…"
+  stderr="…"` — surfacing the actual exit code and the `is_error` envelope's message. Operators:
+  `grep 'text(claude) returned null' cycle.log` to see why an opinion generation failed. This is
+  diagnostic-only (never-throw and provider dispatch unchanged); `stderr` on `ClaudeRunner` is
+  additive and the story path ignores it.
 
 ## References
 

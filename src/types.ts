@@ -113,11 +113,13 @@ export interface Generator {
  * The subprocess boundary for the subscription generator, injected so tests can
  * feed canned `claude -p` output without spawning a real process. Resolves with
  * the child's stdout and exit code; a spawn error is surfaced as a non-zero code.
+ * `stderr` is optional diagnostic output — the story path ignores it, the free-form
+ * text seam surfaces it in its null-cause log line (see generator/text.ts).
  */
 export type ClaudeRunner = (args: {
   model: string;
   prompt: string;
-}) => Promise<{ stdout: string; code: number }>;
+}) => Promise<{ stdout: string; code: number; stderr?: string }>;
 
 /**
  * The subprocess boundary for the keyless "grok-terminal" TEXT generator (Slice 8),

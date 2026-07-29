@@ -28,6 +28,19 @@ export interface TextGeneratorRunners {
   terminalRunner?: TerminalTextRunner;
 }
 
+/** One-line diagnostic sink (default no-op). Production wires it to the cycle/CLI log. */
+export type TextGeneratorLogger = (msg: string) => void;
+
+/**
+ * Compact a raw transport blob for a single log line: trim, collapse whitespace/newlines to
+ * single spaces, and truncate. Keeps the diagnostic readable in cycle.log without dumping a
+ * whole envelope. Returns "" for empty/whitespace input so the caller can omit the field.
+ */
+function snip(s: string, n = 200): string {
+  const flat = s.replace(/\s+/g, " ").trim();
+  return flat.length > n ? `${flat.slice(0, n)}…` : flat;
+}
+
 /**
  * Select a free-form TextGenerator from config, mirroring createGenerator's provider
  * dispatch: "grok-terminal" (keyless grok CLI), "claude" (subscription CLI), "grok" (xAI
@@ -37,6 +50,7 @@ export interface TextGeneratorRunners {
 export function createTextGenerator(
   config: Config,
   opts: TextGeneratorRunners = {},
+  log: TextGeneratorLogger = () => {},
 ): TextGenerator {
   const { provider, model, grok, grokTerminal } = config.generator;
 
@@ -63,15 +77,27 @@ export function createTextGenerator(
   if (provider === "claude") {
     const runner = opts.runner ?? defaultClaudeRunner;
     return async (prompt) => {
-      let result: { stdout: string; code: number };
+      // Every null path logs ONE line so a silent "generation returned null" upstream can be
+      // traced to its actual cause: non-zero exit, an is_error envelope, or empty output.
+      // The is_error envelope's `result` message rides in the stdout snippet.
+      const nullWith = (reason: string): null => {
+        log(`text(claude) returned null — ${reason}`);
+        return null;
+      };
+      let result: { stdout: string; code: number; stderr?: string };
       try {
         result = await runner({ model, prompt });
-      } catch {
-        return null;
+      } catch (err) {
+        return nullWith(`spawn error: ${err instanceof Error ? err.message : String(err)}`);
       }
-      if (result.code !== 0) return null;
+      const out = snip(result.stdout);
+      const err = snip(result.stderr ?? "");
+      const parts = (lead: string): string =>
+        [lead, out && `stdout="${out}"`, err && `stderr="${err}"`].filter(Boolean).join(" ");
+      if (result.code !== 0) return nullWith(parts(`exit=${result.code}`));
       const text = extractResultText(result.stdout)?.trim() ?? "";
-      return text.length > 0 ? text : null;
+      if (text.length === 0) return nullWith(parts("empty output"));
+      return text;
     };
   }
 

@@ -43,7 +43,7 @@ async function main(): Promise<void> {
     // Node's global fetch satisfies the structural FetchLike shape.
     fetch: fetch as unknown as FetchLike,
     generator: createGenerator(config, { ttsObserver: onTtsFailure }),
-    textGenerator: createTextGenerator(config),
+    textGenerator: createTextGenerator(config, {}, (m) => console.log(m)),
     opinionTts: createOpinionTtsDeps(config, undefined, onTtsFailure),
     imageProvider: createImageProvider(config),
     storage: createStorageProvider(config),

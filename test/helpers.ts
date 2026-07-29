@@ -473,15 +473,16 @@ export function ttsErr(code: string): string {
   return JSON.stringify({ error: { code, message: code } });
 }
 
-/** A fake ClaudeRunner returning canned stdout/exit code, for subscription-impl tests. */
+/** A fake ClaudeRunner returning canned stdout/exit code/stderr, for subscription-impl tests. */
 export function fakeRunner(opts: {
   stdout?: string;
   code?: number;
+  stderr?: string;
   throws?: boolean;
 }): ClaudeRunner {
   return async () => {
     if (opts.throws) throw new Error("simulated spawn failure");
-    return { stdout: opts.stdout ?? "", code: opts.code ?? 0 };
+    return { stdout: opts.stdout ?? "", code: opts.code ?? 0, stderr: opts.stderr };
   };
 }
 
