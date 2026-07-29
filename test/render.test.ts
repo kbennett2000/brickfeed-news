@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "../src/category.js";
-import { SECTION_SLOT_LIMIT } from "../src/eligibility.js";
+import { OPINION_SECTION_LIMIT, SECTION_SLOT_LIMIT } from "../src/eligibility.js";
 import {
   type AuthorInfo,
   renderSite,
@@ -1353,6 +1353,32 @@ describe("renderSite — opinion section (ADR-0016)", () => {
       const tom = files["columnist/tom.html"];
       expect(tom).toContain('href="../s/opinion-tom-2026-07-10.html"');
       expect(tom).not.toContain("opinion-alice-2026-07-10");
+    });
+
+    it("caps opinion.html to OPINION_SECTION_LIMIT recent pieces while the columnist page keeps the FULL archive (ADR-0025)", () => {
+      const COUNT = OPINION_SECTION_LIMIT + 2;
+      const base = Date.parse("2026-07-10T09:00:00.000Z");
+      // COUNT alice pieces, index 0 = newest (each an hour older than the last).
+      const pieces = Array.from({ length: COUNT }, (_, i) =>
+        orec({
+          id: `opinion-alice-arch-${String(i).padStart(2, "0")}`,
+          author: "alice",
+          firstSeen: new Date(base - i * 3_600_000).toISOString(),
+        }),
+      );
+      const out = renderSite(pieces, { ...OPTS, authors: AUTHORS, log: () => {} });
+
+      const sectionCards =
+        out["opinion.html"].match(/<a class="card" href="s\/opinion-alice-arch-/g) ?? [];
+      const columnistCards =
+        out["columnist/alice.html"].match(/<a class="card" href="\.\.\/s\/opinion-alice-arch-/g) ?? [];
+      expect(sectionCards).toHaveLength(OPINION_SECTION_LIMIT); // section feed is bounded
+      expect(columnistCards).toHaveLength(COUNT); // bio page shows every retained piece
+
+      // The two OLDEST pieces are dropped from the section but kept on the columnist archive.
+      const oldest = `opinion-alice-arch-${String(COUNT - 1).padStart(2, "0")}`;
+      expect(out["opinion.html"]).not.toContain(`href="s/${oldest}.html"`);
+      expect(out["columnist/alice.html"]).toContain(`href="../s/${oldest}.html"`);
     });
 
     it("an author with no live pieces still gets a page, with the empty-archive note", () => {

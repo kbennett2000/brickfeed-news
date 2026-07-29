@@ -81,6 +81,24 @@ export function sectionSlotIds(records: ManifestRecord[], limit: number): Set<st
   return ids;
 }
 
+/**
+ * The Opinion SECTION feed bound (ADR-0025). With opinion pieces now retained for ~90 days so
+ * columnist bio pages accumulate a real archive, the `opinion.html` section — which lists every
+ * live opinion piece — would otherwise show the entire backlog. This caps that ONE page to the
+ * most-recent `limit` pieces (newest-first by `firstSeen`). It is intentionally NOT part of
+ * `sectionSlotIds` (which is shared with the image budget) and NOT applied to columnist archive
+ * pages, which are built from the unfiltered records and keep the full retained history.
+ */
+export const OPINION_SECTION_LIMIT = 24;
+
+/** Ids of the most-recent `limit` OPINION pieces (newest-first by `firstSeen`); see above. */
+export function recentOpinionIds(records: ManifestRecord[], limit: number): Set<string> {
+  const ops = records
+    .filter(isOpinionRecord)
+    .sort((a, b) => b.firstSeen.localeCompare(a.firstSeen));
+  return new Set(ops.slice(0, limit).map((r) => r.id));
+}
+
 /** The verdict for one image-generation cycle over a set of live records. */
 export interface HeroDecision {
   /** Ids that should be imaged this run: image-needing records that pass (incl. all opinions). */

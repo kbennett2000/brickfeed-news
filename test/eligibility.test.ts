@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   HERO_MIN_LIFETIME_HOURS,
+  OPINION_SECTION_LIMIT,
   SECTION_SLOT_LIMIT,
   heroEligibility,
   isOpinionRecord,
+  recentOpinionIds,
   sectionRanks,
   sectionSlotIds,
 } from "../src/eligibility.js";
@@ -89,6 +91,28 @@ describe("sectionSlotIds", () => {
   it("honors a custom limit", () => {
     const ids = sectionSlotIds(section("WORLD", 5), 2);
     expect([...ids].sort()).toEqual(["WORLD-0", "WORLD-1"]);
+  });
+});
+
+describe("recentOpinionIds", () => {
+  it("returns the newest `limit` OPINION pieces and ignores non-opinion records", () => {
+    // 5 opinions newest-first by index, plus WORLD noise that must never be included.
+    const ops = Array.from({ length: 5 }, (_, i) =>
+      rec(`op-${i}`, { category: "OPINION", author: "alice", firstSeen: iso(NOW - i * 60_000) }),
+    );
+    const noise = section("WORLD", 3);
+    const ids = recentOpinionIds([...noise, ...ops], 3);
+
+    expect(ids.size).toBe(3);
+    expect([...ids].sort()).toEqual(["op-0", "op-1", "op-2"]); // 3 newest opinions only
+    expect([...ids].some((id) => id.startsWith("WORLD"))).toBe(false);
+  });
+
+  it("returns every opinion when fewer than the limit exist", () => {
+    const ops = Array.from({ length: 2 }, (_, i) =>
+      rec(`op-${i}`, { category: "OPINION", author: "bob", firstSeen: iso(NOW - i * 60_000) }),
+    );
+    expect(recentOpinionIds(ops, OPINION_SECTION_LIMIT).size).toBe(2);
   });
 });
 

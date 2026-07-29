@@ -64,7 +64,7 @@
     }
   },
   "maxAgeHours": 72,
-  "opinionMaxAgeHours": 168,
+  "opinionMaxAgeHours": 2160,
   "opinionPublishHourUTC": 13,
   "publishedPath": "data/published.json",
   "concurrency": 4,

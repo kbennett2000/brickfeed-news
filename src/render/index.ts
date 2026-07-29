@@ -11,7 +11,12 @@
 import type { AdView } from "../ads.js";
 import type { Article } from "../articles.js";
 import { CATEGORIES, type Category, normalizeCategory } from "../category.js";
-import { SECTION_SLOT_LIMIT, sectionSlotIds } from "../eligibility.js";
+import {
+  OPINION_SECTION_LIMIT,
+  SECTION_SLOT_LIMIT,
+  recentOpinionIds,
+  sectionSlotIds,
+} from "../eligibility.js";
 import type { HeadshotManifest } from "../headshots.js";
 import type { Persona } from "../personas.js";
 import type { ManifestRecord } from "../types.js";
@@ -489,6 +494,12 @@ export function renderSite(
   // above the fold changes. `records`/`views` are index-aligned, so filter by the record's id.
   const listed = sectionSlotIds(records, SECTION_SLOT_LIMIT);
 
+  // Opinion SECTION feed bound (ADR-0025): opinion pieces are retained ~90 days so columnist
+  // bio pages accumulate a real archive, but the `opinion.html` section must not list that whole
+  // backlog — cap it to the most-recent OPINION_SECTION_LIMIT. Columnist pages (built from the
+  // unfiltered `views` below) are deliberately NOT bounded and keep the full retained history.
+  const recentOpinions = recentOpinionIds(records, OPINION_SECTION_LIMIT);
+
   // Homepage exclusion (ADR-0016 d.4): opinion pieces render ONLY in the Opinion section —
   // never on the cover. The kicker check is belt-and-braces for a hypothetical authorless
   // OPINION record. Landing pages + sitemap use the unfiltered `views`/`records`.
@@ -509,8 +520,14 @@ export function renderSite(
   const cast = castStrip(opts.authors ?? {});
   for (const category of presentSections) {
     // Same slot bound as the cover (ADR-0020): list only the section's top-K. OPINION is in
-    // `listed` unconditionally, so opinion.html still shows every piece.
-    const base = views.filter((v, i) => v.kicker === category && listed.has(records[i].id));
+    // `listed` unconditionally (its image budget parity), so it's additionally bounded here to
+    // the most-recent OPINION_SECTION_LIMIT (ADR-0025) — the columnist archive pages stay full.
+    const base = views.filter(
+      (v, i) =>
+        v.kicker === category &&
+        listed.has(records[i].id) &&
+        (category !== "OPINION" || recentOpinions.has(records[i].id)),
+    );
     const sectionArticles = articleViews
       .filter(({ article }) => article.category === category)
       .map(({ article, view }) => ({ id: article.id, rank: article.subRank, view }));
