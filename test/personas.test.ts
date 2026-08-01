@@ -251,18 +251,18 @@ describe("loadPersonas", () => {
 
 // ---------------------------------------------------------------------------
 // Schema validation of the REAL committed persona assets (ADR-0013, ADR-0014):
-// the eight authors exist, parse cleanly, and carry every required field for
+// the nine authors exist, parse cleanly, and carry every required field for
 // their source.
 // ---------------------------------------------------------------------------
 
-const NEWS_ROSTER = ["alice", "bob", "cynthia", "edgar", "larry", "stryker"] as const;
+const NEWS_ROSTER = ["alice", "bob", "cynthia", "edgar", "hodge", "larry", "stryker"] as const;
 const LETTERS_ROSTER = ["priscilla", "tom"] as const;
 const ROSTER = [...NEWS_ROSTER, ...LETTERS_ROSTER].sort();
 const personasDir = fileURLToPath(new URL("../personas/", import.meta.url));
 const headshotsDir = fileURLToPath(new URL("../assets/headshots/", import.meta.url));
 
 describe("committed persona files", () => {
-  it("personas/ holds exactly the eight-author roster plus the two _ support blocks", () => {
+  it("personas/ holds exactly the nine-author roster plus the two _ support blocks", () => {
     const mds = readdirSync(personasDir).filter((f) => f.endsWith(".md"));
     expect(mds.sort()).toEqual(["_letters.md", "_shared.md", ...ROSTER.map((n) => `${n}.md`)]);
   });

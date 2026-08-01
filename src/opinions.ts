@@ -49,6 +49,13 @@ export const ROTATION: readonly (readonly [string, string])[] = [
   ["larry", "cynthia"],
 ];
 
+/**
+ * ADR-0027: daily fixtures — `source: news` personas that publish EVERY day, outside the 3-pair
+ * ROTATION. `authorsFor` appends these (deduped against the day's pair) so a persona whose whole
+ * conceit is a daily beat (Hodge, the sports serf) isn't rationed to once every three days.
+ */
+export const DAILY_NEWS: readonly string[] = ["hodge"];
+
 /** Selection pool window: stories first seen within this many hours are candidates. */
 export const CANDIDATE_WINDOW_HOURS = 24;
 
@@ -66,7 +73,7 @@ export const FLOOR_WEIGHT = 0.25;
  * (generator.opinionModel), which follows word counts far better than Haiku did. The `min/2`
  * hard-fail floor is deliberately below the target — it rejects only genuine stubs, not the
  * common shorter rolls, which would otherwise fail the author. Personas without an override
- * (bob, cynthia, larry, stryker, priscilla, tom) track DEFAULT_LENGTH_RANGE. Tests pin these
+ * (bob, cynthia, hodge, larry, stryker, priscilla, tom) track DEFAULT_LENGTH_RANGE. Tests pin these
  * constants against the committed .md files so the two can't drift silently.
  */
 export const DEFAULT_LENGTH_RANGE: readonly [number, number] = [1200, 1600];
@@ -183,8 +190,9 @@ export function beforeOpinionPublishHour(now: Date, publishHourUTC: number): boo
 
 /**
  * The day's author set (pure): the rotation pair (members present in the loaded
- * `source: news` roster, in pair order) plus every `source: letters` persona whose
- * schedule contains the date's UTC weekday (sorted by name). `dateUTC` is YYYY-MM-DD.
+ * `source: news` roster, in pair order), then the DAILY_NEWS fixtures (present, `source: news`,
+ * deduped against the pair), then every `source: letters` persona whose schedule contains the
+ * date's UTC weekday (sorted by name). `dateUTC` is YYYY-MM-DD.
  */
 export function authorsFor(dateUTC: string, personas: Persona[]): Persona[] {
   const date = new Date(`${dateUTC}T00:00:00Z`);
@@ -195,10 +203,13 @@ export function authorsFor(dateUTC: string, personas: Persona[]): Persona[] {
   const news = pair
     .map((name) => byName.get(name))
     .filter((p): p is Persona => p !== undefined && p.source === "news");
+  const daily = DAILY_NEWS.filter((name) => !pair.includes(name))
+    .map((name) => byName.get(name))
+    .filter((p): p is Persona => p !== undefined && p.source === "news");
   const letters = personas
     .filter((p) => p.source === "letters" && (p.schedule ?? []).includes(weekday))
     .sort((a, b) => a.name.localeCompare(b.name));
-  return [...news, ...letters];
+  return [...news, ...daily, ...letters];
 }
 
 /**

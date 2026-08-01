@@ -64,7 +64,7 @@ function manifestOf(...records: ManifestRecord[]): Manifest {
   return { version: 1, stories };
 }
 
-/** The full eight-persona roster (rotation members + both letters columnists). */
+/** The full nine-persona roster (rotation members + the daily fixture + both letters columnists). */
 function fullRoster(): Persona[] {
   return [
     newsPersona("alice"),
@@ -73,6 +73,7 @@ function fullRoster(): Persona[] {
     newsPersona("edgar"),
     newsPersona("larry"),
     newsPersona("stryker"),
+    newsPersona("hodge"), // ADR-0027 daily fixture — publishes every day, outside ROTATION
     lettersPersona("priscilla", ["tue", "thu", "sat", "sun"]),
     lettersPersona("tom", ["mon", "wed", "fri", "sun"]),
   ];
@@ -145,19 +146,26 @@ describe("authorsFor — rotation pair + letters schedule overlay (pure)", () =>
   const names = (date: string, personas = fullRoster()) =>
     authorsFor(date, personas).map((p) => p.name);
 
-  it("Sunday yields the pair plus BOTH letters personas (the intentional double)", () => {
-    expect(names("2026-07-12")).toEqual(["alice", "bob", "priscilla", "tom"]);
+  it("Sunday yields the pair, the daily fixture, plus BOTH letters personas (the intentional double)", () => {
+    expect(names("2026-07-12")).toEqual(["alice", "bob", "hodge", "priscilla", "tom"]);
   });
 
-  it("walks the 3-day rotation with the scheduled letters overlay", () => {
-    expect(names("2026-07-13")).toEqual(["edgar", "stryker", "tom"]); // Mon
-    expect(names("2026-07-14")).toEqual(["larry", "cynthia", "priscilla"]); // Tue
-    expect(names("2026-07-15")).toEqual(["alice", "bob", "tom"]); // Wed — wrapped
+  it("walks the 3-day rotation with the daily fixture and the scheduled letters overlay", () => {
+    expect(names("2026-07-13")).toEqual(["edgar", "stryker", "hodge", "tom"]); // Mon
+    expect(names("2026-07-14")).toEqual(["larry", "cynthia", "hodge", "priscilla"]); // Tue
+    expect(names("2026-07-15")).toEqual(["alice", "bob", "hodge", "tom"]); // Wed — wrapped
+  });
+
+  it("ADR-0027: the daily fixture (hodge) publishes every day, across the whole rotation", () => {
+    // Four consecutive days span the 3-pair cycle and wrap; hodge appears on all of them.
+    for (const day of ["2026-07-12", "2026-07-13", "2026-07-14", "2026-07-15"]) {
+      expect(names(day)).toContain("hodge");
+    }
   });
 
   it("a rotation member missing from the roster is simply absent", () => {
     const noBob = fullRoster().filter((p) => p.name !== "bob");
-    expect(names("2026-07-12", noBob)).toEqual(["alice", "priscilla", "tom"]);
+    expect(names("2026-07-12", noBob)).toEqual(["alice", "hodge", "priscilla", "tom"]);
   });
 
   it("is pure: repeat calls agree, and ROTATION pins the ADR-0013 pair order", () => {
