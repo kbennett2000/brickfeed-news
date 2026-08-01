@@ -375,11 +375,12 @@ describe("prompt assembly + output contract", () => {
 
   it("length ranges pin the persona prose (drift guard on the committed assets)", () => {
     expect(DEFAULT_LENGTH_RANGE).toEqual([300, 500]);
-    expect(LENGTH_RANGES).toEqual({ tom: [500, 700] });
+    expect(LENGTH_RANGES).toEqual({ tom: [500, 700], edgar: [1600, 2500] });
     // The constants mirror the spec-of-record in the persona PROSE — if a human edits
     // the .md ranges, this fails loud instead of silently mis-validating.
     expect(readFileSync("personas/_shared.md", "utf8")).toMatch(/300–500 words/);
     expect(readFileSync("personas/tom.md", "utf8")).toMatch(/500–700 words/);
+    expect(readFileSync("personas/edgar.md", "utf8")).toMatch(/1600–2500 words/);
   });
 });
 

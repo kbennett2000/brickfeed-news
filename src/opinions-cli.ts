@@ -98,7 +98,7 @@ async function main(): Promise<void> {
     manifest,
     assets,
     {
-      generate: createTextGenerator(config, {}, console.log),
+      generate: createTextGenerator(config, {}, console.log, config.generator.opinionModel),
       now: () => new Date(),
       log: console.log,
       ...createOpinionTtsDeps(config),

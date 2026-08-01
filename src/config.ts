@@ -128,6 +128,14 @@ export interface GeneratorConfig {
   provider: "grok" | "claude" | "apikey" | "grok-terminal";
   /** Model for the "claude" (subscription) path. */
   model: string;
+  /**
+   * Optional model for the opinion text generator only (the columns — ADR-0013). Absent →
+   * falls back to `model`. Opinion pieces demand long, in-voice prose that the cheap story
+   * model (Haiku) under-delivers on (its word-count control is weak and high-variance), so
+   * the columns can be pinned to a stronger model (e.g. "sonnet") while ingest/story
+   * generation stays on the cheaper `model`. Only meaningful for the "claude" provider.
+   */
+  opinionModel?: string;
   /** Settings for the "grok" (xAI) path. */
   grok: GrokConfig;
   /** Settings for the "grok-terminal" (subscription CLI, no API key) path (Slice 8). */
@@ -517,11 +525,27 @@ function validateGenerator(raw: unknown, path: string): GeneratorConfig {
     throw new Error(`Config at ${path}: generator.model must be a non-empty string.`);
   }
 
+  // Optional: opinion-only model override (absent → falls back to `model`).
+  let opinionModel: string | undefined;
+  if (g.opinionModel != null) {
+    if (typeof g.opinionModel !== "string" || g.opinionModel.length === 0) {
+      throw new Error(`Config at ${path}: generator.opinionModel must be a non-empty string.`);
+    }
+    opinionModel = g.opinionModel;
+  }
+
   const grok = validateGrok(g.grok, path);
   const grokTerminal = validateGrokTerminal(g.grokTerminal, path, "generator.grokTerminal");
   const tts = validateGeneratorTts(g.tts, path);
 
-  return { provider, model, grok, grokTerminal, ...(tts ? { tts } : {}) };
+  return {
+    provider,
+    model,
+    ...(opinionModel ? { opinionModel } : {}),
+    grok,
+    grokTerminal,
+    ...(tts ? { tts } : {}),
+  };
 }
 
 /**

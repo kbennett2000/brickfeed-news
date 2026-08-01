@@ -68,6 +68,28 @@ describe("validateConfig", () => {
     expect(cfg.generator.model).toBe("claude-sonnet-5");
   });
 
+  it("accepts an optional generator.opinionModel override; absent → undefined", () => {
+    const withOverride = validateConfig({
+      ...base,
+      generator: { provider: "claude", model: "claude-haiku-4-5-20251001", opinionModel: "sonnet" },
+    });
+    expect(withOverride.generator.opinionModel).toBe("sonnet");
+    const without = validateConfig({
+      ...base,
+      generator: { provider: "claude", model: "claude-haiku-4-5-20251001" },
+    });
+    expect(without.generator.opinionModel).toBeUndefined();
+  });
+
+  it("rejects a non-string or empty generator.opinionModel", () => {
+    expect(() =>
+      validateConfig({ ...base, generator: { provider: "claude", opinionModel: 42 } }),
+    ).toThrow();
+    expect(() =>
+      validateConfig({ ...base, generator: { provider: "claude", opinionModel: "" } }),
+    ).toThrow();
+  });
+
   it("rejects an empty feedUrls array", () => {
     expect(() => validateConfig({ ...base, feedUrls: [] })).toThrow();
   });

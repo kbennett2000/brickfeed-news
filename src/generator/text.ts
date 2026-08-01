@@ -51,8 +51,13 @@ export function createTextGenerator(
   config: Config,
   opts: TextGeneratorRunners = {},
   log: TextGeneratorLogger = () => {},
+  modelOverride?: string,
 ): TextGenerator {
-  const { provider, model, grok, grokTerminal } = config.generator;
+  const { provider, grok, grokTerminal } = config.generator;
+  // The claude path's model, optionally overridden (the opinion columns pin a stronger
+  // model than ingest/story generation — see GeneratorConfig.opinionModel). Only the
+  // "claude" branch consults `model`; grok/grok-terminal carry their own model settings.
+  const model = modelOverride ?? config.generator.model;
 
   if (provider === "grok-terminal") {
     const runner = opts.terminalRunner ?? defaultTextRunner;

@@ -6,6 +6,7 @@
   "generator": {
     "provider": "claude",
     "model": "claude-haiku-4-5-20251001",
+    "opinionModel": "sonnet",
     "grok": {
       "baseUrl": "https://api.x.ai/v1",
       "model": "grok-4.5"

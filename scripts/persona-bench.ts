@@ -175,11 +175,17 @@ async function main(): Promise<void> {
   const letters = anyLetters ? await readFile(join(PERSONAS_DIR, LETTERS_PERSONA_FILE), "utf8") : "";
 
   const provider = config.generator.provider;
-  const generate = createTextGenerator(config);
+  // Mirror production opinions: the opinion text seam is pinned to the opinion model override
+  // when set (config.generator.opinionModel), so the bench shows what the columns will produce.
+  const opinionModel = config.generator.opinionModel;
+  const generate = createTextGenerator(config, {}, () => {}, opinionModel);
+  const modelNote = provider === "claude" ? ` · model=${opinionModel ?? config.generator.model}` : "";
   const articleNote = anyNews
     ? `${blocks.length} article(s) (${args.recent ? `--recent ${args.recent}` : args.fixturesDir})`
     : "letter mode (no articles)";
-  console.log(`persona bench · ${selected.length} persona(s) · ${articleNote} · provider=${provider}\n`);
+  console.log(
+    `persona bench · ${selected.length} persona(s) · ${articleNote} · provider=${provider}${modelNote}\n`,
+  );
 
   let failures = 0;
   for (const persona of selected) {
