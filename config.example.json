@@ -91,5 +91,13 @@
     "command": "vercel --prod --yes",
     "cwd": "site",
     "enabled": true
+  },
+  "comments": {
+    "enabled": true,
+    "initialCount": 5,
+    "perPassCount": 4,
+    "maxPerPiece": 60,
+    "growWindowHours": 72,
+    "model": "sonnet"
   }
 }

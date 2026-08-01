@@ -30,6 +30,28 @@ export interface FeedItem {
  * Their PRESENCE is what makes generation idempotent — matching Slice 1's dedup
  * style, there is no separate status flag.
  */
+/**
+ * One parody reader comment on an opinion piece (ADR-0028). Fictional readers only — the whole
+ * thread is satire of a news-site comment section; the guardrails (personas/_comments.md +
+ * src/sanitize.ts) keep every commenter fictional and every insult aimed at other fictional
+ * commenters, never a real person. Persisted append-only on the piece's ManifestRecord so it dies
+ * with the piece at age-out and grows across the 6-per-day cycles.
+ */
+export interface Comment {
+  /** Stable, append-only id `${pieceId}-c${n}` minted in code (never trusted from the model). */
+  id: string;
+  /** The comedy-vector handle, e.g. "georgiapirate66", "2nd-ID-7682" (model-generated, escaped at render). */
+  username: string;
+  /** The comment text — plain, model-generated; paragraphized + HTML-escaped at render. */
+  body: string;
+  /** Parent comment id for a reply, or null for a top-level comment (unknown refs coerce to null). */
+  parentId: string | null;
+  /** Display-only reaction tallies — finalized deterministically in code, non-interactive on a static site. */
+  reactions: { up: number; down: number; laugh: number; flag: number };
+  /** ISO timestamp the comment was minted (from the stage's injected clock). */
+  createdAt: string;
+}
+
 export interface ManifestRecord {
   /** sha256 of the normalized (resolved) URL. */
   id: string;
@@ -80,6 +102,11 @@ export interface ManifestRecord {
   columnTitle?: string;
   /** Ids of the articles this piece reacted to (audit trail) — news personas only. */
   sourceArticleIds?: string[];
+  /**
+   * Parody reader comments (ADR-0028). Present only on OPINION records; grows append-only across
+   * cycles and is deleted with the record at age-out (no separate store, no second retention gate).
+   */
+  comments?: Comment[];
 }
 
 /** Normalized output of the generation step, before brick-style wrapping. */
@@ -353,6 +380,11 @@ export interface CycleDeps {
   generator: Generator;
   /** Free-form text seam for the opinion stage (ADR-0015): piece + topic-gate calls. */
   textGenerator: TextGenerator;
+  /**
+   * Free-form text seam for the comments stage (ADR-0028), pinned to `comments.model` (Sonnet).
+   * Separate from `textGenerator` so opinion pieces and reader comments can use different models.
+   */
+  commentGenerator: TextGenerator;
   /** Opt-in TTS routing for the opinion stage (ADR-0022); undefined = incumbent Claude path. */
   opinionTts?: OpinionTtsDeps;
   imageProvider: ImageProvider;

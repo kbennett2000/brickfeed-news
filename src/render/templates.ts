@@ -19,6 +19,7 @@ import {
   hashString,
   optimizedSrcset,
   optimizedUrl,
+  paragraphize,
   sectionSlug,
   titleCase,
 } from "./format.js";
@@ -57,6 +58,21 @@ export interface StoryRenderOpts {
    * prefixed. Default "" keeps root-page output byte-identical.
    */
   pathPrefix?: string;
+}
+
+/**
+ * One node of the reader-comment tree a landing page renders (ADR-0028): a display-ready comment
+ * with its nested replies. `timestamp` is pre-formatted in the render timezone by toStoryView (like
+ * StoryView.timestamp), so the template stays timezone-free. `username`/`body` are model output and
+ * MUST be escaped by the template.
+ */
+export interface CommentNode {
+  username: string;
+  body: string;
+  reactions: { up: number; down: number; laugh: number; flag: number };
+  /** Pre-formatted display timestamp, e.g. "Jul 14, 2:30 PM" ("" if unparseable). */
+  timestamp: string;
+  replies: CommentNode[];
 }
 
 /** The view model a template consumes — a ManifestRecord already reduced to display fields. */
@@ -111,6 +127,11 @@ export interface StoryView {
      */
     profilePath?: string;
   };
+  /**
+   * Parody reader comments as a nested tree (ADR-0028), set by toStoryView for opinion pieces that
+   * have comments. Rendered under the piece on its landing page; absent/empty → no comments section.
+   */
+  comments?: CommentNode[];
 }
 
 /**
@@ -128,6 +149,66 @@ export const OPINION_BANNER =
 export const LETTERS_DISCLOSURE =
   "Reader letters are as fictional as the columnists. Linda does not exist. No one is " +
   "writing to Tom.";
+
+/**
+ * The reader-comments disclosure (ADR-0028): hand-written, versioned, never model-generated.
+ * Rendered atop the comment section on every opinion piece. Changing this wording is an ADR-level
+ * decision.
+ */
+export const COMMENTS_DISCLOSURE =
+  "Reader comments are parody. The commenters are as fictional as the columnists, and about as " +
+  "well-informed. No real person is quoted, praised, or insulted here.";
+
+/** Total comments in a nested tree — the "N Comments" heading count. */
+function countComments(nodes: CommentNode[]): number {
+  return nodes.reduce((n, c) => n + 1 + countComments(c.replies), 0);
+}
+
+/** Static, display-only reaction tallies. Zero counts are omitted so the row looks organic. */
+function reactionChips(r: CommentNode["reactions"]): string {
+  const chips: string[] = [];
+  if (r.up) chips.push(`<span class="comment__react">&#9650; ${r.up}</span>`);
+  if (r.down) chips.push(`<span class="comment__react">&#9660; ${r.down}</span>`);
+  if (r.laugh) chips.push(`<span class="comment__react">&#128514; ${r.laugh}</span>`);
+  if (r.flag) chips.push(`<span class="comment__react">&#9873; ${r.flag}</span>`);
+  return chips.length ? `<div class="comment__reactions">${chips.join("")}</div>` : "";
+}
+
+/** One comment <li> plus its nested replies. Every model-derived string is escaped. */
+function commentItem(node: CommentNode): string {
+  const time = node.timestamp
+    ? ` <span class="comment__time">${escapeHtml(node.timestamp)}</span>`
+    : "";
+  const replies = node.replies.length
+    ? `<ol class="comment__replies">${node.replies.map(commentItem).join("")}</ol>`
+    : "";
+  return (
+    `<li class="comment">` +
+    `<div class="comment__head"><span class="comment__user">${escapeHtml(node.username)}</span>${time}</div>` +
+    `<div class="comment__body">${paragraphize(node.body)}</div>` +
+    reactionChips(node.reactions) +
+    replies +
+    `</li>`
+  );
+}
+
+/**
+ * The reader-comments section for an opinion landing page (ADR-0028): a threaded <ol>/<li> under a
+ * "N Comments" heading + the disclosure. Purely presentational — no JS, no interactivity (static
+ * site); reaction counts are static numbers. Every username/body (model output) is escaped. Empty
+ * input renders nothing.
+ */
+export function commentThread(nodes: CommentNode[]): string {
+  if (nodes.length === 0) return "";
+  const total = countComments(nodes);
+  return (
+    `<section class="comments" aria-label="Reader comments">` +
+    `<h2 class="comments__heading">${total} Comment${total === 1 ? "" : "s"}</h2>` +
+    `<p class="comments__disclosure">${escapeHtml(COMMENTS_DISCLOSURE)}</p>` +
+    `<ol class="comments__list">${nodes.map(commentItem).join("")}</ol>` +
+    `</section>`
+  );
+}
 
 /** The static meta description on opinion.html (ADR-0016 d.6): the page is AI satire. */
 export const OPINION_META_DESCRIPTION =
@@ -743,6 +824,9 @@ export function renderLandingPage(
     : `<p class="dek landing__dek">${escapeHtml(view.description)}</p>
         <div class="byline byline--lead">${escapeHtml(view.byline)} &middot; ${escapeHtml(view.timestamp)}</div>
         <a class="landing__cta" href="${escapeAttr(view.url)}" target="_blank" rel="noopener noreferrer">Read the full story at the source &rarr;</a>`;
+  // Opinion pieces carry a parody reader-comment thread (ADR-0028) under the share row; guarded so
+  // non-opinion landing pages and comment-less opinion pages stay byte-identical.
+  const commentsHtml = view.opinion && view.comments?.length ? commentThread(view.comments) : "";
   const body = `<div class="standalone landing">
     ${standaloneBrand("../index.html")}
     <main class="container landing__main">
@@ -752,6 +836,7 @@ export function renderLandingPage(
         <h1 class="landing__headline">${escapeHtml(view.headline)}</h1>
         ${tail}
         ${shareRow}
+        ${commentsHtml}
       </article>
     </main>
   </div>`;

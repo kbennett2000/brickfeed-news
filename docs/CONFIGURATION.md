@@ -133,6 +133,22 @@ outage; the restart is a bonus, not load-bearing.
 | `deploy.cwd` | string | = `render.outputDir` (`site`) | Working directory the deploy command runs in (where `vercel link` was done). |
 | `deploy.enabled` | boolean | `true` | When `false`, the cycle renders but skips deploy (`skipped-disabled`). |
 
+### `comments` — parody reader comments (ADR-0028)
+
+Fictional reader-comment threads under every published opinion piece. The `comments` stage runs each
+cycle (after `ageout`, before `render`): it seeds a few comments on a brand-new piece, then appends
+more comments + replies to still-growing pieces until they leave the grow window or hit the per-piece
+cap. Comments are stored append-only on the opinion record and are deleted with it at age-out.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `comments.enabled` | boolean | `true` | Master switch. When `false` the stage is skipped and makes zero generator calls. |
+| `comments.initialCount` | number | `5` | Comments seeded on a brand-new opinion piece (its first pass). |
+| `comments.perPassCount` | number | `4` | New comments + replies added per cycle to each still-growing piece. |
+| `comments.maxPerPiece` | number | `60` | Per-piece hard cap; once reached the thread stops growing. |
+| `comments.growWindowHours` | number | `72` | Only pieces first seen within this many hours keep generating; older threads freeze (retained until age-out). |
+| `comments.model` | string | `sonnet` | Model for the comment generator (the `claude` provider path). Comedy + quota/JSON adherence want the stronger model, like the opinion pieces. |
+
 ---
 
 ## Environment variables

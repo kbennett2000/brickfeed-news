@@ -19,7 +19,7 @@ import {
 } from "../eligibility.js";
 import type { HeadshotManifest } from "../headshots.js";
 import type { Persona } from "../personas.js";
-import type { ManifestRecord } from "../types.js";
+import type { Comment, ManifestRecord } from "../types.js";
 import {
   bylineFor,
   columnistPagePath,
@@ -51,6 +51,7 @@ import {
   brickyardHead,
   card,
   castStrip,
+  type CommentNode,
   emptyState,
   footer,
   type ImageOptimizeRender,
@@ -190,6 +191,62 @@ export interface ShareOptions {
 export const OPINION_EXCERPT_MAX = 240;
 
 /**
+ * How many nesting levels of replies the comment thread displays (ADR-0028): level 0 = top-level,
+ * 1 = reply, 2 = reply-to-reply. Deeper replies flatten onto the deepest displayed ancestor, so a
+ * pathological reply chain can never blow up the page depth.
+ */
+export const COMMENT_DISPLAY_DEPTH = 3;
+
+/**
+ * Reduce the stored flat, append-only `comments[]` into the nested CommentNode tree the landing page
+ * renders (ADR-0028). Threading is by `parentId`; top-level comments are ordered NEWEST-FIRST (append
+ * order reversed) while replies stay chronological (append order). Display depth is capped
+ * (COMMENT_DISPLAY_DEPTH) by attaching an over-deep reply to its nearest ancestor still within the
+ * cap. Timestamps are formatted here in the render `timeZone` (like StoryView.timestamp). Pure.
+ */
+export function buildCommentTree(comments: Comment[], timeZone: string): CommentNode[] {
+  const nodes = new Map<string, CommentNode>();
+  const parentIdOf = new Map<string, string | null>();
+  for (const c of comments) {
+    nodes.set(c.id, {
+      username: c.username,
+      body: c.body,
+      reactions: c.reactions,
+      timestamp: formatTimestamp(c.createdAt, timeZone),
+      replies: [],
+    });
+    parentIdOf.set(c.id, c.parentId);
+  }
+
+  const roots: CommentNode[] = [];
+  const depthOf = new Map<string, number>();
+  for (const c of comments) {
+    const node = nodes.get(c.id)!;
+    const parent = c.parentId != null ? nodes.get(c.parentId) : undefined;
+    if (!parent || c.parentId == null) {
+      roots.push(node);
+      depthOf.set(c.id, 0);
+      continue;
+    }
+    // Climb from the stated parent to the nearest ancestor whose child would stay within the cap.
+    // Parents are always processed before their children (mint only references earlier comments),
+    // so every ancestor's depth is already set.
+    let targetId = c.parentId;
+    while ((depthOf.get(targetId) ?? 0) + 1 > COMMENT_DISPLAY_DEPTH - 1) {
+      const up = parentIdOf.get(targetId);
+      if (up == null || !nodes.has(up)) break; // reached a root — attach here at the cap
+      targetId = up;
+    }
+    const depth = Math.min((depthOf.get(targetId) ?? 0) + 1, COMMENT_DISPLAY_DEPTH - 1);
+    nodes.get(targetId)!.replies.push(node);
+    depthOf.set(c.id, depth);
+  }
+
+  roots.reverse(); // newest-first top-level
+  return roots;
+}
+
+/**
  * Reduce a persisted ManifestRecord to the display view a template consumes. Tolerant of
  * missing optional fields (degrade gracefully — a publishable record has them all, but the
  * render never crashes on a partial one): headline falls back to the raw title, category is
@@ -244,6 +301,10 @@ export function toStoryView(
       // unknown author has no columnist page to point at, so the row stays linkless.
       ...(info ? { profilePath: columnistPagePath(record.author) } : undefined),
     };
+    // Parody reader comments (ADR-0028): attach the nested tree so the landing page renders it.
+    if (record.comments?.length) {
+      view.comments = buildCommentTree(record.comments, timeZone);
+    }
   }
   return view;
 }

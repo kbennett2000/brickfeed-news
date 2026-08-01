@@ -128,6 +128,17 @@ export function makeConfig(over: Partial<Config> = {}): Config {
       imageOptimization: { enabled: false, widths: [320, 480, 640, 960, 1280], quality: 75 },
     },
     deploy: { command: "vercel --prod --yes", cwd: "site", enabled: true },
+    // Off by default in the fixture (like image.optimize / render.imageOptimization) so existing
+    // cycle/render tests make zero comment-generator calls and stay byte-identical; the dedicated
+    // comments tests opt in with `comments: { enabled: true, ... }`.
+    comments: {
+      enabled: false,
+      initialCount: 5,
+      perPassCount: 4,
+      maxPerPiece: 60,
+      growWindowHours: 72,
+      model: "test-comments-model",
+    },
     ...over,
   };
 }
@@ -642,7 +653,7 @@ export function fakeCycleIo(
     },
     async loadPersonaAssets() {
       if (opts.throwOnPersonaAssets) throw new Error("simulated persona assets failure");
-      return opts.personaAssets ?? { personas: [], shared: "", letters: "" };
+      return opts.personaAssets ?? { personas: [], shared: "", letters: "", comments: "" };
     },
   };
   const out = Object.assign(io, state);

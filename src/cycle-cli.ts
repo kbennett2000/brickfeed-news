@@ -46,6 +46,9 @@ async function main(): Promise<void> {
     // Opinions-only text seam (cycle.ts wires it into the opinion stage). Pinned to the
     // opinion model override when set (the columns want a stronger model than story gen).
     textGenerator: createTextGenerator(config, {}, (m) => console.log(m), config.generator.opinionModel),
+    // Comments-only text seam (ADR-0028), pinned to comments.model (Sonnet) — comment comedy +
+    // quota/JSON adherence want the stronger model, like the opinion pieces.
+    commentGenerator: createTextGenerator(config, {}, (m) => console.log(m), config.comments.model),
     opinionTts: createOpinionTtsDeps(config, undefined, onTtsFailure),
     imageProvider: createImageProvider(config),
     storage: createStorageProvider(config),

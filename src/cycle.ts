@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { ADS_DIR, loadAds } from "./ads.js";
 import { ageOut, retentionHoursFor } from "./ageout.js";
 import { ARTICLES_DIR, loadArticles } from "./articles.js";
+import { runComments, summarizeComments } from "./comments.js";
 import type { Config } from "./config.js";
 import { deploy, type DeployResult } from "./deploy.js";
 import { heroEligibility } from "./eligibility.js";
@@ -152,6 +153,15 @@ export async function runCycle(
       `${heroes.eligible.size} eligible would be attempted ` +
       `(${heroes.belowFold} below-fold, ${heroes.nearAgeout} near-ageout skipped)`;
     stages.ageout = `${stale} stale would be dropped`;
+    // Comments (ADR-0028): reader threads grow on every publishable opinion piece each cycle.
+    // Derivation-only here (no provider calls) — count the pieces that would seed vs. grow.
+    if (!config.comments.enabled) {
+      stages.comments = "would skip (comments.enabled=false)";
+    } else {
+      const ops = publishableRecords(manifest).filter((r) => !!r.author);
+      const seed = ops.filter((r) => (r.comments ?? []).length === 0).length;
+      stages.comments = `${ops.length} opinion piece(s): ${seed} would seed, ${ops.length - seed} would grow`;
+    }
     stages.render = `${publishable} publishable would render → ${config.render.outputDir}/`;
     stages.deploy = !opts.deploy
       ? "would skip (--no-deploy)"
@@ -277,6 +287,31 @@ export async function runCycle(
         await deps.io.writeManifest(config.manifestPath, manifest);
         await deps.io.writePublished(config.publishedPath, manifest, deps.storage);
         return `${r.dropped.length} dropped (${r.deleteAttempted.length} images deleted)`;
+      },
+    },
+    {
+      // Reader comments (ADR-0028): AFTER ageout (never seed a piece that just aged out) and
+      // BEFORE render (the additions flow straight into the pre-rendered s/<id>.html). Tolerant
+      // like the opinions stage — a comment problem must never break the news cycle, so every
+      // failure collapses to a "skipped" summary. runComments isolates per-piece failures
+      // internally; the catch is belt-and-braces around the asset read.
+      name: "comments",
+      run: async () => {
+        if (!config.comments.enabled) return "skipped — comments.enabled=false";
+        try {
+          const assets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
+          const r = await runComments(config, manifest, assets, {
+            generate: deps.commentGenerator,
+            now,
+            log,
+          });
+          manifest = r.manifest;
+          await deps.io.writeManifest(config.manifestPath, manifest);
+          await deps.io.writePublished(config.publishedPath, manifest, deps.storage);
+          return summarizeComments(r);
+        } catch (err) {
+          return `skipped — ${errMsg(err)}`;
+        }
       },
     },
   ];

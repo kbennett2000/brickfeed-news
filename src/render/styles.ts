@@ -468,11 +468,80 @@ img { max-width: 100%; display: block; }
   margin: 26px 0 2px;
 }
 .sharesheet__row[hidden], [data-section][hidden] { display: none; }
+
+/* Parody reader comments (ADR-0028) — opinion landing pages only. */
+.comments {
+  margin: 40px 0 0;
+  padding-top: 20px;
+  border-top: 2px solid var(--ink);
+}
+.comments__heading {
+  font-family: var(--display);
+  font-size: 22px;
+  margin: 0 0 6px;
+}
+.comments__disclosure {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+.comments__list, .comment__replies {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.comment {
+  padding: 12px 0;
+  border-top: 1px solid var(--hairline);
+}
+.comments__list > .comment:first-child { border-top: none; }
+.comment__replies {
+  margin: 8px 0 0 18px;
+  padding-left: 14px;
+  border-left: 1px solid var(--hairline);
+}
+.comment__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.comment__user {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+}
+.comment__time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.comment__body {
+  margin: 4px 0 6px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.comment__body p { margin: 0 0 6px; }
+.comment__body p:last-child { margin-bottom: 0; }
+.comment__reactions {
+  display: flex;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.comment__react { white-space: nowrap; }
+
 @media (max-width: 560px) {
   .landing__headline { font-size: 30px; }
   .sharesheet__row { flex-wrap: wrap; }
   .sharesheet__body { flex-basis: 60%; }
   .sharesheet__actions { flex-basis: 100%; }
+  .comment__replies { margin-left: 8px; padding-left: 10px; }
 }
 `;
 

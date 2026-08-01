@@ -262,9 +262,14 @@ const personasDir = fileURLToPath(new URL("../personas/", import.meta.url));
 const headshotsDir = fileURLToPath(new URL("../assets/headshots/", import.meta.url));
 
 describe("committed persona files", () => {
-  it("personas/ holds exactly the nine-author roster plus the two _ support blocks", () => {
+  it("personas/ holds exactly the nine-author roster plus the three _ support blocks", () => {
     const mds = readdirSync(personasDir).filter((f) => f.endsWith(".md"));
-    expect(mds.sort()).toEqual(["_letters.md", "_shared.md", ...ROSTER.map((n) => `${n}.md`)]);
+    expect(mds.sort()).toEqual([
+      "_comments.md",
+      "_letters.md",
+      "_shared.md",
+      ...ROSTER.map((n) => `${n}.md`),
+    ]);
   });
 
   it("_shared.md is non-empty and carries the register and guardrail blocks", () => {

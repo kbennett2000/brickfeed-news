@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_COMMENTS_ENABLED,
+  DEFAULT_COMMENTS_GROW_WINDOW_HOURS,
+  DEFAULT_COMMENTS_INITIAL_COUNT,
+  DEFAULT_COMMENTS_MAX_PER_PIECE,
+  DEFAULT_COMMENTS_MODEL,
+  DEFAULT_COMMENTS_PER_PASS_COUNT,
   DEFAULT_DEPLOY_COMMAND,
   DEFAULT_GROK_BASE_URL,
   DEFAULT_GROK_MODEL,
@@ -570,6 +576,32 @@ describe("validateConfig", () => {
   it("rejects a blank deploy.command and a non-boolean deploy.enabled", () => {
     expect(() => validateConfig({ ...base, deploy: { command: "" } })).toThrow();
     expect(() => validateConfig({ ...base, deploy: { enabled: "yes" } })).toThrow();
+  });
+
+  it("defaults the comments block when absent (ADR-0028)", () => {
+    const cfg = validateConfig(base);
+    expect(cfg.comments).toEqual({
+      enabled: DEFAULT_COMMENTS_ENABLED,
+      initialCount: DEFAULT_COMMENTS_INITIAL_COUNT,
+      perPassCount: DEFAULT_COMMENTS_PER_PASS_COUNT,
+      maxPerPiece: DEFAULT_COMMENTS_MAX_PER_PIECE,
+      growWindowHours: DEFAULT_COMMENTS_GROW_WINDOW_HOURS,
+      model: DEFAULT_COMMENTS_MODEL,
+    });
+  });
+
+  it("accepts an explicit comments block and defaults per-field", () => {
+    const cfg = validateConfig({ ...base, comments: { enabled: false, initialCount: 8 } });
+    expect(cfg.comments.enabled).toBe(false);
+    expect(cfg.comments.initialCount).toBe(8);
+    expect(cfg.comments.model).toBe(DEFAULT_COMMENTS_MODEL); // per-field default
+  });
+
+  it("rejects a non-integer count and an empty comments.model", () => {
+    expect(() => validateConfig({ ...base, comments: { perPassCount: 1.5 } })).toThrow();
+    expect(() => validateConfig({ ...base, comments: { maxPerPiece: 0 } })).toThrow();
+    expect(() => validateConfig({ ...base, comments: { model: "" } })).toThrow();
+    expect(() => validateConfig({ ...base, comments: { enabled: "yes" } })).toThrow();
   });
 
   describe("legacy provider back-compat + actionable enum errors", () => {

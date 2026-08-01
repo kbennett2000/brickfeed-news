@@ -48,6 +48,33 @@ export interface Config {
   render: RenderConfig;
   /** Deploy-step settings (Slice 8): how the rendered site is published to Vercel. */
   deploy: DeployConfig;
+  /** Parody reader-comments stage settings (ADR-0028). */
+  comments: CommentsConfig;
+}
+
+/**
+ * Parody reader comments on opinion pieces (ADR-0028). The stage seeds a few comments on each
+ * brand-new opinion piece, then appends more comments + replies every cycle until the piece
+ * leaves the grow window or hits the per-piece cap. `enabled: false` skips the stage entirely
+ * (zero generator calls) and is byte-identical to before the feature existed.
+ */
+export interface CommentsConfig {
+  /** Master switch. When false the comments stage is skipped and no comments are generated. */
+  enabled: boolean;
+  /** How many comments to seed on a brand-new opinion piece (its first comments pass). */
+  initialCount: number;
+  /** How many new comments + replies to add per cycle to each still-growing piece. */
+  perPassCount: number;
+  /** Per-piece hard cap — once a thread reaches this many comments it stops growing. */
+  maxPerPiece: number;
+  /**
+   * Only pieces first seen within this many hours keep generating comments; older threads freeze
+   * (they stay retained until the piece ages out). Mirrors the "retain long, cap what's live"
+   * posture of the Opinion section cap (ADR-0025).
+   */
+  growWindowHours: number;
+  /** Model for the comment generator (the "claude" provider path); defaults to "sonnet". */
+  model: string;
 }
 
 /** Where the static site is written + how many secondary (rail) stories the cover shows. */
@@ -380,6 +407,20 @@ export const DEFAULT_RENDER_IMAGE_OPTIMIZATION_QUALITY = 75;
 export const DEFAULT_DEPLOY_COMMAND = "vercel --prod --yes";
 export const DEFAULT_DEPLOY_ENABLED = true;
 
+/**
+ * Defaults for the parody reader-comments stage (ADR-0028). ON by default so a live config.json
+ * without the block still grows comment threads; the counts are tuned for a lively-but-bounded
+ * section (a fresh piece opens with ~5 comments, gains ~4 per cycle, and caps at 60). `model`
+ * defaults to "sonnet" — comment comedy + quota/JSON adherence want the stronger model, like the
+ * opinion pieces (the story model, Haiku, follows these instructions poorly).
+ */
+export const DEFAULT_COMMENTS_ENABLED = true;
+export const DEFAULT_COMMENTS_INITIAL_COUNT = 5;
+export const DEFAULT_COMMENTS_PER_PASS_COUNT = 4;
+export const DEFAULT_COMMENTS_MAX_PER_PIECE = 60;
+export const DEFAULT_COMMENTS_GROW_WINDOW_HOURS = 72;
+export const DEFAULT_COMMENTS_MODEL = "sonnet";
+
 /** Load and validate config.json (path defaults to ./config.json). */
 export async function loadConfig(path = "config.json"): Promise<Config> {
   let raw: string;
@@ -459,6 +500,7 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
   );
   const render = validateRender(obj.render, path);
   const deploy = validateDeploy(obj.deploy, render.outputDir, path);
+  const comments = validateComments(obj.comments, path);
 
   return {
     feedUrls: feedUrls as string[],
@@ -475,7 +517,66 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
     maxStoriesPerCycle,
     render,
     deploy,
+    comments,
   };
+}
+
+/** The default comments sub-block (a fresh copy so callers can't mutate the defaults). */
+function defaultComments(): CommentsConfig {
+  return {
+    enabled: DEFAULT_COMMENTS_ENABLED,
+    initialCount: DEFAULT_COMMENTS_INITIAL_COUNT,
+    perPassCount: DEFAULT_COMMENTS_PER_PASS_COUNT,
+    maxPerPiece: DEFAULT_COMMENTS_MAX_PER_PIECE,
+    growWindowHours: DEFAULT_COMMENTS_GROW_WINDOW_HOURS,
+    model: DEFAULT_COMMENTS_MODEL,
+  };
+}
+
+/**
+ * Validate the `comments` block (ADR-0028). Absent → defaults (enabled, 5/4/60/72h, "sonnet").
+ * `enabled` must be a boolean; the four count/hour fields positive integers; `model` a non-empty
+ * string. Each field defaults independently when omitted.
+ */
+function validateComments(raw: unknown, path: string): CommentsConfig {
+  if (raw == null) return defaultComments();
+  if (typeof raw !== "object") {
+    throw new Error(`Config at ${path}: comments must be an object.`);
+  }
+  const c = raw as Record<string, unknown>;
+
+  const enabled = c.enabled ?? DEFAULT_COMMENTS_ENABLED;
+  if (typeof enabled !== "boolean") {
+    throw new Error(`Config at ${path}: comments.enabled must be a boolean.`);
+  }
+
+  const initialCount = validatePositiveInt(
+    c.initialCount,
+    DEFAULT_COMMENTS_INITIAL_COUNT,
+    path,
+    "comments.initialCount",
+  );
+  const perPassCount = validatePositiveInt(
+    c.perPassCount,
+    DEFAULT_COMMENTS_PER_PASS_COUNT,
+    path,
+    "comments.perPassCount",
+  );
+  const maxPerPiece = validatePositiveInt(
+    c.maxPerPiece,
+    DEFAULT_COMMENTS_MAX_PER_PIECE,
+    path,
+    "comments.maxPerPiece",
+  );
+  const growWindowHours = validatePositiveInt(
+    c.growWindowHours,
+    DEFAULT_COMMENTS_GROW_WINDOW_HOURS,
+    path,
+    "comments.growWindowHours",
+  );
+  const model = requireStringField(c.model, DEFAULT_COMMENTS_MODEL, path, "comments.model");
+
+  return { enabled, initialCount, perPassCount, maxPerPiece, growWindowHours, model };
 }
 
 /** Validate an optional positive-integer field, defaulting when omitted. */

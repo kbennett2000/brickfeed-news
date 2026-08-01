@@ -80,7 +80,7 @@ function fullRoster(): Persona[] {
 }
 
 function assetsOf(...personas: Persona[]): OpinionAssets {
-  return { personas, shared: "SHARED RULES", letters: "LETTER RULES" };
+  return { personas, shared: "SHARED RULES", letters: "LETTER RULES", comments: "COMMENT RULES" };
 }
 
 /** The four Sunday authors: rotation pair alice+bob + both letters personas. */

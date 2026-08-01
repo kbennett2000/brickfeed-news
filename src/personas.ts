@@ -35,6 +35,13 @@ export const SHARED_PERSONA_FILE = "_shared.md";
  */
 export const LETTERS_PERSONA_FILE = "_letters.md";
 
+/**
+ * The reader-comments register/comedy/guardrail block (ADR-0028), prepended to every comment-
+ * generation prompt. Hand-authored + versioned like `_shared.md`; not a persona (`_` keeps it off
+ * the roster).
+ */
+export const COMMENTS_PERSONA_FILE = "_comments.md";
+
 /** Where a persona's pieces come from (ADR-0014 decision 1). */
 export type PersonaSource = "news" | "letters";
 
@@ -245,13 +252,15 @@ export interface OpinionAssets {
   shared: string;
   /** Contents of `_letters.md` — prepended after `shared` for letters personas only. */
   letters: string;
+  /** Contents of `_comments.md` — prepended to every reader-comment prompt (ADR-0028). */
+  comments: string;
 }
 
 /**
- * Load the personas plus the shared/letters prompt blocks from `dir`. Unlike
- * `loadPersonas`, a missing `_shared.md`/`_letters.md` THROWS: the roster degrades
- * per-file by design, but the shared guardrail blocks are load-bearing for every
- * generated piece, so generating without them must be impossible.
+ * Load the personas plus the shared/letters/comments prompt blocks from `dir`. Unlike
+ * `loadPersonas`, a missing `_shared.md`/`_letters.md`/`_comments.md` THROWS: the roster degrades
+ * per-file by design, but the shared guardrail blocks are load-bearing for every generated piece
+ * or comment thread, so generating without them must be impossible.
  */
 export async function loadPersonaAssets(
   dir: string = PERSONAS_DIR,
@@ -261,7 +270,8 @@ export async function loadPersonaAssets(
   const personas = await loadPersonas(dir, deps);
   const shared = await io.readText(`${dir}/${SHARED_PERSONA_FILE}`);
   const letters = await io.readText(`${dir}/${LETTERS_PERSONA_FILE}`);
-  return { personas, shared, letters };
+  const comments = await io.readText(`${dir}/${COMMENTS_PERSONA_FILE}`);
+  return { personas, shared, letters, comments };
 }
 
 /**

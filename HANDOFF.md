@@ -1,5 +1,42 @@
 # Handoff
 
+## Parody reader comments on opinion pieces (ADR-0028) — implemented on branch `feat/opinion-reader-comments` (2026-08-01)
+
+Interactive owner session (feature build, NOT a headless cycle). Work is on a feature branch,
+committed but NOT merged/deployed — the owner reviews + merges + deploys. Full suite green (828 pass),
+`tsc --noEmit` clean, `npm run cycle -- --dry-run` reports the new stage.
+
+- **What it is:** every published opinion piece grows a fictional, parody comment thread — seeded on
+  publish, then more comments + replies appended each cycle. Threaded, with organic-looking reaction
+  tallies and comedy usernames (recurring cast + fresh). Purely satire of the comment-section genre;
+  a hard guardrail keeps every commenter fictional and every insult aimed only at other fictional
+  commenters — never a real person.
+- **Storage:** `comments?: Comment[]` inline on the opinion `ManifestRecord` (append-only). Dies with
+  the piece at age-out for free (no second retention gate). `Comment` = id/username/body/parentId/
+  reactions{up,down,laugh,flag}/createdAt.
+- **Stage:** new `comments` stage in `src/comments.ts` (`runComments`), inserted **after `ageout`,
+  before `render`** in `src/cycle.ts`. Seeds empty threads, grows within `comments.growWindowHours`
+  and under `comments.maxPerPiece`. Tolerant/fail-closed like opinions — any failure appends nothing
+  and self-heals next cycle. Wired on **Sonnet** via a second `createTextGenerator` in `cycle-cli.ts`
+  (`commentGenerator` on `CycleDeps`).
+- **Guardrails:** hand-authored `personas/_comments.md` (register + comedy + username recipe +
+  recurring cast + hard rules), loaded via `OpinionAssets.comments`. `parseComments` mirrors
+  `parseImageBrief` (defensive, `[]` on deviation); drops leaked refusals/preambles and **rejects the
+  whole batch** on a link or a violence/hate hit (new `containsLink`/`hasBannedContent` in
+  `sanitize.ts`). Ids minted in code (never trusted from the model); reaction tallies finalized
+  deterministically from `hashString(id)` (organic long tail, no `Math.random`).
+- **Render:** `buildCommentTree` (`render/index.ts`) → nested tree (top-level newest-first, replies
+  chronological, display depth capped at 3); `commentThread` (`render/templates.ts`) emits threaded
+  `<ol>`/`<li>` with static reaction numbers under a versioned `COMMENTS_DISCLOSURE`, injected into
+  `renderLandingPage` guarded by `view.opinion`. Everything escaped. `.comments`/`.comment` CSS added
+  to `styles.ts` (CSS_VERSION auto-bumps). Cards/cover/sections byte-identical.
+- **Config:** new `comments` block (enabled/initialCount 5/perPassCount 4/maxPerPiece 60/
+  growWindowHours 72/model "sonnet"), fully defaulted + ON by default. Added to `config.json`,
+  `config.example.json`, `docs/CONFIGURATION.md`. ADR-0028 written.
+- **To ship:** merge the branch, then a normal cycle (or `npm run render` + `cd site && vercel --prod
+  --yes`) will start seeding threads. First real cycle makes ~1 Sonnet call per publishable opinion
+  piece (dry-run counted 32 pieces would seed).
+
 ## Persona arc: Hodge added, Cynthia rewritten, Larry/Cynthia/Hodge republished + deployed (2026-08-01)
 
 Interactive owner session (not a headless cycle). Landed on `master` per [[delivery: no PRs]]:

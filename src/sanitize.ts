@@ -102,6 +102,35 @@ function wordCount(s: string): number {
   return s.trim().split(/\s+/).filter(Boolean).length;
 }
 
+/**
+ * A URL or bare web domain (ADR-0028). Reader comments are allowed to NAME a page ("follow my page
+ * BraidsByTammy") but never to link one — a real link could point anywhere and is exactly what the
+ * comment guardrail forbids. Matches an explicit scheme, a `www.` prefix, or a bare `host.tld` for a
+ * common TLD. Used to fail a comment batch closed, so it is intentionally eager: a false positive
+ * only skips one growth pass (self-heals next cycle), while a leaked link is a real violation.
+ */
+const LINK_RE =
+  /(https?:\/\/|www\.|\b[a-z0-9][a-z0-9-]*\.(?:com|net|org|io|gov|edu|co|xyz|info|tv|news|us|uk|me)\b)/i;
+
+/** True when text contains a URL or bare web domain (see LINK_RE). */
+export function containsLink(text: string): boolean {
+  return LINK_RE.test(text);
+}
+
+/**
+ * A tiny, unambiguous violence/hate denylist for reader comments (ADR-0028) — belt-and-braces
+ * behind the prompt guardrail (personas/_comments.md), which is the PRIMARY defense. Deliberately
+ * NOT a slur list: slurs are not committed to source; extend this array only with clearly-directed,
+ * non-ambiguous harmful phrases (a term that also appears in innocent prose would fail good batches).
+ * A hit fails the whole batch closed — cheaper to skip one growth pass than to publish a violation.
+ */
+const BANNED_RE = /\b(kill yourself|kys|heil hitler)\b/i;
+
+/** True when text trips the small violence/hate denylist (see BANNED_RE). */
+export function hasBannedContent(text: string): boolean {
+  return BANNED_RE.test(text);
+}
+
 /** A line short enough to be a real title once its markdown dressing is stripped. */
 function isPlausibleTitle(line: string): boolean {
   const t = stripTitleDressing(line);

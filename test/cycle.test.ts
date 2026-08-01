@@ -60,6 +60,7 @@ function makeDeps(
   const logs: string[] = [];
   const generator = fakeGenerator({});
   const textGenerator = fakeTextGenerator();
+  const commentGenerator = fakeTextGenerator();
   const imageProvider = fakeImageProvider({});
   const storage = fakeStorageProvider();
   const deployRun = fakeDeployRunner({ code: 0 });
@@ -69,6 +70,7 @@ function makeDeps(
     fetch: makeFetch({}),
     generator,
     textGenerator,
+    commentGenerator,
     imageProvider,
     storage,
     deployRun,
@@ -76,7 +78,7 @@ function makeDeps(
     log: (m) => logs.push(m),
     ...over,
   };
-  return { deps, logs, generator, textGenerator, imageProvider, storage, deployRun, io };
+  return { deps, logs, generator, textGenerator, commentGenerator, imageProvider, storage, deployRun, io };
 }
 
 const FULL = { deploy: true, dryRun: false };
@@ -99,6 +101,7 @@ describe("runCycle — full chain (happy path)", () => {
       "opinions",
       "image",
       "ageout",
+      "comments",
       "render",
       "deploy",
     ]);
@@ -234,6 +237,7 @@ describe("runCycle — flags", () => {
       "opinions",
       "image",
       "ageout",
+      "comments",
       "render",
       "deploy",
     ]);
@@ -323,6 +327,7 @@ describe("runCycle — opinions stage (ADR-0015/0016): tolerant, ordered before 
     ],
     shared: "SHARED RULES",
     letters: "LETTER RULES",
+    comments: "COMMENT RULES",
   };
 
   it("a throwing persona-assets boundary keeps ok:true and the cycle deploys", async () => {
@@ -410,6 +415,7 @@ describe("runCycle — opinion publish-hour gate + OPINION-STALE (ADR-0018)", ()
     personas: [lettersPersona("tom", ["mon", "wed", "fri", "sun"])],
     shared: "SHARED RULES",
     letters: "LETTER RULES",
+    comments: "COMMENT RULES",
   };
 
   /** An OPINION record whose lastSeen is `hoursOld` before NOW. */
@@ -560,5 +566,82 @@ describe("runCycle — storage preflight (fail-loud) + existence-verified render
     expect(result.ok).toBe(true);
     expect(result.stages.render).toContain("1 publishable");
     expect(result.deploy?.status).toBe("deployed");
+  });
+});
+
+describe("runCycle — reader comments stage (ADR-0028)", () => {
+  /** A publishable OPINION record already imaged (skips generate/image, survives ageout). */
+  function opinionRecord(): ManifestRecord {
+    return {
+      ...fullRecord("opinion-alice-2026-07-10"),
+      url: "",
+      category: "OPINION",
+      author: "alice",
+    };
+  }
+
+  const withComments = (over: Partial<Config["comments"]> = {}): Partial<Config> => ({
+    comments: {
+      enabled: true,
+      initialCount: 3,
+      perPassCount: 2,
+      maxPerPiece: 60,
+      growWindowHours: 72,
+      model: "test-comments-model",
+      ...over,
+    },
+  });
+
+  it("seeds comments on a published opinion piece and bakes them into its page", async () => {
+    const config = makeConfig(withComments());
+    const commentGenerator = fakeTextGenerator({
+      impl: () =>
+        JSON.stringify({
+          comments: [
+            { username: "georgiapirate66", body: "The framers are ROLLING in there graves", replyTo: null },
+            { username: "rickp53", body: "Article 9 clearly states this", replyTo: null },
+            { username: "Whatstheuseanyway", body: "Both.", replyTo: "new:0" },
+          ],
+        }),
+    });
+    const { deps, io } = makeDeps(manifestOf(opinionRecord()), { commentGenerator });
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.ok).toBe(true);
+    expect(result.stages.comments).toContain("seeded");
+    expect(commentGenerator.calls).toHaveLength(1);
+    // The comment thread was baked into the piece's landing page.
+    const site = io.writes.find((w) => w.kind === "site");
+    const page = site?.files?.["s/opinion-alice-2026-07-10.html"];
+    expect(page).toContain("georgiapirate66");
+    expect(page).toContain("Reader comments are parody");
+    // The comments persisted onto the manifest record.
+    const stored = io.saved?.stories["opinion-alice-2026-07-10"].comments;
+    expect(stored).toHaveLength(3);
+  });
+
+  it("is tolerant: a null comment completion leaves the cycle ok and still deploys", async () => {
+    const config = makeConfig(withComments());
+    const commentGenerator = fakeTextGenerator({ impl: () => null });
+    const { deps, io } = makeDeps(manifestOf(opinionRecord()), { commentGenerator });
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.ok).toBe(true);
+    expect(result.stages.comments).toContain("failed");
+    expect(result.deploy?.status).toBe("deployed");
+    expect(io.saved?.stories["opinion-alice-2026-07-10"].comments).toBeUndefined();
+  });
+
+  it("enabled:false skips the stage with zero generator calls", async () => {
+    const config = makeConfig(withComments({ enabled: false }));
+    const commentGenerator = fakeTextGenerator();
+    const { deps } = makeDeps(manifestOf(opinionRecord()), { commentGenerator });
+
+    const result = await runCycle(config, deps, FULL);
+
+    expect(result.stages.comments).toContain("skipped");
+    expect(commentGenerator.calls).toHaveLength(0);
   });
 });

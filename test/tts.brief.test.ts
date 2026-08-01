@@ -63,6 +63,7 @@ function sundayAssets(): OpinionAssets {
     ] as Persona[],
     shared: "SHARED RULES",
     letters: "LETTER RULES",
+    comments: "COMMENT RULES",
   };
 }
 
