@@ -1,10 +1,16 @@
 # Handoff
 
-## Parody reader comments on opinion pieces (ADR-0028) — implemented on branch `feat/opinion-reader-comments` (2026-08-01)
+## Parody reader comments on opinion pieces (ADR-0028) — SHIPPED + LIVE (2026-08-01)
 
-Interactive owner session (feature build, NOT a headless cycle). Work is on a feature branch,
-committed but NOT merged/deployed — the owner reviews + merges + deploys. Full suite green (828 pass),
-`tsc --noEmit` clean, `npm run cycle -- --dry-run` reports the new stage.
+Interactive owner session. Built, **merged to `master` (`a3b1b60`), pushed, and deployed live** —
+comments are on the production site now (verified 200 with threads + recurring cast + replies).
+Full suite green (828 pass), `tsc --noEmit` clean. Feature is ON by default (`comments.enabled`),
+so **every subsequent normal cycle grows the threads automatically** — no special action needed.
+
+Ran two full cycles to comment up the existing pieces: cycle #1 seeded 37 pieces (+185 comments),
+cycle #2 grew 13 recent threads (+57) and correctly **froze 24 archived pieces** (older than
+`growWindowHours=72`, they keep their one-time seeded thread). A couple pieces "failed" per cycle
+(transient Sonnet parse misses) — they self-heal on the next cycle, by design.
 
 - **What it is:** every published opinion piece grows a fictional, parody comment thread — seeded on
   publish, then more comments + replies appended each cycle. Threaded, with organic-looking reaction
