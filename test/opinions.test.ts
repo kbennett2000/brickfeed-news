@@ -341,6 +341,24 @@ describe("prompt assembly + output contract", () => {
     expect(splitTitleBody("```\nThe Title\n\nBody.\n```")?.title).toBe("The Title");
   });
 
+  it("splitTitleBody: recovers past a short colon-less meta sentence (the 2026-08-01 leak)", () => {
+    // The exact leak that shipped: "I'll write ... now." — no colon, short enough to have passed
+    // the title bounds, but a full meta-narration sentence. It must NOT become the title; the
+    // real invented column title is recovered.
+    const leak =
+      "I'll write one reader-letter column for Priscilla now.\n\n---\n\n" +
+      "**The Dinner Party Question**\n\nDear Priscilla, my partner wants me to attend a dinner party.";
+    const split = splitTitleBody(leak);
+    expect(split?.title).toBe("The Dinner Party Question");
+    expect(split?.title).not.toMatch(/I'll write/);
+    expect(split?.body).toMatch(/^Dear Priscilla/);
+  });
+
+  it("splitTitleBody: fails closed when the only title-position line is a meta sentence", () => {
+    // No recoverable real title after the preamble ⇒ drop the piece rather than publish the leak.
+    expect(splitTitleBody("I'll write the column now.\n\nSome body text here.")).toBeNull();
+  });
+
   it("splitTitleBody: fails closed on refusals and paragraph-as-title, keeps legit titles", () => {
     // Refusals never publish.
     expect(splitTitleBody("I can't help with that request.\n\nSomething else.")).toBeNull();

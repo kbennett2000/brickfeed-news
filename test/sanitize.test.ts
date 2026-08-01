@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  looksLikeMetaNarration,
   looksLikeRefusal,
   recoverLeadingTitleRegion,
   stripTitleDressing,
@@ -25,6 +26,32 @@ describe("looksLikeRefusal", () => {
     expect(looksLikeRefusal("As American Politics Sours")).toBe(false);
     expect(looksLikeRefusal("The casserole was cold, and I cannot forgive it.")).toBe(false);
     expect(looksLikeRefusal("Sure Thing")).toBe(false);
+  });
+});
+
+describe("looksLikeMetaNarration", () => {
+  it("flags a short colon-less preamble SENTENCE about producing the piece", () => {
+    // The 2026-08-01 leak: opens with a meta token, names a production noun/verb, ends with a
+    // period — short enough to have masqueraded as a title but is pure meta-narration.
+    expect(looksLikeMetaNarration("I'll write one reader-letter column for Priscilla now.")).toBe(
+      true,
+    );
+    expect(looksLikeMetaNarration("I’ll write one reader-letter column for Priscilla now.")).toBe(
+      true,
+    ); // curly apostrophe
+    expect(looksLikeMetaNarration("Sure, I will write the piece now!")).toBe(true);
+    expect(looksLikeMetaNarration("Here is your column: enjoy.")).toBe(true);
+  });
+
+  it("does NOT flag legitimate titles (the false-positive guard)", () => {
+    // Real titles that open with a stop word but do not END like a production sentence.
+    expect(looksLikeMetaNarration("I'll Be There")).toBe(false); // no terminal period
+    expect(looksLikeMetaNarration("Let Me Write You a Letter")).toBe(false); // production verb, no period
+    expect(looksLikeMetaNarration("Okay Boomer")).toBe(false);
+    expect(looksLikeMetaNarration("Sure Thing")).toBe(false);
+    expect(looksLikeMetaNarration("The Dinner Party Question")).toBe(false);
+    // A sentence-shaped line that isn't meta-narration (no opener token) is left alone.
+    expect(looksLikeMetaNarration("The casserole was cold, and I never forgave it.")).toBe(false);
   });
 });
 
@@ -72,6 +99,15 @@ describe("recoverLeadingTitleRegion", () => {
     );
     expect(recoverLeadingTitleRegion("Here is your column:\n\nThe Real Title\n\nBody.")).toBe(
       "The Real Title\n\nBody.",
+    );
+  });
+
+  it("recovers the real title past a short colon-less preamble sentence (the 2026-08-01 leak)", () => {
+    const leak =
+      "I'll write one reader-letter column for Priscilla now.\n\n---\n\n" +
+      "**The Dinner Party Question**\n\nDear Priscilla, the body.";
+    expect(recoverLeadingTitleRegion(leak)).toBe(
+      "**The Dinner Party Question**\n\nDear Priscilla, the body.",
     );
   });
 

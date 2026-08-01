@@ -34,6 +34,7 @@ import { isPublishable } from "./publish.js";
 import {
   MAX_TITLE_CHARS,
   MAX_TITLE_WORDS,
+  looksLikeMetaNarration,
   looksLikeRefusal,
   recoverLeadingTitleRegion,
   stripTitleDressing,
@@ -367,6 +368,10 @@ export function splitTitleBody(text: string): { title: string; body: string } | 
   const body = trimmed.slice(newline + 1).trim();
   if (title.length === 0 || body.length === 0) return null;
   if (title.length > MAX_TITLE_CHARS || wordCount(title) > MAX_TITLE_WORDS) return null;
+  // Fail-closed backstop: if recovery could not salvage a clean title and the title line is still
+  // a meta-narration sentence ("I'll write one reader-letter column ... now."), drop the piece
+  // rather than publish the preamble. The author self-heals on the next cycle.
+  if (looksLikeMetaNarration(title)) return null;
   return { title, body };
 }
 

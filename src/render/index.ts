@@ -434,6 +434,24 @@ export function staleColumnistPages(
 }
 
 /**
+ * Per-story landing pages (`s/<id>.html`) in the output dir this render did not emit — their
+ * record was removed from published.json (age-out, or a manual takedown of a bad piece). Like
+ * columnist pages, the file map alone can't see a removal, so writers LIST the s/ subdir
+ * (missing dir → []) and pass the entries here. Without this, `site/` — written incrementally,
+ * never wiped — keeps serving the orphaned landing page even after the story is gone. Returns
+ * `s/<file>` paths to delete.
+ */
+export function stalePerStoryPages(
+  existing: string[],
+  files: Record<string, string>,
+): string[] {
+  return existing
+    .filter((f) => f.endsWith(".html"))
+    .map((f) => `s/${f}`)
+    .filter((page) => !(page in files));
+}
+
+/**
  * Render the whole static site. Returns relative-path → file-contents for the cover page,
  * every section page, and the stylesheet. Pure and total: empty input yields valid pages,
  * never a throw.

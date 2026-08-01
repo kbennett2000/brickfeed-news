@@ -10,6 +10,7 @@ import {
   imageOptimizeOptionFromConfig,
   renderSite,
   staleColumnistPages,
+  stalePerStoryPages,
   staleSectionPages,
 } from "./render/index.js";
 import { createStorageProvider } from "./storage/index.js";
@@ -95,6 +96,15 @@ async function main(): Promise<void> {
     () => [] as string[],
   );
   for (const stale of staleColumnistPages(existingColumnist, files)) {
+    await rm(join(config.render.outputDir, stale), { force: true });
+  }
+  // Removed stories (age-out, or a manual takedown of a bad piece) leave an orphaned
+  // s/<id>.html landing page: the file map can't see a removal, so list s/ (missing dir →
+  // none) and delete what this render didn't emit — else the deploy keeps serving it.
+  const existingPerStory = await readdir(join(config.render.outputDir, "s")).catch(
+    () => [] as string[],
+  );
+  for (const stale of stalePerStoryPages(existingPerStory, files)) {
     await rm(join(config.render.outputDir, stale), { force: true });
   }
 

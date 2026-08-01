@@ -5,6 +5,7 @@ import {
   type AuthorInfo,
   renderSite,
   staleColumnistPages,
+  stalePerStoryPages,
   staleSectionPages,
 } from "../src/render/index.js";
 import {
@@ -1090,6 +1091,25 @@ describe("renderSite — conditional sections (ADR-0013)", () => {
     expect(staleColumnistPages([], files)).toEqual([]);
     // No authors rendered at all → every on-disk page is stale.
     expect(staleColumnistPages(["zed.html"], {})).toEqual(["columnist/zed.html"]);
+  });
+
+  it("stalePerStoryPages names orphaned s/<id>.html pages a removed story left behind", () => {
+    // Render the full set, then a set with "lead" removed. The on-disk s/ listing still has the
+    // old page; stalePerStoryPages must flag exactly it — never a live page or a non-.html stray.
+    const full = renderSite(records, OPTS);
+    const onDisk = Object.keys(full)
+      .filter((f) => f.startsWith("s/"))
+      .map((f) => f.slice(2)); // basenames, as readdir("s") returns them
+    const afterRemoval = renderSite(
+      records.filter((r) => r.id !== "lead"),
+      OPTS,
+    );
+
+    expect(stalePerStoryPages([...onDisk, "notes.txt"], afterRemoval)).toEqual(["s/lead.html"]);
+    // Nothing removed → no stale pages.
+    expect(stalePerStoryPages(onDisk, full)).toEqual([]);
+    // No stories rendered at all → every on-disk page is stale.
+    expect(stalePerStoryPages(["lead.html"], {})).toEqual(["s/lead.html"]);
   });
 
   it("an expired article does NOT make its section present", () => {

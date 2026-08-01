@@ -30,6 +30,26 @@ const PREAMBLE_OPENER_RE =
   /^(here('?s| is| are)\b|sure\b|certainly\b|of course\b|okay\b|ok\b|below is\b|i['’]ll\b|i will\b|i see the task\b|i understand\b|let me\b|as requested\b|got it\b|absolutely\b|happy to\b)/i;
 
 /**
+ * A production verb/noun a meta-narration line names ("I'll write the column", "here is my
+ * response") — the tell that an opener line is the model describing that it will produce the
+ * piece, not an actual title.
+ */
+const META_PRODUCTION_RE =
+  /\b(writ(e|ing)|compos(e|ing)|draft(ing)?|craft(ing)?|creat(e|ing)|produc(e|ing)|generat(e|ing)|provid(e|ing)|answer|respond(ing)?|column|piece|essay|letter|response|article|post|story|task|request|prompt)\b/i;
+
+/**
+ * True for a full sentence (ends in . ! ?) that opens with a meta-narration token AND names a
+ * production verb/noun — the model narrating that it will produce the piece, e.g. "I'll write one
+ * reader-letter column for Priscilla now." Requiring terminal sentence punctuation is the key
+ * discriminator that keeps real short titles: "I'll Be There", "Let Me Write You a Letter", and
+ * "Okay Boomer" open with a stop word but do NOT end in a period, so they never trip this.
+ */
+export function looksLikeMetaNarration(line: string): boolean {
+  const t = line.trim();
+  return /[.!?]$/.test(t) && PREAMBLE_OPENER_RE.test(t) && META_PRODUCTION_RE.test(t);
+}
+
+/**
  * A refusal lead. Anchored at the start and specific enough that a bare title never
  * trips it: "I Can't Even" needs a refusal object it lacks, "I'm Sorry" needs a
  * following ", but I". Matching signals the caller to fail closed — never publish a
@@ -90,16 +110,22 @@ function isPlausibleTitle(line: string): boolean {
 
 /**
  * A leading line safe to drop as leaked preamble: it opens with known meta-narration
- * AND either contains a colon ("I see the task:", "Here is your column:") or is
- * implausibly long for a title (the leaked task description). The opener requirement
- * protects legit short titles that happen to start with a stop word ("Okay Boomer"
- * opens with "okay" but has no colon and is title-length, so it is kept). Even when this
- * over-fires, recoverLeadingTitleRegion only strips if a valid title+body remains — so a
- * colon-bearing real title with no title after it (e.g. "Okay: A Memoir") is preserved.
+ * AND either contains a colon ("I see the task:", "Here is your column:"), is implausibly
+ * long for a title (the leaked task description), or reads as a meta-narration sentence
+ * ("I'll write one reader-letter column for Priscilla now." — short, colon-less, but a full
+ * sentence about producing the piece; see looksLikeMetaNarration). The opener requirement
+ * protects legit short titles that happen to start with a stop word ("Okay Boomer" opens with
+ * "okay" but has no colon, is title-length, and isn't a production sentence, so it is kept).
+ * Even when this over-fires, recoverLeadingTitleRegion only strips if a valid title+body
+ * remains — so a colon-bearing real title with no title after it (e.g. "Okay: A Memoir") is
+ * preserved.
  */
 function isDroppablePreamble(line: string): boolean {
   const t = line.trim();
-  return PREAMBLE_OPENER_RE.test(t) && (t.includes(":") || !isPlausibleTitle(t));
+  return (
+    PREAMBLE_OPENER_RE.test(t) &&
+    (t.includes(":") || !isPlausibleTitle(t) || looksLikeMetaNarration(t))
+  );
 }
 
 /**
