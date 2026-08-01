@@ -1,5 +1,39 @@
 # Handoff
 
+## Persona arc: Hodge added, Cynthia rewritten, Larry/Cynthia/Hodge republished + deployed (2026-08-01)
+
+Interactive owner session (not a headless cycle). Landed on `master` per [[delivery: no PRs]]:
+`edce0a6` Larry→heartless capitalist, `9e5b597` **Hodge** (new daily sports-serf columnist, ADR-0027),
+`f1e0257` Cynthia→spoiled never-worked heiress, `d986bc0` sports feed + Hodge SPORTS bias.
+
+- **Hodge (new persona, ADR-0027):** a time-displaced medieval serf sports columnist who describes
+  what he sees with zero understanding. Because his conceit is a *daily* beat, added a `DAILY_NEWS`
+  fixture lane in `authorsFor` (`src/opinions.ts`) — fixtures publish every day, outside the 3-pair
+  `ROTATION` (untouched). Roster/cadence test pins updated (nine authors now).
+- **Sports sourcing (the real find):** the lone `feedUrls` entry is Google News **top-stories**,
+  which carries ~zero SPORTS-categorized stories (verified: 0 in a 24h window, all world/politics),
+  so Hodge kept drawing non-sports. Fix: added the Google News **SPORTS topic** feed to `feedUrls`
+  (config.json runtime + config.example.json committed) and raised Hodge's `SPORTS` selection_bias
+  to **12** so he strongly prefers sports. Multi-feed already supported (`ingest` maps `feedUrls`).
+- **Republish op (targeted, today only):** deleted today's `opinion-larry-2026-08-01` and
+  `opinion-cynthia-2026-08-01` (manifest entry + blob via `storage.delete(id)`; runbook pattern,
+  there is no purge CLI), left `opinion-priscilla-2026-08-01` and all pre-today records untouched,
+  then `npm run opinions -- --authors larry,cynthia,hodge` regenerated all three with the updated
+  personas (deterministic key `opinion-<author>-<date>` frees on delete). For Hodge to land on
+  sports: `ingest` → `generate --limit 40` → targeted-imaged 12 SPORTS stories (scratchpad script,
+  since `images` only has `--limit`, not id-targeting) so they became publishable candidates, then
+  regenerated Hodge → he pulled 3 SPORTS sources ("The Champion Lays Down His Lance…", the DeAndre
+  Hopkins→Georgia Tech coaching hire). Imaged all pieces, rendered, `cd site && vercel --prod --yes`.
+  Live + verified (all 200): opinion page + 9 columnist pages carry the new pieces/descriptions.
+- **Gotcha (hit twice — larry, then hodge):** `writePublished`'s per-image blob HEAD verify can
+  drop an image that was stored *seconds* earlier (Vercel Blob propagation lag) → the piece silently
+  vanishes from `published.json`. Fix: re-run `npm run images` (self-heals: re-clears an unresolved
+  imageUrl or just re-derives published.json once the blob HEADs 200). Manifest backup taken to the
+  session scratchpad before the deletes.
+- **Descriptions:** the columnist-page (`bio`) and article-footer (`byline_blurb`) text is read LIVE
+  from the persona front-matter at render time (`buildAuthorDirectory`) — no separate store; updating
+  a persona updates both on the next render.
+
 ## Opinion length baseline raised to 1200–1600; Alice rewritten (follow-on to Edgar/Sonnet commit)
 
 Found this staged uncommitted directly on `master` (no branch, no HANDOFF entry) at the start of
