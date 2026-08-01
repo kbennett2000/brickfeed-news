@@ -60,19 +60,19 @@ export const FLOOR_WEIGHT = 0.25;
 
 /**
  * Per-persona body word ranges, mirroring the persona PROSE (the spec of record):
- * `_shared.md` sets 300–500 for everyone; a persona's hard rule can override it ("the
- * length is the bit"). Tom runs 500–700; Edgar rambles 1600–2500 — pitched high because
- * Haiku chronically under-delivers on word count and its length variance is large, so a
- * high target anchors a long piece (~1600 words) while 2500 is the ceiling a long
- * digression may reach. The `min/2` hard-fail floor (800 here) is deliberately below the
- * target: it rejects only genuine stubs, not Edgar's common shorter rolls, which would
- * otherwise fail the author every other cycle. Tests pin these constants against the
- * committed .md files so the two can't drift silently.
+ * `_shared.md` sets the 1200–1600 baseline for everyone; a persona's hard rule can override
+ * it ("the length is the bit"). Alice runs 1400–2000 (a longer, relentless tirade); Edgar
+ * rambles 1600–2500. Every band is reachable now that opinion pieces generate on Sonnet
+ * (generator.opinionModel), which follows word counts far better than Haiku did. The `min/2`
+ * hard-fail floor is deliberately below the target — it rejects only genuine stubs, not the
+ * common shorter rolls, which would otherwise fail the author. Personas without an override
+ * (bob, cynthia, larry, stryker, priscilla, tom) track DEFAULT_LENGTH_RANGE. Tests pin these
+ * constants against the committed .md files so the two can't drift silently.
  */
-export const DEFAULT_LENGTH_RANGE: readonly [number, number] = [300, 500];
+export const DEFAULT_LENGTH_RANGE: readonly [number, number] = [1200, 1600];
 export const LENGTH_RANGES: Record<string, readonly [number, number]> = {
-  tom: [500, 700],
   edgar: [1600, 2500],
+  alice: [1400, 2000],
 };
 
 /**
@@ -333,8 +333,9 @@ export function buildOpinionPrompt(
       assets.shared.trim(),
       assets.letters.trim(),
       persona.body,
-      "Write one reader-letter column: invent the letter per your instructions above, " +
-        `open with it in your column's format, then answer it in your voice. ${titleRule}`,
+      `Write one ${min}-${max} word reader-letter column: invent the letter per your ` +
+        `instructions above, open with it in your column's format, then answer it in your ` +
+        `voice. ${titleRule}`,
     ].join("\n\n");
   }
 

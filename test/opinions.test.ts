@@ -268,7 +268,7 @@ describe("prompt assembly + output contract", () => {
     expect(prompt).toContain("ARTICLE 1:\nHeadline s1");
     expect(prompt).toContain("(via Wire: Story s1)");
     expect(prompt).toContain("ARTICLE 2:");
-    expect(prompt).toContain("300-500 word opinion piece");
+    expect(prompt).toContain("1400-2000 word opinion piece");
     expect(prompt).toContain("First line: a short original title");
     expect(prompt).not.toContain("LETTER RULES");
   });
@@ -281,6 +281,7 @@ describe("prompt assembly + output contract", () => {
     expect(prompt).toContain("SHARED RULES");
     expect(prompt).toContain("LETTER RULES");
     expect(prompt).toContain(tom.body);
+    expect(prompt).toContain("1200-1600 word reader-letter column"); // Tom tracks the default now
     expect(prompt).toContain("invent the letter per your instructions above");
     expect(prompt).toContain("First line: a short original title");
     expect(prompt).not.toContain("ARTICLE");
@@ -374,12 +375,12 @@ describe("prompt assembly + output contract", () => {
   });
 
   it("length ranges pin the persona prose (drift guard on the committed assets)", () => {
-    expect(DEFAULT_LENGTH_RANGE).toEqual([300, 500]);
-    expect(LENGTH_RANGES).toEqual({ tom: [500, 700], edgar: [1600, 2500] });
+    expect(DEFAULT_LENGTH_RANGE).toEqual([1200, 1600]);
+    expect(LENGTH_RANGES).toEqual({ edgar: [1600, 2500], alice: [1400, 2000] });
     // The constants mirror the spec-of-record in the persona PROSE — if a human edits
     // the .md ranges, this fails loud instead of silently mis-validating.
-    expect(readFileSync("personas/_shared.md", "utf8")).toMatch(/300–500 words/);
-    expect(readFileSync("personas/tom.md", "utf8")).toMatch(/500–700 words/);
+    expect(readFileSync("personas/_shared.md", "utf8")).toMatch(/1200–1600 words/);
+    expect(readFileSync("personas/alice.md", "utf8")).toMatch(/1400–2000 words/);
     expect(readFileSync("personas/edgar.md", "utf8")).toMatch(/1600–2500 words/);
   });
 });
@@ -390,7 +391,7 @@ describe("runOpinions — publish path", () => {
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s2", "s1", "s3"]);
         if (isBriefCall(prompt)) return briefJson();
-        return piece(350);
+        return piece(1600);
       },
     });
   }
@@ -458,7 +459,7 @@ describe("runOpinions — publish path", () => {
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s2", "s1", "s3"], ["s2"]);
         if (isBriefCall(prompt)) return briefJson();
-        return piece(350);
+        return piece(1600);
       },
     });
     const result = await runOpinions(CONFIG,
@@ -493,7 +494,7 @@ describe("runOpinions — publish path", () => {
   });
 
   it("recovers a leaked preamble title end-to-end (record carries the real title)", async () => {
-    const leaked = `Here is your column:\n\n**The Real Title**\n\n${"word ".repeat(350).trim()}`;
+    const leaked = `Here is your column:\n\n**The Real Title**\n\n${"word ".repeat(1600).trim()}`;
     const generate = fakeTextGenerator({
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s1"]);
@@ -537,7 +538,7 @@ describe("runOpinions — idempotency", () => {
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s1"]);
         if (isBriefCall(prompt)) return briefJson();
-        return piece(350);
+        return piece(1600);
       },
     });
     const seeded = story("opinion-alice-2026-07-12", { category: "OPINION", author: "alice" });
@@ -577,7 +578,7 @@ describe("runOpinions — topic gate failure modes (fail-closed)", () => {
       impl: (prompt) => {
         if (isGateCall(prompt)) return "sorry, I cannot do JSON today";
         if (isBriefCall(prompt)) return briefJson();
-        return piece(350);
+        return piece(1600);
       },
     });
     const result = await runOpinions(CONFIG,
@@ -604,7 +605,7 @@ describe("runOpinions — topic gate failure modes (fail-closed)", () => {
       impl: (prompt) => {
         if (isGateCall(prompt)) return null;
         if (isBriefCall(prompt)) return briefJson();
-        return piece(350);
+        return piece(1600);
       },
     });
     const result = await runOpinions(CONFIG,manifestOf(story("s1")), sundayAssets(), {
@@ -618,7 +619,7 @@ describe("runOpinions — topic gate failure modes (fail-closed)", () => {
 
   it("zero candidates in the window: news skip WITHOUT any gate call", async () => {
     const generate = fakeTextGenerator({
-      impl: (prompt) => (isBriefCall(prompt) ? briefJson() : piece(350)),
+      impl: (prompt) => (isBriefCall(prompt) ? briefJson() : piece(1600)),
     });
     const result = await runOpinions(CONFIG,
       manifestOf(story("old", { firstSeen: "2026-07-10T10:00:00.000Z" })),
@@ -638,7 +639,7 @@ describe("runOpinions — failure isolation + length sanity", () => {
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s1"]);
         if (isBriefCall(prompt)) return briefJson();
-        return prompt.includes("You are alice") ? null : piece(350);
+        return prompt.includes("You are alice") ? null : piece(1600);
       },
     });
     const result = await runOpinions(CONFIG,manifestOf(story("s1")), sundayAssets(), {
@@ -691,9 +692,9 @@ describe("runOpinions — failure isolation + length sanity", () => {
         if (isBriefCall(prompt)) return briefJson();
         if (prompt.includes("You are alice")) {
           aliceCalls++;
-          return aliceCalls === 1 ? "a single line with no body" : piece(350);
+          return aliceCalls === 1 ? "a single line with no body" : piece(1600);
         }
-        return piece(350);
+        return piece(1600);
       },
     });
     const result = await runOpinions(CONFIG, manifestOf(story("s1")), sundayAssets(), {
@@ -715,7 +716,7 @@ describe("runOpinions — failure isolation + length sanity", () => {
           aliceCalls++;
           return "a single line with no body"; // never recovers
         }
-        return piece(350);
+        return piece(1600);
       },
     });
     const result = await runOpinions(CONFIG, manifestOf(story("s1")), sundayAssets(), {
@@ -732,16 +733,16 @@ describe("runOpinions — failure isolation + length sanity", () => {
 
   it("length: >2x out of band fails; merely out of range publishes with a warning", async () => {
     const logs: string[] = [];
-    // alice (300–500): 100 words < 150 → FAIL. bob (300–500): 250 words → warn+publish.
-    // tom (500–700): 200 words < 250 → FAIL. priscilla (300–500): 350 → clean publish.
+    // alice (1400–2000): 300 words < 700 → FAIL. bob (1200–1600): 900 words → warn+publish.
+    // tom (1200–1600): 300 words < 600 → FAIL. priscilla (1200–1600): 1400 → clean publish.
     const generate = fakeTextGenerator({
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s1"]);
         if (isBriefCall(prompt)) return briefJson();
-        if (prompt.includes("You are alice")) return piece(100);
-        if (prompt.includes("You are bob")) return piece(250);
-        if (prompt.includes("You are tom")) return piece(200);
-        return piece(350);
+        if (prompt.includes("You are alice")) return piece(300);
+        if (prompt.includes("You are bob")) return piece(900);
+        if (prompt.includes("You are tom")) return piece(300);
+        return piece(1400);
       },
     });
     const result = await runOpinions(CONFIG,manifestOf(story("s1")), sundayAssets(), {
@@ -757,8 +758,8 @@ describe("runOpinions — failure isolation + length sanity", () => {
       ["tom", "failed"],
     ]);
     expect(result.authors.find((a) => a.author === "alice")?.detail).toContain("out of band");
-    expect(result.authors.find((a) => a.author === "tom")?.detail).toContain("500-700");
-    expect(logs.some((l) => l.includes("bob length warning — 250 words"))).toBe(true);
+    expect(result.authors.find((a) => a.author === "tom")?.detail).toContain("1200-1600");
+    expect(logs.some((l) => l.includes("bob length warning — 900 words"))).toBe(true);
   });
 });
 
@@ -821,7 +822,7 @@ describe("image brief (ADR-0016) — prompt, parse, all-or-nothing", () => {
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s1"]);
         if (isBriefCall(prompt)) return "I refuse to emit JSON";
-        return piece(350);
+        return piece(1600);
       },
     });
     const result = await runOpinions(CONFIG, manifestOf(story("s1")), sundayAssets(), {
@@ -843,7 +844,7 @@ describe("image brief (ADR-0016) — prompt, parse, all-or-nothing", () => {
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s1"]);
         if (isBriefCall(prompt)) return null;
-        return piece(350);
+        return piece(1600);
       },
     });
     const result = await runOpinions(CONFIG, manifestOf(story("s1")), sundayAssets(), {
@@ -858,7 +859,7 @@ describe("image brief (ADR-0016) — prompt, parse, all-or-nothing", () => {
 describe("runOpinions — dry-run", () => {
   it("runs gate + selection only: would-publish keys, zero piece calls, manifest untouched", async () => {
     const generate = fakeTextGenerator({
-      impl: (prompt) => (isGateCall(prompt) ? verdictsJson(["s1", "s2"]) : piece(350)),
+      impl: (prompt) => (isGateCall(prompt) ? verdictsJson(["s1", "s2"]) : piece(1600)),
     });
     const starting = manifestOf(story("s1"), story("s2"));
     const result = await runOpinions(CONFIG,starting, sundayAssets(), {
@@ -918,7 +919,7 @@ describe("gateSummary (ADR-0018) — one line per topic-gate outcome", () => {
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s1", "s2"], ["s2"]);
         if (isBriefCall(prompt)) return briefJson();
-        return piece(350);
+        return piece(1600);
       },
     });
     const result = await runOpinions(CONFIG, manifestOf(story("s1"), story("s2")), assetsOf(newsPersona("alice")), { generate, now: fixedNow(NOW) }, { authors: ["alice"] });
@@ -938,7 +939,7 @@ describe("gateSummary (ADR-0018) — one line per topic-gate outcome", () => {
       impl: (prompt) => {
         if (isGateCall(prompt)) return verdictsJson(["s1", "s2"], ["s2"]); // s1 eligible
         if (isBriefCall(prompt)) return briefJson();
-        return piece(350);
+        return piece(1600);
       },
     });
     const result = await runOpinions(
@@ -966,7 +967,7 @@ describe("gateSummary (ADR-0018) — one line per topic-gate outcome", () => {
 
   it("reports 'gate not run' on a letters-only day and '(no candidates)' on an empty pool", async () => {
     const generate = fakeTextGenerator({
-      impl: (prompt) => (isBriefCall(prompt) ? briefJson() : piece(550)),
+      impl: (prompt) => (isBriefCall(prompt) ? briefJson() : piece(1600)),
     });
     const letters = await runOpinions(CONFIG, manifestOf(), assetsOf(lettersPersona("tom", ["sun"])), { generate, now: fixedNow(NOW) });
     expect(letters.gateSummary).toBe("gate not run");
@@ -1046,7 +1047,7 @@ describe("opinionStaleness (ADR-0018) — the >36h / empty-store invariant", () 
 describe("runOpinions has no hour gate of its own (ADR-0018 CLI bypass)", () => {
   it("publishes at 05:00 UTC even with opinionPublishHourUTC 13", async () => {
     const generate = fakeTextGenerator({
-      impl: (prompt) => (isBriefCall(prompt) ? briefJson() : piece(550)),
+      impl: (prompt) => (isBriefCall(prompt) ? briefJson() : piece(1600)),
     });
     const result = await runOpinions(
       makeConfig({ opinionPublishHourUTC: 13 }),

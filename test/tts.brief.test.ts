@@ -126,7 +126,7 @@ describe("createOpinionTtsDeps — config gating", () => {
 describe("runOpinions — TTS brief failover (ADR-0022)", () => {
   it("uses the TTS brief when it succeeds; the incumbent brief call is NOT made", async () => {
     const generate = fakeTextGenerator({
-      impl: (p) => (isBriefCall(p) ? briefJson() : piece(350)),
+      impl: (p) => (isBriefCall(p) ? briefJson() : piece(1600)),
     });
     const result = await runOpinions(
       CONFIG,
@@ -147,7 +147,7 @@ describe("runOpinions — TTS brief failover (ADR-0022)", () => {
 
   it("fails over to the incumbent brief call when the TTS brief returns null", async () => {
     const generate = fakeTextGenerator({
-      impl: (p) => (isBriefCall(p) ? briefJson() : piece(350)),
+      impl: (p) => (isBriefCall(p) ? briefJson() : piece(1600)),
     });
     const result = await runOpinions(
       CONFIG,
@@ -174,7 +174,7 @@ describe("runOpinions — TTS gate failover integration (owner directive 2026-07
       impl: (p) => {
         if (isGateCall(p)) return gateJson(["s1", "s2"]); // Claude failover: both eligible
         if (isBriefCall(p)) return briefJson();
-        return piece(350);
+        return piece(1600);
       },
     });
     const result = await runOpinions(
@@ -195,7 +195,7 @@ describe("runOpinions — TTS gate failover integration (owner directive 2026-07
   });
 
   it("ttsGate verdicts drive selection when it succeeds (no Claude gate call)", async () => {
-    const generate = fakeTextGenerator({ impl: (p) => (isBriefCall(p) ? briefJson() : piece(350)) });
+    const generate = fakeTextGenerator({ impl: (p) => (isBriefCall(p) ? briefJson() : piece(1600)) });
     const gate = async (candidates: ManifestRecord[]) => {
       const m = new Map<string, GateVerdict>();
       for (const r of candidates) m.set(r.id, { id: r.id, verdict: "eligible", reason: "ok" });

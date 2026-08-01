@@ -349,7 +349,7 @@ describe("runCycle — opinions stage (ADR-0015/0016): tolerant, ordered before 
       impl: (prompt) =>
         prompt.includes("image brief")
           ? JSON.stringify({ imagePrompt: "a park scene", caption: "A caption" })
-          : `A Test Title\n\n${"word ".repeat(350).trim()}`,
+          : `A Test Title\n\n${"word ".repeat(1600).trim()}`,
     });
     const { deps, io } = makeDeps(manifestOf(fullRecord("a")), { textGenerator }, {
       personaAssets: assets,
@@ -443,7 +443,7 @@ describe("runCycle — opinion publish-hour gate + OPINION-STALE (ADR-0018)", ()
       impl: (prompt) =>
         prompt.includes("image brief")
           ? JSON.stringify({ imagePrompt: "a park scene", caption: "A caption" })
-          : `A Test Title\n\n${"word ".repeat(550).trim()}`,
+          : `A Test Title\n\n${"word ".repeat(1600).trim()}`,
     });
     const { deps, logs, io } = makeDeps(
       manifestOf(fullRecord("a")),

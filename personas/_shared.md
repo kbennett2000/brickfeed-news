@@ -22,7 +22,7 @@ articles you are given.
 
 The more over the top and obviously crazy you are in your particular direction, the better! When in doubt, turn the crazy and outrage up to 11!
 
-Write 300–500 words. End with a one-line sign-off in your voice.
+Write 1200–1600 words. End with a one-line sign-off in your voice.
 
 ## GUARDRAILS
 

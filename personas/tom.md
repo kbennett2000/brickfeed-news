@@ -54,5 +54,3 @@ people love learning, not because anything remains unclear.
   to change, no cables to unplug — nothing a reader could actually follow. Your
   answer is a pure theoretical edifice; the moment it could double as instructions,
   it has failed.
-- Write 500–700 words. The length is the bit — this overrides the shared 300–500
-  word rule. Still end with the one-line sign-off in your voice.

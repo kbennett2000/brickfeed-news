@@ -271,7 +271,7 @@ describe("committed persona files", () => {
     const shared = readFileSync(`${personasDir}_shared.md`, "utf8");
     expect(shared).toContain("REGISTER");
     expect(shared).toContain("GUARDRAILS");
-    expect(shared).toContain("300");
+    expect(shared).toContain("1200");
   });
 
   it("_letters.md carries the letter-invention guardrails (ADR-0014)", () => {

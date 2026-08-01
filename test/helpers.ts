@@ -242,7 +242,7 @@ export function fakeGenerator(opts: {
  * tests. `impl` maps the full prompt to a completion (return null to simulate the
  * never-throw failure contract); `throwOn` makes matching prompts throw instead.
  * Records every prompt (idempotency / call-count assertions). Default impl returns a
- * valid title+body piece of ~350 body words.
+ * valid title+body piece of ~1600 body words (in-range for every persona band).
  */
 export function fakeTextGenerator(
   opts: {
@@ -251,7 +251,7 @@ export function fakeTextGenerator(
   } = {},
 ): TextGenerator & { calls: string[] } {
   const calls: string[] = [];
-  const impl = opts.impl ?? (() => `A Test Title\n\n${"word ".repeat(350).trim()}`);
+  const impl = opts.impl ?? (() => `A Test Title\n\n${"word ".repeat(1600).trim()}`);
   const generate = async (prompt: string): Promise<string | null> => {
     calls.push(prompt);
     if (opts.throwOn?.(prompt)) throw new Error("simulated text generation failure");

@@ -23,14 +23,15 @@
  * `source: letters` personas (ADR-0014) run in LETTER MODE instead: no article inputs
  * (`--fixtures`/`--recent` are irrelevant to them, and articles are only loaded when a
  * news persona is selected), and the prompt is _shared.md + _letters.md + the voice
- * prompt. Their word count prints without the 300-500 range verdict — letter columns may
- * override the shared length rule (Tom's 500-700 is the bit).
+ * prompt. Every piece's word count is judged against the persona's OWN band
+ * (lengthRangeFor: a per-persona override like Alice/Edgar, else the shared default).
  */
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.js";
 import { createTextGenerator } from "../src/generator/text.js";
+import { lengthRangeFor } from "../src/opinions.js";
 import {
   LETTERS_PERSONA_FILE,
   PERSONAS_DIR,
@@ -114,24 +115,26 @@ async function recentBlocks(publishedPath: string, n: number): Promise<string[]>
 /** The real opinion prompt shape: shared register/guardrails + voice + articles + task. */
 function buildBenchPrompt(shared: string, persona: Persona, blocks: string[]): string {
   const articles = blocks.map((b, i) => `ARTICLE ${i + 1}:\n${b}`).join("\n\n");
+  const [min, max] = lengthRangeFor(persona);
   return [
     shared.trim(),
     persona.body,
     articles,
-    "Write one 300-500 word opinion piece reacting to ONE of the articles above. " +
+    `Write one ${min}-${max} word opinion piece reacting to ONE of the articles above. ` +
       "Output only the piece itself - no title, no preamble, no commentary.",
   ].join("\n\n");
 }
 
 /** Letter mode (ADR-0014): shared register + letter-invention rules + voice + task. */
 function buildLetterPrompt(shared: string, letters: string, persona: Persona): string {
+  const [min, max] = lengthRangeFor(persona);
   return [
     shared.trim(),
     letters.trim(),
     persona.body,
-    "Write one reader-letter column: invent the letter per your instructions above, open " +
-      "with it in your column's format, then answer it in your voice. Output only the " +
-      "piece itself - no title, no preamble, no commentary.",
+    `Write one ${min}-${max} word reader-letter column: invent the letter per your ` +
+      "instructions above, open with it in your column's format, then answer it in your " +
+      "voice. Output only the piece itself - no title, no preamble, no commentary.",
   ].join("\n\n");
 }
 
@@ -206,13 +209,11 @@ async function main(): Promise<void> {
     }
 
     const words = wordCount(piece);
-    // Letter columns may override the shared length rule, so no range verdict there.
+    // Verdict against the persona's OWN band (lengthRangeFor: per-persona override or the
+    // shared default) so overrides like Alice/Edgar aren't mislabelled out of range.
+    const [min, max] = lengthRangeFor(persona);
     const range =
-      persona.source === "letters"
-        ? ""
-        : words >= 300 && words <= 500
-          ? "  [in range 300-500]"
-          : "  [OUT OF RANGE]";
+      words >= min && words <= max ? `  [in range ${min}-${max}]` : `  [OUT OF RANGE ${min}-${max}]`;
     console.log(piece);
     console.log(`\nwords: ${words}${range}  [${ms}ms]\n`);
   }
