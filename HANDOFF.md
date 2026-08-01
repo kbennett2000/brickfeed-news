@@ -1,5 +1,36 @@
 # Handoff
 
+## Opinion length baseline raised to 1200–1600; Alice rewritten (follow-on to Edgar/Sonnet commit)
+
+Found this staged uncommitted directly on `master` (no branch, no HANDOFF entry) at the start of
+this cycle — an interrupted prior session, not a stale WIP the owner meant to keep editing. Diff
+was self-consistent and complete (`tsc` clean, **787 passed / 1 skipped**), so finished the cycle
+properly: branched (`feat/opinion-length-baseline-and-alice-rewrite`), committed, and landed on
+`master` per the standing delivery override ([[delivery: no PRs]] in memory).
+
+- **Baseline bump:** `personas/_shared.md` 300–500 → **1200–1600** words. b5ed3df (previous commit)
+  had already moved opinion PIECE generation onto a stronger model
+  (`generator.opinionModel`, Sonnet) because Haiku's word-count control was weak; this commit
+  extends that reasoning from Edgar-only to every persona — Sonnet reliably hits a 1200–1600 target
+  where Haiku couldn't.
+- **`src/opinions.ts`:** `DEFAULT_LENGTH_RANGE = [1200, 1600]`; `LENGTH_RANGES = { edgar: [1600,
+  2500], alice: [1400, 2000] }`. Tom's old `[500, 700]` override is retired — he now tracks the
+  shared default (his `.md` hard-rule override line was removed to match).
+- **Alice full rewrite** (`personas/alice.md`): was "exhausted systemic-outrage progressive who
+  takes blame for everything and accomplishes nothing." Now a self-appointed authority who treats
+  every story, however small, as a personal affront and demands to speak to whoever's in charge —
+  new worldview/comedy-engine/signature-moves, own 1400–2000 band (the length is the bit, same
+  pattern as Edgar). Guardrails unchanged in spirit: fury aimed at institutions/officials, never
+  private individuals; facts stay exactly the size the articles report them.
+- **`scripts/persona-bench.ts`:** the in-range verdict now checks `lengthRangeFor(persona)` (a
+  helper already in `src/opinions.ts`) instead of a hardcoded 300–500-or-letters-exempt check, so
+  Alice/Edgar/letter-mode overrides all print the correct band instead of being mislabelled.
+- Tests updated to match (`test/opinions.test.ts`, `test/personas.test.ts`, `test/cycle.test.ts`,
+  `test/helpers.ts` default fixture piece length, `test/tts.brief.test.ts`).
+- **Not done:** no ADR added — same precedent as b5ed3df (the Sonnet-model switch itself shipped
+  without one), treating this as an incremental persona-tuning follow-on rather than a new
+  architectural decision. No config/deploy change; takes effect next time opinions generate.
+
 ## Image prompts name no real people — Grok refuses named likenesses (ADR-0024)
 
 **Root cause of Bob 7/21 staying dark, found by direct reproduction — NOT a code bug, NOT
