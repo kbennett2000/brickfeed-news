@@ -1,6 +1,7 @@
 # ADR-0028: Parody reader comments on opinion pieces
 
-Status: Accepted
+Status: Accepted (amended in part by ADR-0029 — the comedy prompt/persona was reworked to fix
+formulaic openers; the storage/stage/guardrail decisions here still stand)
 Date: 2026-08-01
 
 ## Context

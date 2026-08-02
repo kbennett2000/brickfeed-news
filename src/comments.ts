@@ -19,6 +19,7 @@
  * All side-effects are injected (`CommentsDeps`); the manifest is copied, never mutated in place —
  * callers persist the returned manifest (dry-run returns the input untouched).
  */
+import { buildDeck, type CommentDeck, renderDeck } from "./comments-flavor.js";
 import type { Config } from "./config.js";
 import { isOpinionRecord } from "./eligibility.js";
 import { extractJsonObject } from "./generator/parse.js";
@@ -41,8 +42,12 @@ export const MAX_COMMENT_BODY_CHARS = 1200;
 export const MAX_USERNAME_CHARS = 40;
 /** How many hottest existing comments to flag as reply magnets in the prompt. */
 const HOT_TARGETS = 3;
-/** How much of the piece body to feed as context (commenters barely read the article). */
-const BODY_CONTEXT_CHARS = 600;
+/**
+ * How much of the piece body to feed as context. Enough for the model to misread THIS specific
+ * column (which drives per-piece divergence, ADR-0029) — commenters still barely read the article,
+ * but the seed leans on the real argument instead of generic off-topic filler.
+ */
+const BODY_CONTEXT_CHARS = 1100;
 
 export interface CommentsDeps {
   /** The free-form text seam (createTextGenerator), pinned to `comments.model`. */
@@ -154,7 +159,8 @@ export async function runComments(
 
     try {
       const hot = hotCommentIds(existing, HOT_TARGETS);
-      const prompt = buildCommentsPrompt(assets.comments, record, existing, { count, mode }, hot);
+      const deck = buildDeck(record.id, existing.length);
+      const prompt = buildCommentsPrompt(assets.comments, record, existing, { count, mode }, hot, deck);
       const text = await deps.generate(prompt);
       if (text == null) {
         pieces.push({ id: record.id, status: "failed", added: 0, detail: "no completion" });
@@ -218,9 +224,11 @@ export function hotCommentIds(comments: Comment[], topN: number): Set<string> {
 
 /**
  * Assemble the comment-generation prompt: the shared comments block (register + comedy + guardrails),
- * the piece context (headline + a short excerpt — commenters don't read the article), the existing
- * thread as a compact id/username/reply/body list (so replies reference real ids and continue running
- * feuds, with the hot comments flagged), and the task + strict-JSON contract.
+ * the per-thread FRESH-ANGLES deck (ADR-0029 — rotating comedy material + the avoid-the-house-gags
+ * steer that breaks the formulaic openers), the piece context (headline + excerpt of the actual
+ * column, so commenters misread THIS piece), the existing thread as a compact id/username/reply/body
+ * list (so replies reference real ids and continue running feuds, with the hot comments flagged), and
+ * the task + strict-JSON contract.
  */
 export function buildCommentsPrompt(
   commentsBlock: string,
@@ -228,6 +236,7 @@ export function buildCommentsPrompt(
   existing: Comment[],
   quota: { count: number; mode: "seed" | "grow" },
   hot: Set<string>,
+  deck: CommentDeck,
 ): string {
   const headline = piece.headline ?? piece.title ?? "";
   const body = excerpt(piece.description ?? "", BODY_CONTEXT_CHARS);
@@ -249,15 +258,19 @@ export function buildCommentsPrompt(
 
   const task =
     quota.mode === "seed"
-      ? `Write ${quota.count} NEW opening comments for this thread. Vary them wildly (see the ` +
-        `instructions): mix lengths and forms, keep ~1 in 3 totally off-topic, and invent funny ` +
-        `usernames. A couple may reply to each other via new:N.`
+      ? `Write ${quota.count} NEW opening comments for this thread. MOST should react to THIS ` +
+        `specific column — misread it, take the wrong side of its actual argument, or start a feud ` +
+        `over what it says — using the on-topic moves from the FRESH ANGLES above. Keep ~1 in 3 ` +
+        `totally off-topic (use the tangents above). Mix lengths and forms, and invent funny ` +
+        `usernames in the dealt style. A couple may reply to each other via new:N.`
       : `Add ${quota.count} NEW comments to this thread. Skew toward REPLIES that continue the ` +
-        `existing arguments (attach most to the [HOT] comments), plus a few fresh top-level ones. ` +
-        `Keep the variety and the ~1-in-3 off-topic quota, and invent funny usernames.`;
+        `existing arguments (attach most to the [HOT] comments), plus a few fresh top-level ones ` +
+        `that pull from the FRESH ANGLES above. Keep the ~1-in-3 off-topic quota and invent funny ` +
+        `usernames in the dealt style.`;
 
   return [
     commentsBlock.trim(),
+    renderDeck(deck),
     `THE OPINION PIECE PEOPLE ARE COMMENTING ON:\nHEADLINE: ${headline}\nEXCERPT: ${body}`,
     threadBlock,
     task,

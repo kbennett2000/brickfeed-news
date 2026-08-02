@@ -10,6 +10,15 @@ import {
   runComments,
   summarizeComments,
 } from "../src/comments.js";
+import {
+  ARGUMENT_MOVES,
+  buildDeck,
+  type CommentDeck,
+  dealDeck,
+  OFF_TOPIC_THEMES,
+  renderDeck,
+  RETIRED_GAGS,
+} from "../src/comments-flavor.js";
 import { buildCommentTree, COMMENT_DISPLAY_DEPTH, toStoryView } from "../src/render/index.js";
 import { COMMENTS_DISCLOSURE, commentThread } from "../src/render/templates.js";
 import type { Comment, Manifest, ManifestRecord } from "../src/types.js";
@@ -203,10 +212,12 @@ describe("hotCommentIds", () => {
   });
 });
 
+const DECK: CommentDeck = buildDeck("p", 0);
+
 describe("buildCommentsPrompt", () => {
   it("includes the guardrail block, the headline/excerpt, and the JSON contract when seeding", () => {
     const rec = opinionRecord("p");
-    const prompt = buildCommentsPrompt("COMMENT RULES HERE", rec, [], { count: 3, mode: "seed" }, new Set());
+    const prompt = buildCommentsPrompt("COMMENT RULES HERE", rec, [], { count: 3, mode: "seed" }, new Set(), DECK);
     expect(prompt).toContain("COMMENT RULES HERE");
     expect(prompt).toContain(rec.headline!);
     expect(prompt).toContain("BRAND NEW");
@@ -215,10 +226,72 @@ describe("buildCommentsPrompt", () => {
 
   it("lists existing comments with ids/usernames and flags the hot ones when growing", () => {
     const existing = [c("p-c0", { username: "rickp53", body: "Article 9" })];
-    const prompt = buildCommentsPrompt("RULES", opinionRecord("p"), existing, { count: 2, mode: "grow" }, new Set(["p-c0"]));
+    const prompt = buildCommentsPrompt("RULES", opinionRecord("p"), existing, { count: 2, mode: "grow" }, new Set(["p-c0"]), DECK);
     expect(prompt).toContain("p-c0");
     expect(prompt).toContain("rickp53");
     expect(prompt).toContain("[HOT]");
+  });
+
+  it("injects the FRESH ANGLES deck and the retired-gags avoid list (ADR-0029)", () => {
+    const prompt = buildCommentsPrompt("RULES", opinionRecord("p"), [], { count: 3, mode: "seed" }, new Set(), DECK);
+    expect(prompt).toContain("FRESH ANGLES FOR THIS THREAD");
+    expect(prompt).toContain("AVOID falling back on");
+    for (const gag of RETIRED_GAGS) expect(prompt).toContain(gag);
+    // A dealt off-topic tangent is actually present in the prompt.
+    expect(prompt).toContain(DECK.offTopic[0]);
+  });
+});
+
+describe("comedy flavor deck (ADR-0029)", () => {
+  it("dealDeck is deterministic for the same salt", () => {
+    expect(dealDeck("s", OFF_TOPIC_THEMES, 3)).toEqual(dealDeck("s", OFF_TOPIC_THEMES, 3));
+  });
+
+  it("dealDeck returns k DISTINCT items", () => {
+    const hand = dealDeck("s", OFF_TOPIC_THEMES, 5);
+    expect(hand).toHaveLength(5);
+    expect(new Set(hand).size).toBe(5);
+  });
+
+  it("dealDeck clamps k to the bank size (never loops forever)", () => {
+    const hand = dealDeck("s", ARGUMENT_MOVES, ARGUMENT_MOVES.length + 10);
+    expect(hand).toHaveLength(ARGUMENT_MOVES.length);
+    expect(new Set(hand).size).toBe(ARGUMENT_MOVES.length);
+  });
+
+  it("buildDeck diverges across piece ids (the whole point)", () => {
+    const a = buildDeck("opinion-alice-2026-07-24", 0);
+    const b = buildDeck("opinion-hodge-2026-07-24", 0);
+    expect(a.offTopic).not.toEqual(b.offTopic);
+  });
+
+  it("buildDeck is reproducible for the same (piece, length)", () => {
+    expect(buildDeck("p", 4)).toEqual(buildDeck("p", 4));
+  });
+
+  it("buildDeck rotates the hand as the thread grows", () => {
+    expect(buildDeck("p", 0).offTopic).not.toEqual(buildDeck("p", 5).offTopic);
+  });
+
+  it("the recurring-cast cameo is gated to roughly a third of threads", () => {
+    let cameos = 0;
+    for (let i = 0; i < 300; i++) if (buildDeck(`piece-${i}`, 0).cameo) cameos++;
+    // Gate is hash % 3 === 0 → ~1/3; assert a loose band so it can't silently become always/never.
+    expect(cameos).toBeGreaterThan(60);
+    expect(cameos).toBeLessThan(160);
+  });
+
+  it("renderDeck names the retired gags and, when no cameo, forbids regulars", () => {
+    const noCameo: CommentDeck = {
+      offTopic: ["x"],
+      argumentMoves: ["y"],
+      usernameStyle: "z",
+      shapeEmphasis: "w",
+      cameo: null,
+    };
+    const text = renderDeck(noCameo);
+    expect(text).toContain("ALL-FRESH invented usernames");
+    for (const gag of RETIRED_GAGS) expect(text).toContain(gag);
   });
 });
 

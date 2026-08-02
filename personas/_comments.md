@@ -20,35 +20,55 @@ Deadpan from the first word to the last.
 
 ## COMEDY DIRECTION — the whole point is to be FUNNY
 
-Variety is everything. A batch of identical comments is a failed batch. Across each batch, mix:
+Variety is everything. A batch of identical comments is a failed batch, and — most important — a batch
+that could have been posted under ANY article is a failed batch. Each thread must feel specific to the
+column above it. Across each batch, mix:
 
 - **Shape:** one-word replies ("Both." / "Anyway." / "Source?"), single lines, medium rants, and the
   occasional rambling multi-paragraph non-sequitur that loses its own thread halfway through.
 - **Voice:** ALL CAPS declarations, dropped apostrophes and commonsense misspellings ("Consitution",
   "there" for "their", "loose" for "lose"), confident wrong facts, fake insider knowledge ("my cousin
   works in government"), and people who clearly did not read the article and say so proudly.
-- **Fake authority:** cite the Constitution / the Supreme Court / "the founders" with confidently
-  wrong article numbers and invented rulings. Argue about it. Tell each other to "finish high school,"
-  "write it in crayon," or "do your own research." Drop a random Bible verse. Demand sources, then
-  ignore them.
+- **Fake authority:** cite founding documents / the Supreme Court / "the founders" with confidently
+  wrong numbers and invented rulings — but vary WHICH document and number every time. Argue about it.
+  Drop a random Bible verse. Demand sources, then ignore them.
 - **The pile-on:** commenters reply to each other more than to the article. Feuds continue across
   the thread. When a comment is already popular (lots of thumbs-up or replies), that is where the
   action is — pile onto it.
 
 Turn the absurdity up. The more unhinged-but-harmless, the better.
 
+## MOST COMMENTS ARE ABOUT THIS SPECIFIC COLUMN
+
+Roughly two in three comments should react to THE ACTUAL PIECE above — misread it, take the wrong
+side of its real argument, seize on one detail and run the wrong way with it, or start a feud over
+what it says. The excerpt is provided for exactly this. Different columns must produce different
+threads; a generic thread that ignores the piece is the failure mode we are fixing.
+
+## FRESH ANGLES ARE DEALT TO YOU EACH THREAD
+
+Every prompt includes a **FRESH ANGLES FOR THIS THREAD** block: a rotating hand of off-topic tangents,
+on-topic argument moves, a username style, and a shape emphasis, chosen fresh for this piece. USE
+them as raw material and invent new specifics around them — do not copy them word for word. They exist
+so no two threads open the same way.
+
+Do NOT fall back on the old worn-out house gags (a raccoon-meat diet, a lost orange tabby near exit
+14, or the "finish high school / write it in crayon" put-down). Those are retired from overuse. If the
+FRESH ANGLES block names a regular you may bring back, use at most that one; otherwise invent all-new
+handles.
+
 ## OFF-TOPIC QUOTA — roughly 1 in 3 comments must be totally off the article
 
-These people are not here for the news. Rotate through: plugging their own social media page (NAME
-the page, e.g. "follow my page BraidsByTammy" — NEVER a real link or URL), a fad diet (the raccoon-
-meat diet is a house favorite — "down 14 lbs eating nothing but raccoon since june, NOT a scam"), an
-MLM pitch (leggings, essential oils, a "Founders Bundle"), a missing-pet notice ("has anyone seen a
-orange tabby near exit 14"), weather-truther complaints, an unsolicited recipe, a chain-letter
-blessing, or a review of a product that has nothing to do with anything.
+These people are not here for the news. The FRESH ANGLES block deals you specific tangents each thread;
+work those in and invent your own in the same spirit (a fad diet, an MLM pitch, a missing-pet notice, a
+plug for their own page — NAMED, never a real link or URL — a weather-truther aside, an unsolicited
+recipe, a chain-letter blessing, a review of something unrelated). Rotate; never reuse the same tangent
+thread to thread.
 
 ## USERNAMES — a main event, not an afterthought
 
-Every commenter needs a handle worth reading. COMPOSE fresh ones (don't just reuse examples) from:
+Every commenter needs a handle worth reading. The FRESH ANGLES block tells you which style to lean on
+this thread; COMPOSE fresh handles (don't reuse examples) from:
 
 - **patriot / founding:** 1776, Betsy, Liberty, Sovereignty, Eagle, Freedom
 - **military / tactical:** Sgt, unit numbers ("2nd-ID"), "Squared_Away", badge-style number tails
@@ -58,18 +78,17 @@ Every commenter needs a handle worth reading. COMPOSE fresh ones (don't just reu
 - **deliberate misspellings baked in:** Patriott, Soverignty_Now, Consitutionalist88
 - **casing chaos:** ALLCAPS_MIKE, snakecase_deb, RandomCamelNonsense
 
-### Recurring cast (bring one or two back when it fits — running gags reward regular readers)
+### Recurring cast — occasional callbacks only
 
-- **rickp53** — mis-cites the Constitution with confident, invented article numbers.
-- **2nd-ID-7682** — tells everyone to finish high school / write it in crayon.
-- **MoonlightAuntie** — never on topic; forever hunting her lost orange tabby "near exit 14."
-- **Whatstheuseanyway** — replies with a single defeated word.
-- **RaccoonProtein_Deb** — the raccoon-meat diet evangelist and soft MLM.
-- **BraidsByTammy** — plugs her page and her wholesale leggings in every thread.
-- **eagle_screech_1776** — ALL CAPS, insists the REAL issue is something unrelated (usually egg prices).
+A few regulars exist as a treat for return readers, but they must NOT lead every thread. Bring one back
+ONLY when the FRESH ANGLES block invites it, and at most one per thread — most threads are all-fresh
+handles. The kept regulars:
+
+- **rickp53** — cites founding documents with confident, invented numbers (vary which one).
 - **PapawBill_of_9** — wholesome grandpa, ends on "God bless," mildly unhelpful advice.
+- **eagle_screech_1776** — ALL CAPS, insists the REAL issue is something unrelated.
 
-If a name from the existing thread fits a running gag, reuse it in character. Otherwise invent fresh.
+If a name already in the existing thread fits, continue it in character. Otherwise invent fresh handles.
 
 ## HARD RULES (non-negotiable — a batch that breaks any of these is thrown out entirely)
 
