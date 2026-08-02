@@ -1,5 +1,42 @@
 # Handoff
 
+## Comment variety deck (ADR-0029) — SHIPPED + LIVE (2026-08-02)
+
+Interactive owner session. The owner reported the comment threads felt **formulaic**: every opinion
+piece opened with the same five comments (raccoon diet, lost tabby "near exit 14", Constitution
+mis-cite, "finish high school / write it in crayon"). Root cause: the seed prompt was near-identical
+per piece and `personas/_comments.md` named the gags as always-on examples, so the model reached for
+the same canonical bits every time.
+
+**Fix (merged to `master` `744bad5`, pushed; 837 tests green, `tsc` clean):**
+- New `src/comments-flavor.ts` — a deterministic per-piece **flavor deck**. Big hand-authored banks
+  (`OFF_TOPIC_THEMES`, `ARGUMENT_MOVES`, `USERNAME_STYLES`, `SHAPE_EMPHASIS`, `RECURRING_CAST`);
+  `buildDeck(pieceId, existingLength)` deals a small hand via `hashString` (same no-`Math.random`
+  doctrine as `finalizeReactions`). Seed = `${pieceId}:${existingLength}` → different pieces diverge,
+  same (piece,length) reproducible, and the hand **rotates every grow pass**. Shapes only the PROMPT,
+  never persisted output (re-renders stay stable).
+- `buildCommentsPrompt` injects the `FRESH ANGLES FOR THIS THREAD` block + an explicit **AVOID** line
+  naming the retired gags. `BODY_CONTEXT_CHARS` 600→1100 and the seed task now push ~2/3 of comments
+  to react to THIS specific column (per-article divergence for free).
+- `personas/_comments.md` rewritten: **retired** RaccoonProtein_Deb / MoonlightAuntie / 2nd-ID-7682;
+  kept rickp53 / PapawBill_of_9 / eagle_screech_1776 as **occasional cameos** (deck-gated ~1 in 3);
+  added the "most comments are about THIS column" + "fresh angles are dealt to you" + anti-repetition
+  sections. ADR-0029 records it; ADR-0028 marked amended-in-part. No new config.
+
+**Rollout — owner chose to reseed existing pages.** Backed up the manifest, cleared all **469**
+existing comments across the 46 opinion candidates, and ran two full cycles to reseed fresh:
+cycle #1 seeded 36 (a first clear missed 8 OPINION records that have **no `author` field** — the
+real predicate is `isOpinionRecord` = `!!author || category==="OPINION"`); cycle #2 cleared + seeded
+those 8. **Verified live**: 0 stale comments remain; each page now opens with a distinct cast tied to
+its article (e.g. alice/meteor-shower vs bob/desert threads are completely different). 3 pieces are
+momentarily empty (transient Sonnet parse miss) — they self-heal on the next cron seed. Manifest
+backup: session scratchpad `manifest.backup.json` (data/ is git-ignored, so nothing to commit).
+
+**Going forward:** the deck is ON automatically for every cron cycle — new pieces seed varied, and
+in-window threads grow from rotating angles with no action needed.
+
+---
+
 ## Parody reader comments on opinion pieces (ADR-0028) — SHIPPED + LIVE (2026-08-01)
 
 Interactive owner session. Built, **merged to `master` (`a3b1b60`), pushed, and deployed live** —
