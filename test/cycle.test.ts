@@ -269,7 +269,7 @@ describe("runCycle — flags", () => {
 
   it("deploy.enabled=false skips deploy (same as --no-deploy) even when requested", async () => {
     const config: Config = makeConfig({
-      deploy: { command: "vercel --prod --yes", cwd: "site", enabled: false },
+      deploy: { command: "vercel --prod --yes", cwd: "site", enabled: false, retries: 0, backoffMs: 0 },
     });
     const { deps, deployRun } = makeDeps(manifestOf(pending("a")));
 

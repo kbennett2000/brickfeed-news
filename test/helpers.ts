@@ -127,7 +127,9 @@ export function makeConfig(over: Partial<Config> = {}): Config {
       // The srcset/vercel.json behavior is covered by dedicated render tests that opt in.
       imageOptimization: { enabled: false, widths: [320, 480, 640, 960, 1280], quality: 75 },
     },
-    deploy: { command: "vercel --prod --yes", cwd: "site", enabled: true },
+    // retries/backoffMs 0 by default so failure-path tests stay one-shot and timer-free;
+    // the dedicated deploy-retry tests opt in with their own values.
+    deploy: { command: "vercel --prod --yes", cwd: "site", enabled: true, retries: 0, backoffMs: 0 },
     // Off by default in the fixture (like image.optimize / render.imageOptimization) so existing
     // cycle/render tests make zero comment-generator calls and stay byte-identical; the dedicated
     // comments tests opt in with `comments: { enabled: true, ... }`.

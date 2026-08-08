@@ -90,7 +90,9 @@
   "deploy": {
     "command": "vercel --prod --yes",
     "cwd": "site",
-    "enabled": true
+    "enabled": true,
+    "retries": 2,
+    "backoffMs": 10000
   },
   "comments": {
     "enabled": true,

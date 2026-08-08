@@ -1,5 +1,37 @@
 # Handoff
 
+## Deploy retry-with-backoff (ADR-0030) — SHIPPED (2026-08-08)
+
+Interactive owner session. The owner reported "opinions did not publish this morning." **They did** —
+the 10:00 UTC cron run generated/imaged/rendered everything correctly (4 opinions, 243 publishable →
+270 files in `site/`), but the final `vercel --prod --yes` **exited 1** and the cycle aborted at deploy,
+so nothing shipped. Re-running the identical command by hand succeeded instantly (exit 0, aliased to
+www.brickfeed.news) → a **transient Vercel hiccup**, not auth/content. First action: manually re-deployed
+from `site/` (sourcing `cron.env`); all four opinion pages verified live (HTTP 200, listed on the
+opinion index).
+
+**Root gap:** the deploy stage made exactly one attempt, so a single blip stranded a fully-rendered
+site for up to a full 4h cron interval. Second such incident (the ADR-0029 reseed also needed a manual
+re-deploy).
+
+**Fix (landed on `master`; 843 tests green, `tsc` clean):**
+- `src/deploy.ts` — bounded retry loop around the deploy subprocess, mirroring the TTS-client pattern
+  (`src/generator/tts.ts`): a non-zero exit **or** a thrown runner is retryable; exit 0 short-circuits;
+  after the last attempt it returns `failed` as before, with `detail` noting the attempt count. Added a
+  tiny `delay()` helper. The empty-render GUARD still runs once before the loop; `deploy()` stays
+  never-throw; a final failure is still a hard non-zero cycle exit.
+- `src/config.ts` — two new `deploy` fields: `retries` (default **2** → 3 tries) and `backoffMs`
+  (default **10000**, linear backoff base·1, base·2). Validated; `retries: 0` is a legal one-shot opt-out.
+- Docs/examples: `config.example.json`, `docs/CONFIGURATION.md`, and **ADR-0030** (amends ADR-0006).
+- Tests: 4 new deploy-retry cases (retry-then-succeed on exit + on throw, exhausts→failed w/ attempt
+  count, `retries:0` one-shot) + config validation cases. Test-helper default is `retries:0,backoffMs:0`
+  so existing failure-path tests stay one-shot and timer-free.
+
+**Forward behavior:** code-only; takes effect on the **next scheduled cron** automatically — a transient
+Vercel failure now self-heals within the same run after a short backoff. No reseed, no manual step.
+
+---
+
 ## Comment variety deck (ADR-0029) — SHIPPED + LIVE (2026-08-02)
 
 Interactive owner session. The owner reported the comment threads felt **formulaic**: every opinion

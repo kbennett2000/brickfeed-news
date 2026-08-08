@@ -6,7 +6,9 @@ import {
   DEFAULT_COMMENTS_MAX_PER_PIECE,
   DEFAULT_COMMENTS_MODEL,
   DEFAULT_COMMENTS_PER_PASS_COUNT,
+  DEFAULT_DEPLOY_BACKOFF_MS,
   DEFAULT_DEPLOY_COMMAND,
+  DEFAULT_DEPLOY_RETRIES,
   DEFAULT_GROK_BASE_URL,
   DEFAULT_GROK_MODEL,
   DEFAULT_GROK_TERMINAL_COMMAND,
@@ -555,6 +557,8 @@ describe("validateConfig", () => {
       command: DEFAULT_DEPLOY_COMMAND,
       cwd: DEFAULT_RENDER_OUTPUT_DIR,
       enabled: true,
+      retries: DEFAULT_DEPLOY_RETRIES,
+      backoffMs: DEFAULT_DEPLOY_BACKOFF_MS,
     });
   });
 
@@ -573,9 +577,23 @@ describe("validateConfig", () => {
     expect(cfg.deploy.cwd).toBe(DEFAULT_RENDER_OUTPUT_DIR);
   });
 
+  it("defaults deploy.retries and deploy.backoffMs when absent, accepts overrides (ADR-0030)", () => {
+    expect(validateConfig(base).deploy.retries).toBe(DEFAULT_DEPLOY_RETRIES);
+    expect(validateConfig(base).deploy.backoffMs).toBe(DEFAULT_DEPLOY_BACKOFF_MS);
+    const cfg = validateConfig({ ...base, deploy: { retries: 0, backoffMs: 500 } });
+    expect(cfg.deploy.retries).toBe(0);
+    expect(cfg.deploy.backoffMs).toBe(500);
+  });
+
   it("rejects a blank deploy.command and a non-boolean deploy.enabled", () => {
     expect(() => validateConfig({ ...base, deploy: { command: "" } })).toThrow();
     expect(() => validateConfig({ ...base, deploy: { enabled: "yes" } })).toThrow();
+  });
+
+  it("rejects a negative/non-integer deploy.retries and a negative deploy.backoffMs", () => {
+    expect(() => validateConfig({ ...base, deploy: { retries: -1 } })).toThrow();
+    expect(() => validateConfig({ ...base, deploy: { retries: 1.5 } })).toThrow();
+    expect(() => validateConfig({ ...base, deploy: { backoffMs: -1 } })).toThrow();
   });
 
   it("defaults the comments block when absent (ADR-0028)", () => {

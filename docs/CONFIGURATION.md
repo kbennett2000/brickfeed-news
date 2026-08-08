@@ -132,6 +132,8 @@ outage; the restart is a bonus, not load-bearing.
 | `deploy.command` | string | `vercel --prod --yes` | Command shelled to publish the site. |
 | `deploy.cwd` | string | = `render.outputDir` (`site`) | Working directory the deploy command runs in (where `vercel link` was done). |
 | `deploy.enabled` | boolean | `true` | When `false`, the cycle renders but skips deploy (`skipped-disabled`). |
+| `deploy.retries` | integer ≥ 0 | `2` | Extra deploy attempts after the first, for transient failures (a Vercel blip that would otherwise strand a fully-rendered site). `0` = one-shot. (ADR-0030) |
+| `deploy.backoffMs` | number ≥ 0 | `10000` | Base delay between deploy attempts; backoff is linear (base, 2×base, …). |
 
 ### `comments` — parody reader comments (ADR-0028)
 

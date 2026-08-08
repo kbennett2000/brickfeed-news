@@ -148,6 +148,13 @@ export interface DeployConfig {
   cwd: string;
   /** When false, deploy is skipped (same effect as `--no-deploy`). */
   enabled: boolean;
+  /**
+   * Extra deploy attempts after the first, for transient failures (a Vercel blip that
+   * strands a fully-rendered site). Default 2 → 3 total tries. `0` opts out (one-shot).
+   */
+  retries: number;
+  /** Base delay between deploy attempts, ms (linear backoff: base, 2×base, …). Default 10000. */
+  backoffMs: number;
 }
 
 /** Which text generator to use, plus provider-specific settings. */
@@ -406,6 +413,10 @@ export const DEFAULT_RENDER_IMAGE_OPTIMIZATION_QUALITY = 75;
 /** Defaults when the config omits the `deploy` block (Slice 8). `cwd` defaults to outputDir. */
 export const DEFAULT_DEPLOY_COMMAND = "vercel --prod --yes";
 export const DEFAULT_DEPLOY_ENABLED = true;
+/** Retry a transient deploy failure (e.g. a Vercel hiccup) twice → 3 total attempts (ADR-0030). */
+export const DEFAULT_DEPLOY_RETRIES = 2;
+/** Base delay between deploy attempts, ms; backoff is linear (base, 2×base). */
+export const DEFAULT_DEPLOY_BACKOFF_MS = 10000;
 
 /**
  * Defaults for the parody reader-comments stage (ADR-0028). ON by default so a live config.json
@@ -1226,6 +1237,8 @@ function validateDeploy(raw: unknown, renderOutputDir: string, path: string): De
       command: DEFAULT_DEPLOY_COMMAND,
       cwd: renderOutputDir,
       enabled: DEFAULT_DEPLOY_ENABLED,
+      retries: DEFAULT_DEPLOY_RETRIES,
+      backoffMs: DEFAULT_DEPLOY_BACKOFF_MS,
     };
   }
   if (typeof raw !== "object") {
@@ -1241,7 +1254,17 @@ function validateDeploy(raw: unknown, renderOutputDir: string, path: string): De
     throw new Error(`Config at ${path}: deploy.enabled must be a boolean.`);
   }
 
-  return { command, cwd, enabled };
+  const retries = d.retries ?? DEFAULT_DEPLOY_RETRIES;
+  if (typeof retries !== "number" || !Number.isInteger(retries) || retries < 0) {
+    throw new Error(`Config at ${path}: deploy.retries must be a non-negative integer.`);
+  }
+
+  const backoffMs = d.backoffMs ?? DEFAULT_DEPLOY_BACKOFF_MS;
+  if (typeof backoffMs !== "number" || !Number.isFinite(backoffMs) || backoffMs < 0) {
+    throw new Error(`Config at ${path}: deploy.backoffMs must be a non-negative number.`);
+  }
+
+  return { command, cwd, enabled, retries, backoffMs };
 }
 
 /** Validate an hour-of-day field. Absent → its own fallback; present must be an integer 0–23. */

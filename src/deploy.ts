@@ -82,20 +82,51 @@ export async function deploy(
 
   log(`deploy: running '${config.deploy.command}' in ${config.deploy.cwd}`);
 
-  let res: { code: number; stdout: string; stderr: string };
-  try {
-    res = await deps.run({ command: config.deploy.command, cwd: config.deploy.cwd });
-  } catch {
-    // The runner is contractually never-throw, but guard anyway so deploy() never rejects.
-    log("deploy: FAILED (deploy runner threw)");
-    return { status: "failed", detail: "deploy runner threw" };
+  // Bounded retry: a transient failure (a Vercel hiccup that exits non-zero, or a runner that
+  // throws) can strand a fully-rendered site for hours until the next cron re-deploys. Retry
+  // `retries` extra times with linear backoff (base, 2×base, …) before giving up. A clean exit 0
+  // short-circuits. The render GUARD above ran once — the site doesn't change between attempts.
+  const { retries, backoffMs } = config.deploy;
+  const tries = 1 + retries;
+  let lastCode: number | undefined;
+  let threw = false;
+
+  for (let i = 0; i < tries; i++) {
+    if (i > 0) {
+      const wait = backoffMs * i;
+      const priorFail = threw ? "runner threw" : `exit ${lastCode}`;
+      log(
+        `deploy: attempt ${i}/${tries} failed (${priorFail}) — retrying (attempt ${i + 1}/${tries})` +
+          (wait > 0 ? ` in ${Math.round(wait / 1000)}s` : ""),
+      );
+      if (wait > 0) await delay(wait);
+    }
+
+    threw = false;
+    let res: { code: number; stdout: string; stderr: string };
+    try {
+      res = await deps.run({ command: config.deploy.command, cwd: config.deploy.cwd });
+    } catch {
+      // The runner is contractually never-throw, but guard anyway so deploy() never rejects.
+      threw = true;
+      lastCode = undefined;
+      continue;
+    }
+
+    lastCode = res.code;
+    if (res.code === 0) {
+      log(`deploy: succeeded${i > 0 ? ` (attempt ${i + 1}/${tries})` : ""}`);
+      return { status: "deployed", code: 0 };
+    }
   }
 
-  if (res.code === 0) {
-    log("deploy: succeeded");
-    return { status: "deployed", code: 0 };
-  }
+  const reason = threw ? "deploy runner threw" : `exit ${lastCode}`;
+  const suffix = tries > 1 ? ` after ${tries} attempts` : "";
+  log(`deploy: FAILED${suffix} (${reason})`);
+  return { status: "failed", code: lastCode, detail: `failed${suffix} (${reason})` };
+}
 
-  log(`deploy: FAILED (exit ${res.code})`);
-  return { status: "failed", code: res.code };
+/** Promise-based delay for retry backoff (kept tiny + injectable-free for testability). */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
