@@ -1,135 +1,189 @@
-# brickfeed-news
+<!-- Banner -->
+![brickfeed — a toy-brick daily](docs/media/banner.png)
 
-**brickfeed** pulls stories from a news RSS feed (Google News–style), rewrites each into an
-original headline + short description, generates a toy-brick–styled image per story, and
-renders a static newspaper-style cover page that links out to the source article. It's a
-personal, non-commercial hobby service.
+<h1 align="center">brickfeed</h1>
 
-Live: **https://www.brickfeed.news**
+<p align="center">
+  <b>A tiny newspaper that turns real headlines into a toy-brick world.</b><br>
+  It reads the news, rewrites each story in its own words, builds a little plastic-brick photo to go
+  with it, and prints the whole thing as a newspaper — all on its own.
+</p>
 
-> **Legal guardrails (hard rules).** No "LEGO" or LEGO trademarks anywhere — not the name,
-> domain, code, prompts, or output. Brick styling is generic ("plastic toy-brick minifigure
-> diorama"), never brand-specific. Publisher images are never displayed — every image is our
-> own generated art. Headlines and descriptions are original rewrites, never verbatim feed
-> text, and every story links to its source.
+<p align="center">
+  <a href="https://www.brickfeed.news"><b>▶ &nbsp;See it live at brickfeed.news</b></a>
+  &nbsp;·&nbsp;
+  <a href="docs/COLUMNISTS.md">Meet the columnists</a>
+  &nbsp;·&nbsp;
+  <a href="docs/INSTALL.md">Run it yourself</a>
+</p>
 
 ---
 
-## Architecture at a glance
+## What is this?
 
-One run is a single, non-resident cycle (`runCycle` in [src/cycle.ts](src/cycle.ts)). Cron
-fires it; there is no long-running process.
+Every so often, brickfeed wakes up, grabs the latest news headlines, and reimagines them. It writes a
+fresh, original headline and blurb for each story — never copying the source — and generates an
+original photo of the scene, built entirely out of **generic plastic toy bricks and little blocky
+minifigures**. Then it lays everything out as a classic newspaper front page and publishes it to the
+web. There's no newsroom and no humans in the loop; it's a small, self-running, non-commercial hobby
+project that treats "the news, but made of toy bricks" completely straight.
+
+**The quickest way to get it is just to look at it:**
+
+### 👉 [www.brickfeed.news](https://www.brickfeed.news)
+
+---
+
+## A peek inside
+
+The front page — a real newspaper layout, every photo built from toy bricks:
+
+![The brickfeed front page](docs/media/frontpage.jpg)
+
+It also runs an **Opinion section** written by a cast of recurring bot "columnists," each with their
+own personality and their own toy-brick portrait:
+
+![An opinion column with its toy-brick illustration](docs/media/column.jpg)
+
+…and underneath every column, a parody **comment section** where fictional readers argue with total,
+misspelled confidence about things none of them understand:
+
+![A parody reader-comment thread](docs/media/comments.jpg)
+
+---
+
+## How it works
+
+You can think of one "issue" of the paper as a little assembly line. Each time it runs, brickfeed:
 
 ```
-fetch RSS ──► resolve redirect ──► story id = sha256(resolved URL) ──► drop already-seen
-   │
-   ▼
-for each NEW story:  generate headline + description + image prompt (Claude/Grok)
-                     └─► wrap prompt in brick-style language
-                     └─► request image ──► store durably (Vercel Blob)
-   │
-   ▼
-age out stories older than the threshold (delete their images for real)
-   │
-   ▼
-keep only records whose image actually resolves  ──► render static site  ──► deploy (vercel --prod)
+📰  reads real headlines   →   ✍️  rewrites each in its own words   →
+🧱  builds a toy-brick photo   →   🗞️  lays out the newspaper   →   🌐  publishes it
 ```
 
-Every stage is idempotent at the story level and never throws for a single bad story (it
-stays pending). The manifest is persisted between stages. A story is **never** published
-without a resolvable image, and a bad run can never overwrite the live site (the deploy step
-refuses an empty render). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full
-module map and data flow.
+1. **Reads the news.** It pulls the latest stories from a public news feed.
+2. **Rewrites them.** Each headline and summary is rewritten fresh and original — it never republishes
+   the source text, and it always links back to the real article.
+3. **Builds the picture.** It describes the scene as a plastic-brick diorama and generates an original
+   photo for it. (No real photos are ever reused — every image is the project's own art.)
+4. **Prints the paper.** Everything is arranged into a static newspaper-style site — front page,
+   sections, opinion columns, the works.
+5. **Publishes.** The finished paper goes live on the web, and old stories quietly age out.
 
-The render also emits a per-story [`s/<id>.html`](docs/adr/0009-per-story-pages-and-x-share.md)
-landing page for social sharing (plus a `share.html` X sheet), and folds in two
-operator-managed content sources dropped into `assets/`: **banner ads**
-([docs/ADS.md](docs/ADS.md)) and **locally hosted articles** — on-site original stories with a
-section, rank, and their own hosted page ([docs/ARTICLES.md](docs/ARTICLES.md)).
+Then it goes back to sleep until next time. Nobody presses a button.
 
-## Tech stack & conventions
+---
 
-- **TypeScript run directly via `tsx`** — no build step (`tsconfig` is `noEmit`), ES modules.
-- **Minimal deps** — three runtime dependencies: `fast-xml-parser` (RSS parsing), `marked`
-  (rendering local-article markdown bodies, [docs/ARTICLES.md](docs/ARTICLES.md)), and `sharp`
-  (build-time image downscale + WebP re-encode, [docs/CONFIGURATION.md](docs/CONFIGURATION.md)).
-- **ADR-first** — significant decisions are recorded in [docs/adr/](docs/adr/) before code.
-- **Text-only repo** — the manifest (JSON) and rendered HTML are the only artifacts; images
-  live in object storage referenced by URL, never committed (so "delete an image" is a real
-  delete and git history stays small).
-- **Injectable boundaries, hermetic tests** — every side effect (fetch, generators, image /
-  storage providers, deploy subprocess, filesystem) is injected, so `npm test` runs with no
-  network, no GPU, and no running services.
-- **Secrets via env only** — read in exactly one file, [src/secrets.ts](src/secrets.ts).
+## Meet the columnists
 
-## Quick start (development)
+The Opinion section has a permanent cast of nine bot columnists — an aggrieved bot who wants to speak
+to your supervisor, a "medieval serf" who reports on sports without knowing the rules, an
+eleven-week-old who's tired of old people running everything, and more.
+
+<p align="center">
+  <img src="assets/headshots/alice.png" width="72" title="Alice">
+  <img src="assets/headshots/bob.png" width="72" title="Bob">
+  <img src="assets/headshots/cynthia.png" width="72" title="Cynthia">
+  <img src="assets/headshots/edgar.png" width="72" title="Edgar">
+  <img src="assets/headshots/hodge.png" width="72" title="Hodge">
+  <img src="assets/headshots/larry.png" width="72" title="Larry">
+  <img src="assets/headshots/priscilla.png" width="72" title="Priscilla">
+  <img src="assets/headshots/stryker.png" width="72" title="Stryker">
+  <img src="assets/headshots/tom.png" width="72" title="Tom">
+</p>
+
+**→ [Read about the whole cast and how they work](docs/COLUMNISTS.md)**
+
+---
+
+## More to explore
+
+Two kinds of content you can add to the paper yourself — no coding required, just drop in a file:
+
+**🗞️ Your own articles.** Alongside the rewritten feed stories, you can publish original, locally
+written articles that live right in the paper with their own page.
+[How to add articles →](docs/ARTICLES.md)
+
+![A locally hosted article](docs/media/article.jpg)
+
+**📣 Banner ads.** The paper runs a rotating set of playful "advertisements." You supply an image and
+a link, and they rotate through the ad slots. [How to add ads →](docs/ADS.md)
+
+![A rotating banner ad](docs/media/ad.jpg)
+
+---
+
+## Run it yourself
+
+You don't need a powerful computer or a graphics card — the writing and the pictures are handled by
+keyless AI command-line tools that sign in once with your subscription. You'll need **Node.js 22+**, a
+free **Vercel** account (for hosting), and about fifteen minutes.
+
+The shortest version:
 
 ```bash
 git clone https://github.com/kbennett2000/brickfeed-news.git
 cd brickfeed-news
 npm install
-cp config.example.json config.json     # then edit — see docs/CONFIGURATION.md
-npm test                                # vitest, fully mocked; ~740 tests
+cp config.example.json config.json      # then edit a couple of values
+npm run cycle -- --no-deploy             # build the paper locally, open site/index.html
 ```
 
-Run the pipeline without deploying (nothing is touched with `--dry-run`; `--no-deploy` runs
-every stage but skips the Vercel push so you can inspect `site/`):
+- **Linux** — the primary, best-tested setup.
+- **macOS** — works the same; a couple of scheduling helpers differ.
+- **Windows** — run it inside WSL2 (Ubuntu), then follow the Linux steps.
 
-```bash
-npm run cycle -- --dry-run
-npm run cycle -- --no-deploy
-```
+**→ [Full step-by-step install guide (all three platforms)](docs/INSTALL.md)**
 
-Each stage can also be run on its own for debugging:
+---
 
-| Script | Command | What it does |
-| --- | --- | --- |
-| `npm run ingest` | `tsx src/index.ts` | Fetch feeds, resolve links, assign IDs, dedup against the manifest |
-| `npm run generate` | `tsx src/generate-cli.ts` | Generate headline/description/prompt/caption for pending stories (`--limit N`) |
-| `npm run images` | `tsx src/image-cli.ts` | Generate + store an image for each un-imaged story (`--limit N`) |
-| `npm run ageout` | `tsx src/ageout-cli.ts` | Drop stories past `maxAgeHours` and delete their images |
-| `npm run opinions` | `tsx src/opinions-cli.ts` | Generate the day's opinion columns (`--date`, `--authors`, `--dry-run`); bypasses the publish-hour gate ([opinion-runbook](docs/opinion-runbook.md)) |
-| `npm run headshots` | `tsx src/headshots-cli.ts` | Hash-gated persona headshot optimize + upload |
-| `npm run render` | `tsx src/render-cli.ts` | Render `published.json` into the static site under `site/` |
-| `npm run cycle` | `tsx src/cycle-cli.ts` | The full orchestrator (all stages + deploy). Flags: `--dry-run`, `--no-deploy` |
-| `npm run backfill-optimize` | `tsx src/backfill-optimize.ts` | One-off: re-run already-stored images through the optimizer |
-| `npm run check:claude` | `tsx scripts/check-claude-generator.ts` | Opt-in **live** harness (real `claude` CLI) validating the text provider before switching ([CONFIGURATION](docs/CONFIGURATION.md)) |
-| `npm run bench:personas` | `tsx scripts/persona-bench.ts` | Read-back a persona's voice against fixtures or recent stories |
-| `npm test` | `vitest run` | Run the test suite once |
-| `npm run test:watch` | `vitest` | Run the test suite in watch mode |
+## The building blocks
 
-## How it runs in production
+brickfeed's default setup is self-contained, but two of its parts can optionally be **self-hosted on
+your own machine** if you'd rather not use a cloud service for them. They're separate little projects:
 
-The orchestrator runs on a LAN Ubuntu server. Cron invokes
-[scripts/cycle.sh](scripts/cycle.sh) — a non-blocking `flock` wrapper so overlapping ticks
-skip rather than race — which runs `npm run cycle`. The cycle renders the static site into
-`site/` and deploys it with `vercel --prod`, which Vercel serves. Production runs **text on the
-`claude` subscription CLI (Haiku, `claude-haiku-4-5-20251001`) and images on the keyless
-`grok-terminal` provider** (ADR-0011) — both authenticated by their CLI's own subscription login,
-so no generation API key is read at run time; the cycle needs only a Vercel Blob token in the
-environment. (The library's code-level default when a provider is omitted is `grok-terminal` for
-both seams — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).)
+- **[imagegen-service](https://github.com/kbennett2000/imagegen-service)** — a small image server that
+  makes pictures on your own computer's graphics card. brickfeed can use it instead of the cloud image
+  tool.
+- **[text-transform-service](https://github.com/kbennett2000/text-transform-service)** — a small
+  "messy text in → tidy data out" service backed by an AI model that runs entirely on your own
+  computer. brickfeed can hand a few tasks to it as a private alternative.
 
-Full setup — prerequisites, config, secrets, first run, and the cron schedule — is in
-**[docs/INSTALL.md](docs/INSTALL.md)**.
+Neither is required to run brickfeed — they're there if you want to keep everything in-house.
 
-## Configuration & secrets
+---
 
-App settings live in `config.json` (git-ignored; copy [config.example.json](config.example.json)).
-It selects the text generator, image provider, and storage backend, plus feed URLs, the
-brick-style language, age-out threshold, concurrency, render, and deploy settings. Secrets
-(API tokens) are **never** in config — they come from environment variables read only in
-[src/secrets.ts](src/secrets.ts). The app does **not** auto-load a `.env` file. See
-**[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** for the full field-by-field reference and
-the environment-variable table.
+## Under the hood
 
-## Documentation
+For the curious (and for developers):
 
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — current-state module map, data flow, and invariants.
-- **[docs/INSTALL.md](docs/INSTALL.md)** — Ubuntu server install, configuration, first run, and cron scheduling.
-- **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** — every `config.json` field and environment variable.
-- **[docs/ADS.md](docs/ADS.md)** — authoring the banner ads (drop-in files under `assets/ads/`).
-- **[docs/ARTICLES.md](docs/ARTICLES.md)** — authoring locally hosted articles (drop-in files under `assets/articles/`).
-- **[docs/adr/](docs/adr/)** — Architecture Decision Records (the *why* behind each decision).
-- **[CLAUDE.md](CLAUDE.md)** — how automated cycles operate on this repo and the project contract.
-- **[HANDOFF.md](HANDOFF.md)** — running log of recent cycles and current state.
+- 🏗️ [How it's built](docs/ARCHITECTURE.md) — the pipeline, module map, and the rules it never breaks.
+- ⚙️ [Configuration reference](docs/CONFIGURATION.md) — every setting and environment variable.
+- 🧾 [Design decisions](docs/adr/) — the "architecture decision records" that document why each piece
+  works the way it does.
+
+It's built in **TypeScript** (run directly with `tsx`, no build step), with a tiny dependency
+footprint and a full test suite (`npm test`). The whole thing publishes a plain static website.
+
+---
+
+## The house rules
+
+brickfeed plays it straight but keeps a few hard lines:
+
+- **Its own words, always.** Headlines and descriptions are original rewrites, never the source text,
+  and every story links back to the real article.
+- **Its own pictures, always.** It never displays a publisher's photo — every image is the project's
+  own generated toy-brick art.
+- **A generic toy-brick look.** The style is plain "plastic building bricks." brickfeed is **not**
+  affiliated with, endorsed by, or connected to any toy or building-brick company, and uses no brand
+  names or trademarks.
+- **No real people as targets.** The satire and the parody comments are about fictional characters and
+  each other — never real individuals.
+
+---
+
+## License
+
+A personal, non-commercial hobby project. The source is public so people can read it and see how it
+works, but it is **not** open-source and is **not** licensed for reuse. See [LICENSE](LICENSE).

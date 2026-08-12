@@ -1,5 +1,44 @@
 # Handoff
 
+## Documentation overhaul — SHIPPED (2026-08-11)
+
+Interactive owner session. Goal: comprehensive docs aimed at a **curious but non-technical** reader,
+with a banner, generous screenshots from the live site, prominent early live-site links, links to the
+component projects, a columnists sub-page, ads/articles coverage, a clear repo description + tags, and
+a LICENSE. Owner picks: banner = **brick-built hero** (generated via the real pipeline); license =
+**all-rights-reserved** personal/non-commercial NOTICE; README = **friendly funnel** (deep tech stays
+in `docs/`).
+
+**Shipped (landed on `master`):**
+- **`README.md`** fully rewritten as a friendly funnel: banner → what-it-is → prominent
+  brickfeed.news CTA → screenshot peek → plain-English "how it works" → columnists teaser →
+  ads/articles → "run it yourself" (simplest keyless path + per-OS one-liners) → the two component
+  repos → under-the-hood dev links → house rules → license.
+- **`docs/COLUMNISTS.md`** (NEW): the 9-columnist cast (headshots + beats + bylines, links to live
+  bio pages), how they work in plain terms, the two column types (news reactors vs Priscilla/Tom
+  letters), and the parody comment section. Sourced from `personas/*.md` frontmatter.
+- **`docs/INSTALL.md`** reworked from Ubuntu-only to **cross-platform** (Linux primary, macOS caveats
+  re `flock`/`notify-send`/`systemctl`, Windows via WSL2); corrected to text=`claude`/Haiku,
+  images=`grok-terminal`.
+- **`LICENSE`** (NEW): all-rights-reserved personal/non-commercial NOTICE + the no-brand note.
+- **`docs/media/`** (NEW): `banner.png` (brick-built hero — a toy-brick bench-readers scene from the
+  local imagegen-service at `:8189` using style `"base"`/prompt-only to respect the no-LEGO LoRA
+  guardrail, with a Bodoni masthead composited over it via headless Chrome, downscaled with sharp) +
+  9 optimized JPEG screenshots captured from the live site with headless Chrome (front page, section,
+  opinion index w/ full roster, opinion column, comment thread, columnist bio, article, about, ad).
+  ~1.3 MB total; committed (curated + stable, like the existing `assets/` art).
+- **GitHub metadata:** description refreshed, homepage set to brickfeed.news, 11 topics added
+  (news, rss, static-site, typescript, generative-ai, ai, satire, nodejs, vercel, news-aggregator,
+  hobby-project).
+
+**Notes for next cycle:** the two component repos are public and linked
+(`kbennett2000/imagegen-service`, `kbennett2000/text-transform-service`). "TTS" in this codebase =
+`text-transform-service` (a LAN LLM), NOT text-to-speech — there is no audio component. All 62 local
+doc image/link refs resolve; 843 tests still green (docs-only change); no deploy needed (docs don't
+touch `site/`).
+
+---
+
 ## Deploy retry-with-backoff (ADR-0030) — SHIPPED (2026-08-08)
 
 Interactive owner session. The owner reported "opinions did not publish this morning." **They did** —
