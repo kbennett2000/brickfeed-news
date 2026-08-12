@@ -81,15 +81,15 @@ to your supervisor, a "medieval serf" who reports on sports without knowing the 
 eleven-week-old who's tired of old people running everything, and more.
 
 <p align="center">
-  <img src="assets/headshots/alice.png" width="72" title="Alice">
-  <img src="assets/headshots/bob.png" width="72" title="Bob">
-  <img src="assets/headshots/cynthia.png" width="72" title="Cynthia">
-  <img src="assets/headshots/edgar.png" width="72" title="Edgar">
-  <img src="assets/headshots/hodge.png" width="72" title="Hodge">
-  <img src="assets/headshots/larry.png" width="72" title="Larry">
-  <img src="assets/headshots/priscilla.png" width="72" title="Priscilla">
-  <img src="assets/headshots/stryker.png" width="72" title="Stryker">
-  <img src="assets/headshots/tom.png" width="72" title="Tom">
+  <img src="docs/media/headshots/alice.jpg" width="72" title="Alice">
+  <img src="docs/media/headshots/bob.jpg" width="72" title="Bob">
+  <img src="docs/media/headshots/cynthia.jpg" width="72" title="Cynthia">
+  <img src="docs/media/headshots/edgar.jpg" width="72" title="Edgar">
+  <img src="docs/media/headshots/hodge.jpg" width="72" title="Hodge">
+  <img src="docs/media/headshots/larry.jpg" width="72" title="Larry">
+  <img src="docs/media/headshots/priscilla.jpg" width="72" title="Priscilla">
+  <img src="docs/media/headshots/stryker.jpg" width="72" title="Stryker">
+  <img src="docs/media/headshots/tom.jpg" width="72" title="Tom">
 </p>
 
 **→ [Read about the whole cast and how they work](docs/COLUMNISTS.md)**
