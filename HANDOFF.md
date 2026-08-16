@@ -1,28 +1,38 @@
 # Handoff
 
-## Letter-attribution title guard — SHIPPED (2026-08-16, ADR-0031)
+## Letter columns must reproduce the reader's letter — SHIPPED (2026-08-16, ADR-0031)
 
-Interactive owner session. Priscilla's 2026-08-16 column published live with the headline **"Wanda
-from Flagstaff, Arizona"** — the invented letter-writer's attribution, not a column title. The body
-was correct and on-brand; only the first line (which the output contract treats as the title) was
-wrong. Root cause: letter personas (Priscilla, Tom; `source: letters`) open with the letter's
-attribution, and Haiku intermittently emits that line *as the title*. No existing guard caught it —
-an attribution is short and clean, so it looked like a legit title.
+Interactive owner session. Priscilla's 2026-08-16 column published malformed. The visible symptom
+was the headline ("Wanda from Flagstaff, Arizona" = the letter-writer's attribution used as a
+title), but the **real defect** was that the column had **no reader letter at all** — it opened
+straight on the response ("A lovely question, Wanda…") and only paraphrased the question, so the
+reader never saw it. (First pass mistakenly "fixed" only the title, commit `d14b5d0`/`7c730b3`; the
+owner correctly called that out. Root fix below.) History review found this had happened silently
+before: 2026-08-02, -04, -08 all opened "A lovely question, …" with no letter.
 
-**Shipped (landed on `master`, commit `d14b5d0`):**
-- **`src/sanitize.ts`** — new `looksLikeLetterAttribution()`, anchored on a **real US-state tail**
-  (50 + DC) so a legit title merely containing "from" or a trailing comma is never flagged.
-- **`src/opinions.ts`** — `splitTitleBody(piece, isLetterColumn)` now rejects an attribution title
-  **for letter personas only**; a hit fails closed, which re-rolls the author in-cycle
-  (`MAX_PIECE_ATTEMPTS`) for a proper title. Letter-column prompt also nudged: title is a real
-  column title, never the writer's name+city.
-- **Tests** — `test/sanitize.test.ts` (+letter-attribution cases) and `test/opinions.test.ts`
-  (letter-gated splitTitleBody). Full suite 846 pass / 1 skip; tsc clean.
-- **`docs/adr/0031-letter-attribution-title-guard.md`** (NEW).
-- **Live fix:** patched the 2026-08-16 record (`data/published.json` + `data/manifest.json`) headline
-  → **"Do Not Split the Nachos"**, re-rendered, re-deployed via `vercel --prod` from `site/`.
-  Verified live at brickfeed.news. (Note for next cycle: render reads **`data/published.json`**, not
-  `manifest.json`.)
+Cause: `_letters.md` was vague ("open with the letter intro… then answer"), and each letter
+persona's own comedy engine demonstrates opening with a warm sentence ("A lovely question, …") which
+is actually the start of the *answer* — Haiku sometimes collapsed the two and dropped the letter.
+
+**Shipped (landed on `master`, commit `94355e7`; earlier symptom-only pass `d14b5d0`):**
+- **`personas/_letters.md`** — now mandates a REQUIRED two-part structure: the letter reproduced in
+  full FIRST (salutation `Dear <you>,` → question in the writer's voice → sign-off
+  `— <First>, <City>, <State>`), THEN the answer; the warm opener is the start of the answer, never
+  a replacement for the letter.
+- **`src/sanitize.ts`** — `letterColumnHasLetter(body, displayName)` checks the body's leading region
+  for a salutation addressed to the columnist (`Dear Priscilla,` / `Dear Tom,`). Also kept the
+  secondary `looksLikeLetterAttribution()` (US-state-anchored) title guard from the first pass.
+- **`src/opinions.ts`** — applies the letter-presence guard for letter personas; a miss re-rolls the
+  author in-cycle (`MAX_PIECE_ATTEMPTS`), so a letter-less column never publishes.
+- **Tests** — letter-presence + attribution guards in `test/sanitize.test.ts`; re-roll + fail-closed
+  behavior in `test/opinions.test.ts`. Letter-persona fixtures across opinions/cycle/tts suites now
+  produce letter-shaped bodies (a `pieceFor(prompt, n)` helper). Full suite **851 pass / 1 skip**;
+  tsc clean.
+- **`docs/adr/0031-letter-attribution-title-guard.md`** (NEW; reframed around the real defect).
+- **Live fix:** patched the 2026-08-16 record (`data/published.json` + `data/manifest.json`) — Wanda's
+  letter restored above the response, headline → **"Do Not Split the Nachos"** — re-rendered,
+  re-deployed via `vercel --prod` from `site/`. Verified live at brickfeed.news.
+  **Note for next cycle: render reads `data/published.json`, not `manifest.json`.**
 
 ## Documentation overhaul — SHIPPED (2026-08-11)
 
