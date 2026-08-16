@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  letterColumnHasLetter,
   looksLikeLetterAttribution,
   looksLikeMetaNarration,
   looksLikeRefusal,
@@ -76,6 +77,29 @@ describe("looksLikeLetterAttribution", () => {
     expect(looksLikeLetterAttribution("Letters from the Edge, Revisited")).toBe(false); // comma tail is not a state
     expect(looksLikeLetterAttribution("Notes from a Small Town")).toBe(false); // no ", State"
     expect(looksLikeLetterAttribution("Love's Fine Print")).toBe(false);
+  });
+});
+
+describe("letterColumnHasLetter", () => {
+  it("passes a body that reproduces the reader's letter up top", () => {
+    const good =
+      "Dear Priscilla,\n\nMy boyfriend never plans our dates. Is it wrong to want that?\n\n" +
+      "— Denise, Erie, Pennsylvania\n\nA lovely question, Denise. It reminds me of 2004…";
+    expect(letterColumnHasLetter(good, "Priscilla")).toBe(true);
+    const tom =
+      'A reader writes:\n\n"Dear Tom, why does my wifi drop at night?"\n\nAn excellent question.';
+    expect(letterColumnHasLetter(tom, "Tom")).toBe(true);
+  });
+
+  it("fails a body that skips the letter and opens on the response (the 2026-08-16 defect)", () => {
+    const bad =
+      "A lovely question, Wanda. It reminds me of the autumn of 2004. You wrote in asking whether…";
+    expect(letterColumnHasLetter(bad, "Priscilla")).toBe(false);
+  });
+
+  it("only counts a salutation near the top, not one buried deep in prose", () => {
+    const buried = `${"word ".repeat(160)}Dear Priscilla, an aside.`;
+    expect(letterColumnHasLetter(buried, "Priscilla")).toBe(false);
   });
 });
 

@@ -34,6 +34,7 @@ import { isPublishable } from "./publish.js";
 import {
   MAX_TITLE_CHARS,
   MAX_TITLE_WORDS,
+  letterColumnHasLetter,
   looksLikeLetterAttribution,
   looksLikeMetaNarration,
   looksLikeRefusal,
@@ -674,6 +675,14 @@ export async function runOpinions(
         const split = splitTitleBody(piece, persona.source === "letters");
         if (split == null) {
           note("output missing title line or body");
+          continue;
+        }
+
+        // Letter columns MUST reproduce the reader's letter before answering it (ADR-0031). Haiku
+        // sometimes drops it and opens straight on the response ("A lovely question, Wanda…"), so
+        // the published column never shows the question. Fail closed → re-roll this cycle.
+        if (persona.source === "letters" && !letterColumnHasLetter(split.body, persona.displayName)) {
+          note("letter column is missing the reader's letter");
           continue;
         }
 

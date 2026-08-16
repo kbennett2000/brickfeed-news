@@ -146,6 +146,23 @@ export function looksLikeLetterAttribution(line: string): boolean {
   return m !== null && US_STATES.has(m[2].trim().toLowerCase());
 }
 
+/**
+ * True when a letter-column body actually CONTAINS the reader's letter (ADR-0031). A letter
+ * column must reproduce the invented letter before the columnist answers it, and a salutation
+ * addressed to the columnist ("Dear Priscilla,", "Dear Tom,") is the reliable marker. Haiku
+ * intermittently drops the letter and jumps straight to the response ("A lovely question,
+ * Wanda…"), so the reader never sees the question — the real 2026-08-16 defect. The salutation
+ * opens the piece, so this scans only the leading region; a stray "Dear Tom" buried deep in prose
+ * does not count. A miss fails the piece closed, which re-rolls the author in-cycle for a piece
+ * that includes the letter.
+ */
+export function letterColumnHasLetter(body: string, columnistDisplayName: string): boolean {
+  const head = body.slice(0, 600);
+  const name = columnistDisplayName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (name.length === 0) return true; // no name to check against — do not fail closed
+  return new RegExp(`\\bdear\\s+${name}\\b`, "i").test(head);
+}
+
 /** True when text contains a URL or bare web domain (see LINK_RE). */
 export function containsLink(text: string): boolean {
   return LINK_RE.test(text);

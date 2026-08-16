@@ -68,6 +68,15 @@ function sundayAssets(): OpinionAssets {
 }
 
 const piece = (n: number): string => `A Piece Title\n\n${"word ".repeat(n).trim()}`;
+/** Letter personas (priscilla, tom) must reproduce the reader's letter first (ADR-0031). */
+const pieceFor = (prompt: string, n: number): string => {
+  const letter = (name: string): string =>
+    `A Piece Title\n\nDear ${name},\n\nWhy is my wifi slow?\n\n— Jamie, Erie, Pennsylvania\n\n` +
+    `${"word ".repeat(n).trim()}`;
+  if (prompt.includes("You are priscilla")) return letter("Priscilla");
+  if (prompt.includes("You are tom")) return letter("Tom");
+  return piece(n);
+};
 const briefJson = (): string => JSON.stringify({ imagePrompt: "incumbent scene", caption: "incumbent caption" });
 
 describe("opinion-image-brief TTS adapter", () => {
@@ -127,7 +136,7 @@ describe("createOpinionTtsDeps — config gating", () => {
 describe("runOpinions — TTS brief failover (ADR-0022)", () => {
   it("uses the TTS brief when it succeeds; the incumbent brief call is NOT made", async () => {
     const generate = fakeTextGenerator({
-      impl: (p) => (isBriefCall(p) ? briefJson() : piece(1600)),
+      impl: (p) => (isBriefCall(p) ? briefJson() : pieceFor(p, 1600)),
     });
     const result = await runOpinions(
       CONFIG,
@@ -148,7 +157,7 @@ describe("runOpinions — TTS brief failover (ADR-0022)", () => {
 
   it("fails over to the incumbent brief call when the TTS brief returns null", async () => {
     const generate = fakeTextGenerator({
-      impl: (p) => (isBriefCall(p) ? briefJson() : piece(1600)),
+      impl: (p) => (isBriefCall(p) ? briefJson() : pieceFor(p, 1600)),
     });
     const result = await runOpinions(
       CONFIG,
@@ -175,7 +184,7 @@ describe("runOpinions — TTS gate failover integration (owner directive 2026-07
       impl: (p) => {
         if (isGateCall(p)) return gateJson(["s1", "s2"]); // Claude failover: both eligible
         if (isBriefCall(p)) return briefJson();
-        return piece(1600);
+        return pieceFor(p, 1600);
       },
     });
     const result = await runOpinions(
@@ -196,7 +205,7 @@ describe("runOpinions — TTS gate failover integration (owner directive 2026-07
   });
 
   it("ttsGate verdicts drive selection when it succeeds (no Claude gate call)", async () => {
-    const generate = fakeTextGenerator({ impl: (p) => (isBriefCall(p) ? briefJson() : piece(1600)) });
+    const generate = fakeTextGenerator({ impl: (p) => (isBriefCall(p) ? briefJson() : pieceFor(p, 1600)) });
     const gate = async (candidates: ManifestRecord[]) => {
       const m = new Map<string, GateVerdict>();
       for (const r of candidates) m.set(r.id, { id: r.id, verdict: "eligible", reason: "ok" });
