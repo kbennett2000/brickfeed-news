@@ -1,5 +1,29 @@
 # Handoff
 
+## Letter-attribution title guard — SHIPPED (2026-08-16, ADR-0031)
+
+Interactive owner session. Priscilla's 2026-08-16 column published live with the headline **"Wanda
+from Flagstaff, Arizona"** — the invented letter-writer's attribution, not a column title. The body
+was correct and on-brand; only the first line (which the output contract treats as the title) was
+wrong. Root cause: letter personas (Priscilla, Tom; `source: letters`) open with the letter's
+attribution, and Haiku intermittently emits that line *as the title*. No existing guard caught it —
+an attribution is short and clean, so it looked like a legit title.
+
+**Shipped (landed on `master`, commit `d14b5d0`):**
+- **`src/sanitize.ts`** — new `looksLikeLetterAttribution()`, anchored on a **real US-state tail**
+  (50 + DC) so a legit title merely containing "from" or a trailing comma is never flagged.
+- **`src/opinions.ts`** — `splitTitleBody(piece, isLetterColumn)` now rejects an attribution title
+  **for letter personas only**; a hit fails closed, which re-rolls the author in-cycle
+  (`MAX_PIECE_ATTEMPTS`) for a proper title. Letter-column prompt also nudged: title is a real
+  column title, never the writer's name+city.
+- **Tests** — `test/sanitize.test.ts` (+letter-attribution cases) and `test/opinions.test.ts`
+  (letter-gated splitTitleBody). Full suite 846 pass / 1 skip; tsc clean.
+- **`docs/adr/0031-letter-attribution-title-guard.md`** (NEW).
+- **Live fix:** patched the 2026-08-16 record (`data/published.json` + `data/manifest.json`) headline
+  → **"Do Not Split the Nachos"**, re-rendered, re-deployed via `vercel --prod` from `site/`.
+  Verified live at brickfeed.news. (Note for next cycle: render reads **`data/published.json`**, not
+  `manifest.json`.)
+
 ## Documentation overhaul — SHIPPED (2026-08-11)
 
 Interactive owner session. Goal: comprehensive docs aimed at a **curious but non-technical** reader,
