@@ -382,6 +382,21 @@ describe("prompt assembly + output contract", () => {
     expect(splitTitleBody("I Can't Even\n\nBody paragraph here.")?.title).toBe("I Can't Even");
   });
 
+  it("splitTitleBody: letter-gated attribution title fails closed only for letter columns", () => {
+    // The 2026-08-16 Priscilla leak: the invented letter-writer's attribution used as the title.
+    const leak = "Wanda from Flagstaff, Arizona\n\nA lovely question, Wanda. Order the lobster.";
+    // Letter column ⇒ rejected so the author re-rolls a proper title this cycle.
+    expect(splitTitleBody(leak, true)).toBeNull();
+    // News column (default) ⇒ the gate is off; an unrelated title is unaffected.
+    expect(splitTitleBody("On the State of Things\n\nBody paragraph here.", true)?.title).toBe(
+      "On the State of Things",
+    );
+    // A real letter-column title is kept even with the gate on.
+    expect(splitTitleBody("Do Not Split the Nachos\n\nOrder the lobster.", true)?.title).toBe(
+      "Do Not Split the Nachos",
+    );
+  });
+
   it("length ranges pin the persona prose (drift guard on the committed assets)", () => {
     expect(DEFAULT_LENGTH_RANGE).toEqual([1200, 1600]);
     expect(LENGTH_RANGES).toEqual({ edgar: [1600, 2500], alice: [1400, 2000] });

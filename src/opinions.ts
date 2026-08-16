@@ -34,6 +34,7 @@ import { isPublishable } from "./publish.js";
 import {
   MAX_TITLE_CHARS,
   MAX_TITLE_WORDS,
+  looksLikeLetterAttribution,
   looksLikeMetaNarration,
   looksLikeRefusal,
   recoverLeadingTitleRegion,
@@ -346,7 +347,8 @@ export function buildOpinionPrompt(
       persona.body,
       `Write one ${min}-${max} word reader-letter column: invent the letter per your ` +
         `instructions above, open with it in your column's format, then answer it in your ` +
-        `voice. ${titleRule}`,
+        `voice. ${titleRule} The title is a real column title about the topic — NEVER the ` +
+        `letter-writer's name and city (that belongs inside the column, not in the title line).`,
     ].join("\n\n");
   }
 
@@ -376,7 +378,10 @@ export function buildOpinionPrompt(
  * is empty or the title is implausibly long — the caller fails that author rather than
  * storing a half or garbled piece.
  */
-export function splitTitleBody(text: string): { title: string; body: string } | null {
+export function splitTitleBody(
+  text: string,
+  isLetterColumn = false,
+): { title: string; body: string } | null {
   const unfenced = stripWrappingFence(text);
   if (looksLikeRefusal(unfenced)) return null;
   const trimmed = recoverLeadingTitleRegion(unfenced);
@@ -390,6 +395,11 @@ export function splitTitleBody(text: string): { title: string; body: string } | 
   // a meta-narration sentence ("I'll write one reader-letter column ... now."), drop the piece
   // rather than publish the preamble. The author self-heals on the next cycle.
   if (looksLikeMetaNarration(title)) return null;
+  // Letter-column backstop (ADR-0031): a letter persona sometimes leads with the invented
+  // letter-writer's attribution ("Wanda from Flagstaff, Arizona") as the title instead of a real
+  // column title. It is short and clean, so no other guard catches it — reject it here so the
+  // author re-rolls a proper headline this cycle.
+  if (isLetterColumn && looksLikeLetterAttribution(title)) return null;
   return { title, body };
 }
 
@@ -661,7 +671,7 @@ export async function runOpinions(
           continue;
         }
 
-        const split = splitTitleBody(piece);
+        const split = splitTitleBody(piece, persona.source === "letters");
         if (split == null) {
           note("output missing title line or body");
           continue;

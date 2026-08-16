@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  looksLikeLetterAttribution,
   looksLikeMetaNarration,
   looksLikeRefusal,
   recoverLeadingTitleRegion,
@@ -52,6 +53,29 @@ describe("looksLikeMetaNarration", () => {
     expect(looksLikeMetaNarration("The Dinner Party Question")).toBe(false);
     // A sentence-shaped line that isn't meta-narration (no opener token) is left alone.
     expect(looksLikeMetaNarration("The casserole was cold, and I never forgave it.")).toBe(false);
+  });
+});
+
+describe("looksLikeLetterAttribution", () => {
+  it("flags a letter-writer attribution leaked into the title slot", () => {
+    // The 2026-08-16 Priscilla leak: the invented letter-writer's name+city used as the title.
+    expect(looksLikeLetterAttribution("Wanda from Flagstaff, Arizona")).toBe(true);
+    expect(looksLikeLetterAttribution("Linda from Ocean City, Maryland")).toBe(true); // multi-word city
+    expect(looksLikeLetterAttribution("Harold from Boise, Idaho")).toBe(true);
+    expect(looksLikeLetterAttribution("Denise from New York, New York")).toBe(true); // multi-word state
+    // Markdown dressing is stripped before the check.
+    expect(looksLikeLetterAttribution("*Megan from Tulsa, Oklahoma*")).toBe(true);
+  });
+
+  it("does NOT flag legitimate column titles (the false-positive guard)", () => {
+    // Real Priscilla/Tom titles — some contain "from" or a trailing comma but no US-state tail.
+    expect(looksLikeLetterAttribution("Do Not Feed the Falconers")).toBe(false);
+    expect(looksLikeLetterAttribution("A Word About Boundaries")).toBe(false);
+    expect(looksLikeLetterAttribution("On Pet Names, and the Man Who Trademarked Mine")).toBe(false);
+    expect(looksLikeLetterAttribution("Do Not Split the Nachos")).toBe(false);
+    expect(looksLikeLetterAttribution("Letters from the Edge, Revisited")).toBe(false); // comma tail is not a state
+    expect(looksLikeLetterAttribution("Notes from a Small Town")).toBe(false); // no ", State"
+    expect(looksLikeLetterAttribution("Love's Fine Print")).toBe(false);
   });
 });
 

@@ -112,6 +112,40 @@ function wordCount(s: string): number {
 const LINK_RE =
   /(https?:\/\/|www\.|\b[a-z0-9][a-z0-9-]*\.(?:com|net|org|io|gov|edu|co|xyz|info|tv|news|us|uk|me)\b)/i;
 
+/**
+ * The 50 US states plus DC — the tail of a letter-writer attribution line. Lowercased for a
+ * case-insensitive membership test.
+ */
+const US_STATES = new Set(
+  [
+    "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
+    "Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa","Kansas","Kentucky",
+    "Louisiana","Maine","Maryland","Massachusetts","Michigan","Minnesota","Mississippi","Missouri",
+    "Montana","Nebraska","Nevada","New Hampshire","New Jersey","New Mexico","New York",
+    "North Carolina","North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania","Rhode Island",
+    "South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont","Virginia","Washington",
+    "West Virginia","Wisconsin","Wyoming","District of Columbia",
+  ].map((s) => s.toLowerCase()),
+);
+
+/** `<FirstName> from <City>, <State>` — a reader-letter attribution line. */
+const ATTRIBUTION_RE = /^[A-Z][a-z'’.-]+\s+from\s+(.+),\s*([A-Za-z .]+)$/u;
+
+/**
+ * True when a title line is really a reader-letter attribution ("Wanda from Flagstaff, Arizona")
+ * that a letter persona (Priscilla, Tom) leaked into the title slot instead of an actual column
+ * title (ADR-0031). The `_letters.md` contract mints attributions as "<FirstName> from <City>,
+ * <State>", so the discriminator is a single-word capitalized name, " from ", a city, and a tail
+ * that is a real US state — anchored on the state set so a legitimate title that merely contains
+ * "from" ("Do Not Feed the Falconers", "A Word About Boundaries") never trips it. Letter-column
+ * only: the caller applies this gate so a news title is unaffected. A hit fails the piece closed,
+ * which re-rolls the author in-cycle for a proper title on the next attempt.
+ */
+export function looksLikeLetterAttribution(line: string): boolean {
+  const m = stripTitleDressing(line).match(ATTRIBUTION_RE);
+  return m !== null && US_STATES.has(m[2].trim().toLowerCase());
+}
+
 /** True when text contains a URL or bare web domain (see LINK_RE). */
 export function containsLink(text: string): boolean {
   return LINK_RE.test(text);
