@@ -1,5 +1,61 @@
 # Handoff
 
+## Opinion supply diversity + grim-day fallbacks — ADR-0032 (E+D SHIPPED 2026-08-17; A+B+C QUEUED)
+
+Interactive owner session. Trigger: only **1** opinion piece published 2026-08-17 (Tom, a letter
+column) vs. the usual 4–5. Root-caused end to end.
+
+**Why it happened (the real bottleneck is TEXT GENERATION, not the gate or imaging):**
+- The 10:00Z run scheduled alice/bob/hodge (news) + tom (letters). The content gate returned
+  `gate passed 0/49` — a uniformly grim news day, so the gate (correctly) excluded everything, and
+  the three news reactors skipped.
+- But the candidate pool was already ~88% POLITICS/WORLD (SPORTS 0), because `generateAll` images
+  **10/cycle, newest-first**: the POLITICS/WORLD firehose eats the whole generation budget every
+  cycle, so **682 un-generated stories (167+ sports)** sat in the backlog and aged out (median 36h,
+  max 92h vs. 72h age-out) before ever being categorized. Categorized stories nearly all get imaged
+  (POLITICS 77/79) — imaging is NOT the dam; generation is. `data/manifest.json` at incident time
+  showed this clearly.
+
+**ADR-0032** (`docs/adr/0032-*.md`) — five layers. The gate stays content-based; no category
+bypasses it.
+
+**SHIPPED to master this session (861/862 green, tsc clean):**
+- **Layer E — Hodge = sole, sports-only columnist** (commit on branch → master). New
+  `sections_exclusive` persona flag (hard-filters a persona to its listed sections);
+  `OWNED_SECTIONS={SPORTS}` in `weightedSample` (a non-owner gets weight 0 for an owned section, not
+  FLOOR_WEIGHT; zero-weight candidates dropped so an empty draw → evergreen). `personas/hodge.md` →
+  `sections_exclusive: true` + `SPORTS:1` only; SPORTS removed from cynthia/edgar/stryker.
+- **Layer D — evergreen last resort.** A news persona with no eligible pick publishes a no-source
+  "evergreen" column in its voice instead of skipping → **every scheduled columnist always
+  publishes**. New `personas/_evergreen.md` asset (+ `OpinionAssets.evergreen`);
+  `buildOpinionPrompt` no-articles branch; `AuthorOutcome.evergreen`; summary shows `(N evergreen)`.
+  Evergreen needs no gate, so it also covers gate-fail-closed.
+
+**LIVE BEHAVIOR CHANGE (effective next cron cycle):** on grim days news personas now publish
+evergreen rather than skip. **Hodge publishes sports-voiced EVERGREEN every day until Layer B lands**
+(there is no sports supply in the pool yet). This is consistent with the owner directive ("Hodge only
+sports"); if the owner would rather Hodge keep doing real non-sports news until B lands, revert the
+`personas/hodge.md` change (the E mechanism stays).
+
+**QUEUED — next slice (spec'd in ADR-0032), the actual root-cause supply fix:**
+- **Layer B — feed-origin tagging + per-feed generation quota.** Pending stories have no category
+  yet (generation assigns it) and ingest doesn't record feed origin — so add an optional `feedTopic`
+  to `FeedItem`/`ManifestRecord` (additive, backward-compatible), tag it at ingest, and make
+  `generateAll` reserve per-feed generation share instead of pure newest-first. Raise
+  `maxStoriesPerCycle`. Files: `src/types.ts`, `src/config.ts` (feedUrls shape), `src/ingest.ts`,
+  `src/generate.ts` (+ `src/fetch.ts` to thread the topic through). This is what actually gets
+  sports/tech/science into the pool (and gives Hodge real sports).
+- **Layer A — broaden feeds** (Entertainment/Tech/Science/Food topic feeds), AFTER B, each carrying
+  its `feedTopic`. `config.json` (live, git-ignored) + `config.example.json`.
+- **Layer C — widen the opinion candidate window on gate-zero** (24h → 72h) before news personas
+  fall to evergreen. Contained in `runOpinions`' gate block, but that path is delicate
+  (ADR-0021/0022 TTS fail-closed) — extract a `runGate(cands)` helper, then gate the 72h delta when
+  the 24h gate yields 0 eligible and did not fail closed. Low marginal value until A+B populate the
+  wider pool, so sequenced with them.
+
+Docs to refresh when A/B/C land: `docs/COLUMNISTS.md` (evergreen as a third column mode; Hodge
+sports-only), `docs/CONFIGURATION.md` (feedTopic + maxStoriesPerCycle).
+
 ## Letter columns must reproduce the reader's letter — SHIPPED (2026-08-16, ADR-0031)
 
 Interactive owner session. Priscilla's 2026-08-16 column published malformed. The visible symptom
