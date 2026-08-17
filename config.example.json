@@ -1,7 +1,10 @@
 {
   "feedUrls": [
     "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
-    "https://news.google.com/rss/headlines/section/topic/SPORTS?hl=en-US&gl=US&ceid=US:en"
+    { "url": "https://news.google.com/rss/headlines/section/topic/SPORTS?hl=en-US&gl=US&ceid=US:en", "topic": "SPORTS", "reserve": 4 },
+    { "url": "https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en", "topic": "ENTERTAINMENT", "reserve": 3 },
+    { "url": "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en", "topic": "TECHNOLOGY", "reserve": 3 },
+    { "url": "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=en-US&gl=US&ceid=US:en", "topic": "SCIENCE", "reserve": 2 }
   ],
   "manifestPath": "data/manifest.json",
   "generator": {

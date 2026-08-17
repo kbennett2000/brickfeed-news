@@ -62,6 +62,13 @@ export const DAILY_NEWS: readonly string[] = ["hodge"];
 export const CANDIDATE_WINDOW_HOURS = 24;
 
 /**
+ * Grim-day fallback window (ADR-0032 Layer C): when the 24h gate passes ZERO candidates, the
+ * pool is re-selected over this wider window and the older delta is gated, before news personas
+ * fall through to evergreen. Surfaces lighter stories that aged past 24h on a heavy news day.
+ */
+export const OPINION_FALLBACK_WINDOW_HOURS = 72;
+
+/**
  * Weight for sections a persona's `selection_bias` doesn't list (bias values are small
  * integers, 1–3 today): unlisted sections stay rare but are never unreachable.
  */
@@ -221,8 +228,12 @@ export function authorsFor(dateUTC: string, personas: Persona[]): Persona[] {
  * (nor OPINION-categorized), and first seen within the candidate window. Newest-first
  * for a deterministic gate-prompt order.
  */
-export function opinionCandidates(manifest: Manifest, nowMs: number): ManifestRecord[] {
-  const windowMs = CANDIDATE_WINDOW_HOURS * 3600_000;
+export function opinionCandidates(
+  manifest: Manifest,
+  nowMs: number,
+  windowHours: number = CANDIDATE_WINDOW_HOURS,
+): ManifestRecord[] {
+  const windowMs = windowHours * 3600_000;
   return Object.values(manifest.stories)
     .filter((r) => {
       if (!isPublishable(r) || r.category === "OPINION" || r.author) return false;
@@ -593,60 +604,94 @@ export async function runOpinions(
   let gateFailed = false;
   let gateSummary = "gate not run";
   if (remaining.some((p) => p.source === "news")) {
-    const candidates = opinionCandidates(manifest, deps.now().getTime());
-    if (candidates.length === 0) {
-      gateSummary = "gate not run (no candidates)";
-      log(`opinions: no candidate stories in the last ${CANDIDATE_WINDOW_HOURS}h`);
-    } else {
-      // The incumbent Claude classifier (the pre-ADR-0022 gate); null on provider/parse failure.
+    let gateVia = deps.ttsGate ? "TTS" : "Claude";
+
+    // Run the TTS→Claude failover gate over an arbitrary candidate list; null = failed closed.
+    // Opt-in TTS gate (ADR-0022): when TTS is unavailable it FAILS OVER to the Claude gate
+    // (owner directive 2026-07-14) rather than fail-closed, so a TTS flap doesn't silently starve
+    // news opinions. Only when BOTH the TTS gate and the Claude fallback fail do we fail closed.
+    const gatePool = async (cands: ManifestRecord[]): Promise<Map<string, GateVerdict> | null> => {
       const claudeGate = async (): Promise<Map<string, GateVerdict> | null> => {
         let response: string | null = null;
         try {
-          response = await deps.generate(buildGatePrompt(candidates));
+          response = await deps.generate(buildGatePrompt(cands));
         } catch {
           response = null;
         }
-        return response == null
-          ? null
-          : parseGateVerdicts(response, candidates.map((r) => r.id));
+        return response == null ? null : parseGateVerdicts(response, cands.map((r) => r.id));
       };
-
-      // Opt-in TTS gate (ADR-0022). When TTS is unavailable it now FAILS OVER to the Claude gate
-      // (owner directive 2026-07-14) rather than fail-closed: Claude still runs the safety
-      // classification, so news-opinion pieces aren't silently starved by a TTS flap. Only when
-      // BOTH the TTS gate and the Claude fallback fail do we fail closed. The underlying TTS
-      // failure is recorded by the client observer → surfaces in the loud TTS-DEGRADED report.
-      let verdicts: Map<string, GateVerdict> | null;
-      let gateVia = deps.ttsGate ? "TTS" : "Claude";
       if (deps.ttsGate) {
+        let v: Map<string, GateVerdict> | null;
         try {
-          verdicts = await deps.ttsGate(candidates);
+          v = await deps.ttsGate(cands);
         } catch {
-          verdicts = null;
+          v = null;
         }
-        if (verdicts == null) {
+        if (v == null) {
           gateVia = "Claude (TTS failover)";
           log("opinions: opinion-gate TTS unavailable → failing over to the Claude gate");
-          verdicts = await claudeGate();
+          return claudeGate();
         }
-      } else {
-        verdicts = await claudeGate();
+        return v;
       }
+      return claudeGate();
+    };
+
+    // Gate one pool, folding verdicts into `eligible`/`verdictList` and logging per-verdict.
+    // Returns false (and sets gateFailed) if the gate failed closed for this pool.
+    const gatedIds = new Set<string>();
+    const verdictList: GateVerdict[] = [];
+    const gateAndFold = async (cands: ManifestRecord[]): Promise<boolean> => {
+      const verdicts = await gatePool(cands);
       if (verdicts == null) {
         gateFailed = true;
-        gateSummary = `gate failed closed (${candidates.length} candidate(s) excluded)`;
+        gateSummary = `gate failed closed (${cands.length} candidate(s) excluded)`;
         log(
-          `opinions: TOPIC GATE FAILED CLOSED — all ${candidates.length} candidate(s) ` +
+          `opinions: TOPIC GATE FAILED CLOSED — all ${cands.length} candidate(s) ` +
             "excluded this run (both TTS and Claude gate unavailable, or malformed verdict JSON)",
         );
-      } else {
-        gate = candidates.map((r) => verdicts.get(r.id) as GateVerdict);
-        for (const v of gate) {
-          log(`opinions: gate ${v.verdict} ${v.id}${v.reason ? ` — ${v.reason}` : ""}`);
-        }
-        eligible = candidates.filter((r) => verdicts.get(r.id)?.verdict === "eligible");
-        gateSummary = `gate passed ${eligible.length}/${candidates.length} candidate(s) via ${gateVia}`;
+        return false;
+      }
+      for (const r of cands) {
+        const v = verdicts.get(r.id) as GateVerdict;
+        gatedIds.add(r.id);
+        verdictList.push(v);
+        log(`opinions: gate ${v.verdict} ${r.id}${v.reason ? ` — ${v.reason}` : ""}`);
+        if (v.verdict === "eligible") eligible.push(r);
+      }
+      return true;
+    };
+
+    const primary = opinionCandidates(manifest, deps.now().getTime());
+    if (primary.length > 0) await gateAndFold(primary);
+
+    // Layer C (ADR-0032): the 24h pool passed nothing (or was empty) and the gate did not fail —
+    // widen to the fallback window and gate only the older delta before news personas fall back
+    // to evergreen. A grim news day can bury the lighter, gate-passable stories just past 24h.
+    if (!gateFailed && eligible.length === 0) {
+      const wide = opinionCandidates(
+        manifest,
+        deps.now().getTime(),
+        OPINION_FALLBACK_WINDOW_HOURS,
+      );
+      const delta = wide.filter((r) => !gatedIds.has(r.id));
+      if (delta.length > 0) {
+        log(
+          `opinions: 0 eligible in ${CANDIDATE_WINDOW_HOURS}h → widening to ` +
+            `${OPINION_FALLBACK_WINDOW_HOURS}h (${delta.length} older candidate(s))`,
+        );
+        await gateAndFold(delta);
+      }
+    }
+
+    if (!gateFailed) {
+      if (gatedIds.size > 0) {
+        gate = verdictList;
+        gateSummary = `gate passed ${eligible.length}/${verdictList.length} candidate(s) via ${gateVia}`;
         log(`opinions: ${gateSummary}`);
+      } else {
+        gateSummary = "gate not run (no candidates)";
+        log(`opinions: no candidate stories in the last ${OPINION_FALLBACK_WINDOW_HOURS}h`);
       }
     }
   }

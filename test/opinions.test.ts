@@ -741,12 +741,13 @@ describe("runOpinions — gate fails closed → news personas fall back to everg
     expect(alice?.evergreen).toBe(true);
   });
 
-  it("zero candidates in the window: news publish evergreen WITHOUT any gate call", async () => {
+  it("no candidates in EITHER window: news publish evergreen WITHOUT any gate call", async () => {
     const generate = fakeTextGenerator({
       impl: (prompt) => (isBriefCall(prompt) ? briefJson() : pieceFor(prompt, 1600)),
     });
     const result = await runOpinions(CONFIG,
-      manifestOf(story("old", { firstSeen: "2026-07-10T10:00:00.000Z" })),
+      // >72h old → outside both the 24h pool and the 72h fallback window (ADR-0032 C).
+      manifestOf(story("ancient", { firstSeen: "2026-07-08T10:00:00.000Z" })),
       sundayAssets(),
       { generate, now: fixedNow(NOW) },
     );
@@ -756,6 +757,53 @@ describe("runOpinions — gate fails closed → news personas fall back to everg
     expect(bob?.status).toBe("published");
     expect(bob?.evergreen).toBe(true);
     expect(result.authors.find((a) => a.author === "tom")?.status).toBe("published");
+  });
+
+  it("Layer C: 24h pool empty but a 72h story is eligible → widen + publish news-anchored", async () => {
+    // The only story is ~30h old: outside the 24h pool, inside the 72h fallback window.
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["old30"]); // eligible
+        if (isBriefCall(prompt)) return briefJson();
+        return pieceFor(prompt, 1600);
+      },
+    });
+    const result = await runOpinions(CONFIG,
+      manifestOf(story("old30", { firstSeen: "2026-07-11T09:00:00.000Z" })),
+      sundayAssets(),
+      { generate, now: fixedNow(NOW) },
+    );
+
+    // The widening gated the older story; bob reacts to it — news-anchored, not evergreen.
+    expect(generate.calls.filter(isGateCall)).toHaveLength(1);
+    const bob = result.authors.find((a) => a.author === "bob");
+    expect(bob?.status).toBe("published");
+    expect(bob?.evergreen).toBeUndefined();
+    expect(bob?.sourceArticleIds).toEqual(["old30"]);
+    expect(result.gateSummary).toContain("gate passed 1/1");
+  });
+
+  it("Layer C: does NOT widen when the 24h gate already passed something", async () => {
+    // A fresh eligible story + an older one: eligible>0 after 24h → no widening, older stays ungated.
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["fresh"]);
+        if (isBriefCall(prompt)) return briefJson();
+        return pieceFor(prompt, 1600);
+      },
+    });
+    const result = await runOpinions(CONFIG,
+      manifestOf(
+        story("fresh"),
+        story("old30", { firstSeen: "2026-07-11T09:00:00.000Z" }),
+      ),
+      sundayAssets(),
+      { generate, now: fixedNow(NOW) },
+    );
+
+    // Only the 24h pool (fresh) was gated; the 30h-old story was never sent to the gate.
+    expect(generate.calls.filter(isGateCall)).toHaveLength(1);
+    expect(result.gate?.map((v) => v.id)).toEqual(["fresh"]);
   });
 });
 
