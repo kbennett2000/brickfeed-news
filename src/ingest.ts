@@ -29,9 +29,15 @@ export async function ingest(
   const nowIso = deps.now().toISOString();
   const timeoutMs = deps.resolveTimeoutMs ?? DEFAULT_RESOLVE_TIMEOUT_MS;
 
-  // Fetch + merge every configured feed into one story list.
+  // Fetch + merge every configured feed into one story list, stamping each item with its
+  // source feed's topic (ADR-0032 Layer B) so the generation stage can reserve per-feed budget.
   const merged = (
-    await Promise.all(config.feedUrls.map((url) => fetchFeed(url, deps.fetch)))
+    await Promise.all(
+      config.feeds.map(async (feed) => {
+        const items = await fetchFeed(feed.url, deps.fetch);
+        return feed.topic ? items.map((it) => ({ ...it, feedTopic: feed.topic })) : items;
+      }),
+    )
   ).flat();
 
   const manifest: Manifest = {
@@ -66,6 +72,7 @@ export async function ingest(
       sourceName: item.sourceName,
       firstSeen: nowIso,
       lastSeen: nowIso,
+      ...(item.feedTopic ? { feedTopic: item.feedTopic } : {}),
     };
     manifest.stories[id] = record;
     newStories.push(record);

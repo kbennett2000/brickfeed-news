@@ -18,6 +18,13 @@ export interface FeedItem {
   pubDate: string;
   /** From the per-item <source> element Google News includes. May be "". */
   sourceName: string;
+  /**
+   * Topic label of the source feed (ADR-0032 Layer B) — e.g. "SPORTS". Undefined for the
+   * default/general feed. Stamped at ingest from the feed config; it is provenance (which feed
+   * this arrived on), NOT the assigned news category (the model still picks that at generation).
+   * Used by the generation stage to reserve per-feed budget so low-volume topics don't starve.
+   */
+  feedTopic?: string;
 }
 
 /**
@@ -63,6 +70,12 @@ export interface ManifestRecord {
   firstSeen: string;
   /** ISO timestamp most recently seen in a run. */
   lastSeen: string;
+  /**
+   * Topic label of the feed this story arrived on (ADR-0032 Layer B), e.g. "SPORTS"; undefined
+   * for the general feed. Additive + backward-compatible — records written before this ADR simply
+   * lack it (treated as the default stream). Drives the generation stage's per-feed budget reserve.
+   */
+  feedTopic?: string;
 
   // --- Generation fields (Slice 2). Present only once generation succeeds. ---
   /** Original, rewritten headline (never the feed's verbatim title). */

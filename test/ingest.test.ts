@@ -40,6 +40,22 @@ describe("ingest", () => {
     expect(transit.lastSeen).toBe(NOW);
   });
 
+  it("ADR-0032 B: stamps feedTopic from a topic feed; leaves the general feed untagged", async () => {
+    const topicConfig = makeConfig({
+      feeds: [
+        { url: "feed://a", reserve: 0 }, // general — no topic
+        { url: "feed://b", topic: "SPORTS", reserve: 2 },
+      ],
+    });
+    const result = await ingest(topicConfig, emptyManifest(), deps());
+
+    // FEED_B is the SPORTS feed → its story carries feedTopic; FEED_A stories do not.
+    const sporty = result.newStories.filter((s) => s.feedTopic === "SPORTS");
+    const untagged = result.newStories.filter((s) => s.feedTopic === undefined);
+    expect(sporty).toHaveLength(1); // FEED_B yields 1
+    expect(untagged).toHaveLength(2); // FEED_A yields 2
+  });
+
   it("dedups against a seeded manifest: known stories update lastSeen, not firstSeen", async () => {
     // Seed the manifest with the transit story as already known, at an earlier time.
     const transitUrl =
@@ -102,7 +118,7 @@ describe("ingest", () => {
 
   it("does not double-count a story duplicated within a single run", async () => {
     // Same feed listed twice -> every story appears twice in the merged list.
-    const dupConfig: Config = { ...config, feedUrls: ["feed://a", "feed://a"] };
+    const dupConfig: Config = makeConfig({ feedUrls: ["feed://a", "feed://a"] });
     const result = await ingest(dupConfig, emptyManifest(), deps());
 
     // FEED_A has 2 valid stories; duplicates collapse to 2 NEW, not 4.

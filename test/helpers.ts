@@ -76,8 +76,9 @@ export function fixedNow(iso: string): () => Date {
 
 /** A complete, valid Config for tests; override any field via `over`. */
 export function makeConfig(over: Partial<Config> = {}): Config {
-  return {
+  const merged: Config = {
     feedUrls: ["feed://a"],
+    feeds: [{ url: "feed://a", reserve: 0 }],
     manifestPath: "unused-in-these-tests.json",
     generator: {
       provider: "grok",
@@ -143,6 +144,14 @@ export function makeConfig(over: Partial<Config> = {}): Config {
     },
     ...over,
   };
+  // Keep feeds ⇄ feedUrls consistent: if a test overrides feedUrls (but not feeds), derive
+  // feeds from it; if it overrides feeds, derive feedUrls from that (mirrors validateConfig).
+  if (over.feeds) {
+    merged.feedUrls = over.feeds.map((f) => f.url);
+  } else if (over.feedUrls) {
+    merged.feeds = over.feedUrls.map((url) => ({ url, reserve: 0 }));
+  }
+  return merged;
 }
 
 /** Encode a string to bytes — canned response bodies / image payloads for image tests. */

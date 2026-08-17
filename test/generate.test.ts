@@ -231,6 +231,59 @@ describe("generateAll", () => {
     expect(isGenerated(result.manifest.stories.new)).toBe(true);
   });
 
+  it("ADR-0032 B: a per-feed reserve rescues a low-volume topic from the newest-first cap", async () => {
+    const at = (id: string, title: string, firstSeen: string, feedTopic?: string): ManifestRecord => ({
+      ...pending(id, title),
+      firstSeen,
+      ...(feedTopic ? { feedTopic } : {}),
+    });
+    const cfg = makeConfig({
+      feeds: [
+        { url: "feed://general", reserve: 0 },
+        { url: "feed://sports", topic: "SPORTS", reserve: 1 },
+      ],
+    });
+    const gen = fakeGenerator({});
+    const result = await generateAll(
+      cfg,
+      manifestOf(
+        at("sport-old", "SPORT", "2025-07-01T00:00:00.000Z", "SPORTS"), // oldest → would starve
+        at("gen1", "G1", "2025-07-05T00:00:00.000Z"),
+        at("gen2", "G2", "2025-07-08T00:00:00.000Z"), // newest
+      ),
+      deps(gen),
+      { limit: 2 },
+    );
+    // The SPORTS reserve guarantees the old sports story a slot; the other slot goes to the
+    // newest general story (G2). G1 is deferred despite being newer than the reserved sports one.
+    expect(gen.calls.map((c) => c.title).sort()).toEqual(["G2", "SPORT"]);
+    expect(isGenerated(result.manifest.stories["sport-old"])).toBe(true);
+    expect(isGenerated(result.manifest.stories.gen2)).toBe(true);
+    expect(isGenerated(result.manifest.stories.gen1)).toBe(false);
+  });
+
+  it("ADR-0032 B: with no reserves configured, selection stays pure newest-first", async () => {
+    const at = (id: string, title: string, firstSeen: string, feedTopic?: string): ManifestRecord => ({
+      ...pending(id, title),
+      firstSeen,
+      ...(feedTopic ? { feedTopic } : {}),
+    });
+    const gen = fakeGenerator({});
+    const result = await generateAll(
+      config, // makeConfig default: single reserve-0 feed
+      manifestOf(
+        at("sport-old", "SPORT", "2025-07-01T00:00:00.000Z", "SPORTS"),
+        at("gen1", "G1", "2025-07-05T00:00:00.000Z"),
+        at("gen2", "G2", "2025-07-08T00:00:00.000Z"),
+      ),
+      deps(gen),
+      { limit: 2 },
+    );
+    // No reserve → the newest two win; the old sports story is starved (the pre-ADR behavior).
+    expect(gen.calls.map((c) => c.title)).toEqual(["G2", "G1"]);
+    expect(isGenerated(result.manifest.stories["sport-old"])).toBe(false);
+  });
+
   it("limit counts attempts, not skips: already-done records don't consume the budget", async () => {
     const gen = fakeGenerator({});
     const result = await generateAll(

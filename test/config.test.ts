@@ -112,6 +112,34 @@ describe("validateConfig", () => {
     expect(() => validateConfig({ ...base, feedUrls: [123] })).toThrow();
   });
 
+  it("ADR-0032: accepts structured feed entries and derives feeds + feedUrls", () => {
+    const cfg = validateConfig({
+      ...base,
+      feedUrls: [
+        "https://general",
+        { url: "https://sports", topic: "SPORTS", reserve: 3 },
+        { url: "https://tech", topic: "TECHNOLOGY" }, // reserve defaults to 0
+      ],
+    });
+    expect(cfg.feedUrls).toEqual(["https://general", "https://sports", "https://tech"]);
+    expect(cfg.feeds).toEqual([
+      { url: "https://general", reserve: 0 },
+      { url: "https://sports", topic: "SPORTS", reserve: 3 },
+      { url: "https://tech", topic: "TECHNOLOGY", reserve: 0 },
+    ]);
+  });
+
+  it("ADR-0032: rejects a structured feed with a bad url/topic/reserve", () => {
+    expect(() => validateConfig({ ...base, feedUrls: [{ topic: "SPORTS" }] })).toThrow(); // no url
+    expect(() => validateConfig({ ...base, feedUrls: [{ url: "https://x", topic: "" }] })).toThrow();
+    expect(() =>
+      validateConfig({ ...base, feedUrls: [{ url: "https://x", reserve: -1 }] }),
+    ).toThrow();
+    expect(() =>
+      validateConfig({ ...base, feedUrls: [{ url: "https://x", reserve: 1.5 }] }),
+    ).toThrow();
+  });
+
   it("rejects a non-object config", () => {
     expect(() => validateConfig(null)).toThrow();
     expect(() => validateConfig("nope")).toThrow();

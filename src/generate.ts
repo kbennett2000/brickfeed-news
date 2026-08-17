@@ -67,16 +67,11 @@ export async function generateAll(
   };
   const log = deps.log ?? (() => {});
 
-  // Select pending records NEWEST-first (by firstSeen desc), capped by opts.limit.
-  // Ingest appends new stories to the END of the manifest, so iterating insertion order
-  // drains the OLDEST backlog first; when ingest outruns the per-cycle budget the fresh-story
-  // frontier never advances (the homepage lead and the 24h opinion candidate window both stay
-  // pinned to yesterday). Ordering newest-first spends the budget on today's stories; older
-  // un-generated stragglers simply age out, which is correct for a news site. Already-generated
-  // and opinion records are counted as skipped and never consume the attempt budget.
+  // Collect PENDING records NEWEST-first (by firstSeen desc). Already-generated and opinion
+  // records are counted as skipped and never consume the attempt budget.
   const firstSeenOf = (id: string) => manifest.stories[id].firstSeen || "";
   let skipped = 0;
-  const eligible: string[] = [];
+  const pending: string[] = [];
   const orderedIds = Object.keys(manifest.stories).sort((a, b) =>
     firstSeenOf(b).localeCompare(firstSeenOf(a)),
   );
@@ -92,8 +87,57 @@ export async function generateAll(
       skipped++;
       continue;
     }
-    if (opts.limit != null && eligible.length >= opts.limit) continue;
-    eligible.push(id);
+    pending.push(id);
+  }
+
+  // Select up to opts.limit, reserving per-feed generation budget (ADR-0032 Layer B). Pure
+  // newest-first (the historic behavior) drains the high-volume general firehose first, so
+  // low-volume topic feeds (SPORTS, TECHNOLOGY, …) never get generated and their stories age
+  // out un-categorized. A feed with `reserve: N` first claims up to N of its own newest pending
+  // stories; the rest of the budget then fills newest-first across everything. With no reserves
+  // configured this is exactly the old newest-first cap. No cap (limit==null) → generate all.
+  const eligible = ((): string[] => {
+    if (opts.limit == null) return pending;
+    const limit = opts.limit;
+    const reserves = new Map<string, number>();
+    for (const feed of config.feeds) {
+      if (feed.topic && feed.reserve > 0) {
+        reserves.set(feed.topic, (reserves.get(feed.topic) ?? 0) + feed.reserve);
+      }
+    }
+    const picked = new Set<string>();
+    const selected: string[] = [];
+    // Phase 1: satisfy each topic's reserve, newest-first within that topic.
+    for (const [topic, reserve] of reserves) {
+      let taken = 0;
+      for (const id of pending) {
+        if (selected.length >= limit || taken >= reserve) break;
+        if (picked.has(id)) continue;
+        if (manifest.stories[id].feedTopic === topic) {
+          selected.push(id);
+          picked.add(id);
+          taken++;
+        }
+      }
+      if (selected.length >= limit) break;
+    }
+    // Phase 2: fill the remaining budget newest-first across all still-pending stories.
+    for (const id of pending) {
+      if (selected.length >= limit) break;
+      if (!picked.has(id)) {
+        selected.push(id);
+        picked.add(id);
+      }
+    }
+    // Emit in newest-first order (a reserved older story sorts to the back) for stable output.
+    return selected.sort((a, b) => firstSeenOf(b).localeCompare(firstSeenOf(a)));
+  })();
+
+  if (opts.limit != null && pending.length > eligible.length) {
+    log(
+      `generate: ${pending.length} pending, generating ${eligible.length} this run ` +
+        `(${pending.length - eligible.length} deferred)`,
+    );
   }
 
   const total = eligible.length;

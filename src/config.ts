@@ -6,8 +6,28 @@ import type { TtsTask } from "./generator/tts.js";
  * the two auth tokens come from env, confined to src/secrets.ts. This file reads
  * no environment.
  */
+/**
+ * One configured source feed (ADR-0032 Layer B). Config accepts either a bare URL string
+ * (general feed, no topic) or an object with a `topic` label and a per-cycle generation
+ * `reserve`. The topic is stamped onto ingested stories (`feedTopic`) and the reserve makes
+ * the generation stage set aside that many slots for the feed so a low-volume topic never
+ * starves behind the high-volume general firehose.
+ */
+export interface Feed {
+  url: string;
+  /** Topic label stamped onto this feed's stories; undefined = general/default feed. */
+  topic?: string;
+  /** Minimum stories to generate from this feed's pending backlog each cycle. Default 0. */
+  reserve: number;
+}
+
 export interface Config {
-  /** One or more RSS feed URLs. Google News RSS by default, but swappable. */
+  /**
+   * Structured source feeds (ADR-0032). Authoritative; `feedUrls` is derived from it. Input
+   * accepts `string | { url, topic?, reserve? }` per entry.
+   */
+  feeds: Feed[];
+  /** The feed URLs, in config order — derived from `feeds` (back-compat + dry-run reporting). */
   feedUrls: string[];
   /** Where the text-only JSON manifest lives. */
   manifestPath: string;
@@ -460,14 +480,8 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
   }
   const obj = parsed as Record<string, unknown>;
 
-  const feedUrls = obj.feedUrls;
-  if (
-    !Array.isArray(feedUrls) ||
-    feedUrls.length === 0 ||
-    !feedUrls.every((u) => typeof u === "string" && u.length > 0)
-  ) {
-    throw new Error(`Config at ${path} needs a non-empty feedUrls string array.`);
-  }
+  const feeds = validateFeeds(obj.feedUrls, path);
+  const feedUrls = feeds.map((f) => f.url);
 
   const manifestPath = obj.manifestPath;
   if (typeof manifestPath !== "string" || manifestPath.length === 0) {
@@ -514,7 +528,8 @@ export function validateConfig(parsed: unknown, path = "config"): Config {
   const comments = validateComments(obj.comments, path);
 
   return {
-    feedUrls: feedUrls as string[],
+    feeds,
+    feedUrls,
     manifestPath,
     generator,
     brickStyle,
@@ -591,6 +606,52 @@ function validateComments(raw: unknown, path: string): CommentsConfig {
 }
 
 /** Validate an optional positive-integer field, defaulting when omitted. */
+/**
+ * Normalize + validate the `feedUrls` config into structured feeds (ADR-0032 Layer B). Each
+ * entry is either a bare non-empty URL string (general feed, no topic, reserve 0) or an object
+ * `{ url, topic?, reserve? }` with a non-empty url, an optional non-empty topic label, and an
+ * optional non-negative integer reserve (default 0). Empty array or any bad entry throws.
+ */
+function validateFeeds(raw: unknown, path: string): Feed[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error(`Config at ${path} needs a non-empty feedUrls array.`);
+  }
+  return raw.map((entry, i): Feed => {
+    if (typeof entry === "string") {
+      if (entry.length === 0) {
+        throw new Error(`Config at ${path}: feedUrls[${i}] must be a non-empty URL string.`);
+      }
+      return { url: entry, reserve: 0 };
+    }
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new Error(
+        `Config at ${path}: feedUrls[${i}] must be a URL string or an object with a url.`,
+      );
+    }
+    const o = entry as Record<string, unknown>;
+    if (typeof o.url !== "string" || o.url.length === 0) {
+      throw new Error(`Config at ${path}: feedUrls[${i}].url must be a non-empty string.`);
+    }
+    let topic: string | undefined;
+    if (o.topic != null) {
+      if (typeof o.topic !== "string" || o.topic.length === 0) {
+        throw new Error(`Config at ${path}: feedUrls[${i}].topic must be a non-empty string.`);
+      }
+      topic = o.topic;
+    }
+    let reserve = 0;
+    if (o.reserve != null) {
+      if (typeof o.reserve !== "number" || !Number.isInteger(o.reserve) || o.reserve < 0) {
+        throw new Error(
+          `Config at ${path}: feedUrls[${i}].reserve must be a non-negative integer.`,
+        );
+      }
+      reserve = o.reserve;
+    }
+    return { url: o.url, ...(topic ? { topic } : {}), reserve };
+  });
+}
+
 function validatePositiveInt(
   raw: unknown,
   fallback: number,
