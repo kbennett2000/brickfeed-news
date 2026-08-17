@@ -10,7 +10,6 @@ selection_bias:
   POLITICS: 1
   BUSINESS: 1
   SCIENCE: 1
-  SPORTS: 1
   CULTURE: 1
 ---
 

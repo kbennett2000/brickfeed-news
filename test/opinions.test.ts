@@ -257,18 +257,46 @@ describe("weightedSample — bias-weighted, floor for unlisted, no replacement",
   const c = (id: string, category: ManifestRecord["category"]) => story(id, { category });
 
   it("respects bias weights deterministically with an injected rng", () => {
-    const candidates = [c("p", "POLITICS"), c("w", "WORLD"), c("s", "SPORTS")];
-    const bias = { POLITICS: 3, WORLD: 1 }; // s → floor 0.25; total 4.25
-    // roll 0 → lands in p's [0,3); then remaining total 1.25, roll 0.9*1.25=1.125 → s.
+    const candidates = [c("p", "POLITICS"), c("w", "WORLD"), c("u", "CULTURE")];
+    const bias = { POLITICS: 3, WORLD: 1 }; // u → floor 0.25; total 4.25
+    // roll 0 → lands in p's [0,3); then remaining total 1.25, roll 0.9*1.25=1.125 → u.
     const picked = weightedSample(candidates, bias, 2, seq(0, 0.9));
-    expect(picked.map((r) => r.id)).toEqual(["p", "s"]);
+    expect(picked.map((r) => r.id)).toEqual(["p", "u"]);
   });
 
-  it("an unlisted section is rare but reachable (floor weight, never zero)", () => {
-    const candidates = [c("p", "POLITICS"), c("s", "SPORTS")];
-    // total 3.25; roll 0.99*3.25 = 3.2175 > 3 → the floor-weighted SPORTS story.
+  it("an unlisted NON-owned section is rare but reachable (floor weight, never zero)", () => {
+    const candidates = [c("p", "POLITICS"), c("u", "CULTURE")];
+    // total 3.25; roll 0.99*3.25 = 3.2175 > 3 → the floor-weighted CULTURE story.
     const picked = weightedSample(candidates, { POLITICS: 3 }, 1, seq(0.99));
+    expect(picked.map((r) => r.id)).toEqual(["u"]);
+  });
+
+  it("an OWNED section (SPORTS) is never drawn by a persona that doesn't list it", () => {
+    const candidates = [c("p", "POLITICS"), c("s", "SPORTS")];
+    // SPORTS is weight 0 for a non-owner even at the FP-edge roll → only POLITICS is drawable.
+    const picked = weightedSample(candidates, { POLITICS: 3 }, 2, seq(0.99, 0.99));
+    expect(picked.map((r) => r.id)).toEqual(["p"]);
+  });
+
+  it("an OWNED section IS drawn by the persona that explicitly lists it", () => {
+    const candidates = [c("s1", "SPORTS"), c("s2", "SPORTS")];
+    const picked = weightedSample(candidates, { SPORTS: 1 }, 2, seq(0.1, 0.9));
+    expect(new Set(picked.map((r) => r.id)).size).toBe(2);
+  });
+
+  it("exclusive: only explicitly-listed sections are eligible (Hodge = SPORTS-only)", () => {
+    const candidates = [c("s", "SPORTS"), c("p", "POLITICS"), c("u", "CULTURE")];
+    // With exclusive=true, POLITICS/CULTURE are hard-excluded even though CULTURE would
+    // normally floor-weight in; only the listed SPORTS story is drawable.
+    const picked = weightedSample(candidates, { SPORTS: 1 }, 3, seq(0.5, 0.5, 0.5), true);
     expect(picked.map((r) => r.id)).toEqual(["s"]);
+  });
+
+  it("returns empty when nothing is positively weighted (→ caller's evergreen fallback)", () => {
+    // A SPORTS-only exclusive persona with no SPORTS candidate draws nothing.
+    const candidates = [c("p", "POLITICS"), c("w", "WORLD")];
+    const picked = weightedSample(candidates, { SPORTS: 1 }, 3, seq(0.5), true);
+    expect(picked).toEqual([]);
   });
 
   it("samples without replacement and caps at the pool size", () => {

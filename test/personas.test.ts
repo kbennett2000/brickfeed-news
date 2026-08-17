@@ -39,7 +39,24 @@ describe("parsePersona", () => {
     expect(p!.displayName).toBe("Alice");
     expect(p!.bylineBlurb).toBe("Alice is a test blurb.");
     expect(p!.selectionBias).toEqual({ POLITICS: 3, WORLD: 2 });
+    expect(p!.sectionsExclusive).toBeUndefined();
     expect(p!.body).toBe("You are Alice. Escalate everything.");
+  });
+
+  it("parses sections_exclusive: true (ADR-0032 Layer E) on a news persona", () => {
+    const p = parsePersona(VALID.replace("source: news\n", "source: news\nsections_exclusive: true\n"));
+    expect(p!.sectionsExclusive).toBe(true);
+  });
+
+  it("sections_exclusive only enables on the literal true; anything else is non-exclusive", () => {
+    expect(
+      parsePersona(VALID.replace("source: news\n", "source: news\nsections_exclusive: false\n"))!
+        .sectionsExclusive,
+    ).toBeUndefined();
+    expect(
+      parsePersona(VALID.replace("source: news\n", "source: news\nsections_exclusive: yes\n"))!
+        .sectionsExclusive,
+    ).toBeUndefined();
   });
 
   it("returns null when a required scalar is missing", () => {

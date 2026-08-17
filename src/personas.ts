@@ -73,6 +73,12 @@ export interface Persona {
    * Required (non-empty) for `news`; forbidden for `letters` (always {} there).
    */
   selectionBias: Partial<Record<Category, number>>;
+  /**
+   * `news` only (ADR-0032 Layer E). When true the persona writes ONLY the sections it
+   * explicitly lists in `selectionBias` — unlisted sections are hard-excluded from its
+   * candidate pool, with no FLOOR_WEIGHT leakage. Used to bind Hodge to SPORTS.
+   */
+  sectionsExclusive?: boolean;
   /** UTC weekdays this letters persona posts on — an overlay on the daily rotation pair. */
   schedule?: Weekday[];
   /** The column's banner title on letter pieces (e.g. "Tom's Tech Corner"). */
@@ -203,7 +209,19 @@ export function parsePersona(text: string): Persona | null {
     // letters-only fields must not sneak in and silently mean nothing.
     if (Object.keys(selectionBias).length === 0) return null;
     if (scalars.has("schedule") || scalars.has("column_title")) return null;
-    return { name, displayName, bylineBlurb, ...(bio ? { bio } : {}), source, selectionBias, body };
+    // Optional section-exclusivity flag (ADR-0032). Only the literal `true` enables it;
+    // absent/any other value is false. A typo'd value degrades to non-exclusive, never throws.
+    const sectionsExclusive = scalars.get("sections_exclusive") === "true";
+    return {
+      name,
+      displayName,
+      bylineBlurb,
+      ...(bio ? { bio } : {}),
+      source,
+      selectionBias,
+      ...(sectionsExclusive ? { sectionsExclusive: true } : {}),
+      body,
+    };
   }
 
   // Letters personas: schedule + column_title required, selection_bias forbidden.

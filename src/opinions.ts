@@ -289,20 +289,41 @@ export function parseGateVerdicts(text: string, ids: string[]): Map<string, Gate
 }
 
 /**
+ * Sections that are OWNED by their listed personas (ADR-0032 Layer E): a persona that
+ * does NOT explicitly list an owned section never draws it (weight 0), instead of the
+ * usual FLOOR_WEIGHT. SPORTS is owned by Hodge — no other columnist covers sports.
+ */
+export const OWNED_SECTIONS: ReadonlySet<Category> = new Set<Category>(["SPORTS"]);
+
+/**
  * Sample up to `k` records without replacement, weighting each by the persona's bias
- * for its section (unlisted sections get FLOOR_WEIGHT — rare, never zero). `rng` is a
- * uniform [0,1) source; cumulative-weight walk per draw.
+ * for its section. Weighting rules (ADR-0032):
+ *  - a section listed in `bias` uses that weight;
+ *  - an unlisted section gets FLOOR_WEIGHT (rare, never zero) — UNLESS it is an OWNED
+ *    section (weight 0, never drawn by a non-owner) or `exclusive` is set (weight 0, the
+ *    persona writes only its listed sections).
+ * Zero-weight candidates are dropped up front, so if nothing is positively weighted the
+ * result is empty (the caller then falls back to an evergreen piece). `rng` is a uniform
+ * [0,1) source; cumulative-weight walk per draw.
  */
 export function weightedSample(
   candidates: ManifestRecord[],
   bias: Partial<Record<Category, number>>,
   k: number,
   rng: () => number,
+  exclusive = false,
 ): ManifestRecord[] {
-  const remaining = [...candidates];
+  const weightOf = (r: ManifestRecord): number => {
+    const cat = r.category;
+    if (cat !== undefined && bias[cat] !== undefined) return bias[cat] as number;
+    if (exclusive) return 0; // exclusive persona: only explicitly-listed sections
+    if (cat !== undefined && OWNED_SECTIONS.has(cat)) return 0; // owned section, non-owner
+    return FLOOR_WEIGHT;
+  };
+  // Drop zero-weight candidates so every remaining draw is positively weighted (no
+  // FP-edge fallback can ever select a section this persona must not write).
+  const remaining = candidates.filter((r) => weightOf(r) > 0);
   const picked: ManifestRecord[] = [];
-  const weightOf = (r: ManifestRecord): number =>
-    (r.category !== undefined ? bias[r.category] : undefined) ?? FLOOR_WEIGHT;
 
   while (picked.length < k && remaining.length > 0) {
     const total = remaining.reduce((sum, r) => sum + weightOf(r), 0);
@@ -620,7 +641,13 @@ export async function runOpinions(
     try {
       let picks: ManifestRecord[] = [];
       if (persona.source === "news") {
-        picks = weightedSample(eligible, persona.selectionBias, 3, rng);
+        picks = weightedSample(
+          eligible,
+          persona.selectionBias,
+          3,
+          rng,
+          persona.sectionsExclusive ?? false,
+        );
         if (picks.length === 0) {
           const detail = gateFailed
             ? "topic gate failed closed"

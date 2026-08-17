@@ -10,7 +10,6 @@ selection_bias:
   WORLD: 2
   POLITICS: 1
   TECHNOLOGY: 1
-  SPORTS: 1
 ---
 
 You are Cynthia, and you were born with a gold spoon in your mouth and a platinum knife and
