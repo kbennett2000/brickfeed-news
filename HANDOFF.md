@@ -1,6 +1,10 @@
 # Handoff
 
-## Opinion supply diversity + grim-day fallbacks — ADR-0032 (E+D SHIPPED 2026-08-17; A+B+C QUEUED)
+## Opinion supply diversity + grim-day fallbacks — ADR-0032 (ALL FIVE LAYERS SHIPPED 2026-08-17)
+
+> **UPDATE (same session):** A + B + C landed too — the full slice is on `master`. See "SHIPPED —
+> the supply fix" below; the original "QUEUED" notes are kept for context but are now done.
+
 
 Interactive owner session. Trigger: only **1** opinion piece published 2026-08-17 (Tom, a letter
 column) vs. the usual 4–5. Root-caused end to end.
@@ -37,7 +41,27 @@ evergreen rather than skip. **Hodge publishes sports-voiced EVERGREEN every day 
 sports"); if the owner would rather Hodge keep doing real non-sports news until B lands, revert the
 `personas/hodge.md` change (the E mechanism stays).
 
-**QUEUED — next slice (spec'd in ADR-0032), the actual root-cause supply fix:**
+**SHIPPED — the supply fix (A+B+C), landed on `master`, 869 tests green, tsc clean:**
+- **Layer B — feed-origin tagging + per-feed generation quota.** Optional `feedTopic` on
+  `FeedItem`/`ManifestRecord` (additive); `config.feedUrls` entries may now be `{ url, topic?,
+  reserve? }` (normalized to `config.feeds`, `feedUrls` derived); ingest stamps `feedTopic`;
+  `generateAll` reserves per-feed budget (newest-first within a topic) then fills the rest
+  newest-first — no reserves configured = the old pure newest-first cap. **This is the root-cause
+  fix**: sports/tech/science now get generated instead of starving in the backlog.
+- **Layer A — safe-topic feeds.** `config.json` (live) + `config.example.json` now carry SPORTS
+  (reserve 4), ENTERTAINMENT (3), TECHNOLOGY (3), SCIENCE (2) topic feeds; `maxStoriesPerCycle`
+  raised 10 → 30 (live) so reserves + the general firehose both fit.
+- **Layer C — 72h window fallback.** `runOpinions` widens the candidate pool to 72h and gates the
+  older delta when the 24h gate passes 0 eligible (and didn't fail closed), before evergreen. Gate
+  path refactored into a shared `gatePool()` helper.
+
+**Watch next cycles (live effects, from ~next 10:00Z opinions run):** the SPORTS/ENTERTAINMENT/etc.
+sections should start populating within a cycle or two as the backlog drains under the reserves +
+raised cap; once SPORTS has candidates, **Hodge switches from evergreen to real sports** automatically
+(no code change). If the box can't keep up with generation volume, lower `maxStoriesPerCycle` or the
+reserves in `config.json`.
+
+**ORIGINAL QUEUED NOTES (now done — kept for context):** the actual root-cause supply fix:
 - **Layer B — feed-origin tagging + per-feed generation quota.** Pending stories have no category
   yet (generation assigns it) and ingest doesn't record feed origin — so add an optional `feedTopic`
   to `FeedItem`/`ManifestRecord` (additive, backward-compatible), tag it at ingest, and make
@@ -53,8 +77,8 @@ sports"); if the owner would rather Hodge keep doing real non-sports news until 
   the 24h gate yields 0 eligible and did not fail closed. Low marginal value until A+B populate the
   wider pool, so sequenced with them.
 
-Docs to refresh when A/B/C land: `docs/COLUMNISTS.md` (evergreen as a third column mode; Hodge
-sports-only), `docs/CONFIGURATION.md` (feedTopic + maxStoriesPerCycle).
+Docs refreshed this session: `docs/COLUMNISTS.md` (evergreen as a third column mode; Hodge
+sports-only), `docs/CONFIGURATION.md` (feed `topic`/`reserve` + maxStoriesPerCycle-as-generation).
 
 ## Letter columns must reproduce the reader's letter — SHIPPED (2026-08-16, ADR-0031)
 

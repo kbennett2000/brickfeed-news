@@ -55,7 +55,10 @@ Every columnist has a live bio page with their recent columns — click a name t
 ## Two kinds of columns
 
 - **News reactors** (Alice, Bob, Cynthia, Edgar, Hodge, Larry, Stryker) grab a real story in their
-  beat and run the wrong way with it.
+  beat and run the wrong way with it. **Hodge covers sports and only sports** — he's the paper's sole
+  sports columnist. On a day when no story in a reactor's beat is fit to satirize (a grim news cycle
+  where the safety gate declines everything), they don't go dark — they file an **evergreen** column
+  instead: the same voice aimed at something small and timeless, with no news peg (ADR-0032).
 - **Letter answerers** (Priscilla and Tom) instead respond to invented "reader letters" — Priscilla
   hands out romantic advice; Tom tries, and fails, to make technology simple.
 

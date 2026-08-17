@@ -24,14 +24,14 @@ minimal config is valid. Only **`feedUrls`** and **`manifestPath`** are strictly
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `feedUrls` | string[] | — (**required**) | RSS feed URLs to ingest. Must be non-empty. |
+| `feedUrls` | array | — (**required**) | Source feeds to ingest, non-empty. Each entry is a bare URL **string**, or an **object** `{ "url", "topic"?, "reserve"? }` (ADR-0032). `topic` labels the feed (e.g. `"SPORTS"`, stamped onto each story as provenance — NOT the assigned category); `reserve` (default `0`) is the minimum stories generated from that feed's backlog each cycle, so a low-volume topic feed isn't starved by the high-volume general feed. |
 | `manifestPath` | string | — (**required**) | Path to the story-state JSON manifest (example: `data/manifest.json`). |
 | `publishedPath` | string | `data/published.json` | Path to the newest-first publishable slice the renderer reads. |
 | `maxAgeHours` | number | `72` | Records whose `lastSeen` is older than this are aged out and their images deleted. |
 | `opinionMaxAgeHours` | number | `168` | Retention window for OPINION stories only; all other categories use `maxAgeHours`. Never falls back to `maxAgeHours` (ADR-0013). |
 | `opinionPublishHourUTC` | number | `13` | UTC hour (integer 0–23) the cycle's opinions stage first runs each day; the gate is `>=` so a missed tick self-heals next cycle. `npm run opinions` bypasses it (ADR-0018). |
 | `concurrency` | number | `4` | Parallel stories processed in the generate and image stages. |
-| `maxStoriesPerCycle` | number | `40` | Cap on new stories imaged per cycle, so a backlog spreads over several cron ticks. |
+| `maxStoriesPerCycle` | number | `40` | Cap on new stories **generated** per cycle, so a backlog spreads over several cron ticks. Per-feed `reserve` shares are carved out of this budget first, then the rest fills newest-first (ADR-0032). |
 | `brickStyle.styleLanguage` | string | — (**required**) | The toy-brick style text wrapped around every image prompt. Kept in config, never hardcoded; generic bricks only (no trademark). |
 
 ### `generator` — text generation
