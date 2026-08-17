@@ -42,6 +42,14 @@ export const LETTERS_PERSONA_FILE = "_letters.md";
  */
 export const COMMENTS_PERSONA_FILE = "_comments.md";
 
+/**
+ * The evergreen last-resort block (ADR-0032 Layer D), prepended after `_shared.md` when a
+ * `source: news` persona has no eligible source story (grim-day fallback). It overrides the
+ * shared "react only to the source articles" rule with a no-source, no-news contract so every
+ * scheduled news columnist still publishes. Hand-authored + versioned; not a persona.
+ */
+export const EVERGREEN_PERSONA_FILE = "_evergreen.md";
+
 /** Where a persona's pieces come from (ADR-0014 decision 1). */
 export type PersonaSource = "news" | "letters";
 
@@ -272,6 +280,8 @@ export interface OpinionAssets {
   letters: string;
   /** Contents of `_comments.md` — prepended to every reader-comment prompt (ADR-0028). */
   comments: string;
+  /** Contents of `_evergreen.md` — the no-source fallback block for news personas (ADR-0032). */
+  evergreen: string;
 }
 
 /**
@@ -289,7 +299,8 @@ export async function loadPersonaAssets(
   const shared = await io.readText(`${dir}/${SHARED_PERSONA_FILE}`);
   const letters = await io.readText(`${dir}/${LETTERS_PERSONA_FILE}`);
   const comments = await io.readText(`${dir}/${COMMENTS_PERSONA_FILE}`);
-  return { personas, shared, letters, comments };
+  const evergreen = await io.readText(`${dir}/${EVERGREEN_PERSONA_FILE}`);
+  return { personas, shared, letters, comments, evergreen };
 }
 
 /**

@@ -64,6 +64,7 @@ function sundayAssets(): OpinionAssets {
     shared: "SHARED RULES",
     letters: "LETTER RULES",
     comments: "COMMENT RULES",
+    evergreen: "EVERGREEN RULES",
   };
 }
 

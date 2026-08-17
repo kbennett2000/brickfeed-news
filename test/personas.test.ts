@@ -279,14 +279,21 @@ const personasDir = fileURLToPath(new URL("../personas/", import.meta.url));
 const headshotsDir = fileURLToPath(new URL("../assets/headshots/", import.meta.url));
 
 describe("committed persona files", () => {
-  it("personas/ holds exactly the nine-author roster plus the three _ support blocks", () => {
+  it("personas/ holds exactly the nine-author roster plus the four _ support blocks", () => {
     const mds = readdirSync(personasDir).filter((f) => f.endsWith(".md"));
     expect(mds.sort()).toEqual([
       "_comments.md",
+      "_evergreen.md",
       "_letters.md",
       "_shared.md",
       ...ROSTER.map((n) => `${n}.md`),
     ]);
+  });
+
+  it("_evergreen.md carries the no-source fallback contract (ADR-0032)", () => {
+    const evergreen = readFileSync(`${personasDir}_evergreen.md`, "utf8");
+    expect(evergreen).toContain("Invent NO news");
+    expect(evergreen).toContain("You have no news story today");
   });
 
   it("_shared.md is non-empty and carries the register and guardrail blocks", () => {

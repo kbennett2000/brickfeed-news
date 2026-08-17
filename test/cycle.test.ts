@@ -328,6 +328,7 @@ describe("runCycle — opinions stage (ADR-0015/0016): tolerant, ordered before 
     shared: "SHARED RULES",
     letters: "LETTER RULES",
     comments: "COMMENT RULES",
+    evergreen: "EVERGREEN RULES",
   };
 
   it("a throwing persona-assets boundary keeps ok:true and the cycle deploys", async () => {
@@ -348,8 +349,8 @@ describe("runCycle — opinions stage (ADR-0015/0016): tolerant, ordered before 
   it("same-cycle hero: the letter piece publishes, images, and reaches the rendered site", async () => {
     const config = makeConfig();
     // The piece impl is valid for tom's letter column but NOT valid JSON for the gate
-    // call → the gate fails closed and both news authors skip (isolated tolerance);
-    // the brief impl gives tom his hero prompt + caption (ADR-0016).
+    // call → the gate fails closed, so the two news authors fall back to evergreen
+    // (ADR-0032 D) rather than skip; the brief impl gives each its hero prompt + caption.
     const textGenerator = fakeTextGenerator({
       impl: (prompt) =>
         prompt.includes("image brief")
@@ -382,7 +383,7 @@ describe("runCycle — opinions stage (ADR-0015/0016): tolerant, ordered before 
 
     expect(result.ok).toBe(true);
     expect(result.stages.opinions).toBe(
-      "1 published, 2 skipped, 0 failed; gate failed closed (1 candidate(s) excluded)",
+      "3 published (2 evergreen), 0 skipped, 0 failed; gate failed closed (1 candidate(s) excluded)",
     );
     // The piece carries its brief AND — because opinions now runs before the image
     // stage (ADR-0016 d.5) — its hero, all within this one cycle.
@@ -416,6 +417,7 @@ describe("runCycle — opinion publish-hour gate + OPINION-STALE (ADR-0018)", ()
     shared: "SHARED RULES",
     letters: "LETTER RULES",
     comments: "COMMENT RULES",
+    evergreen: "EVERGREEN RULES",
   };
 
   /** An OPINION record whose lastSeen is `hoursOld` before NOW. */

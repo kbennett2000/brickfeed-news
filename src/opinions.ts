@@ -146,6 +146,8 @@ export interface AuthorOutcome {
   status: AuthorStatus;
   detail?: string;
   sourceArticleIds?: string[];
+  /** True when a news persona published an evergreen (no-source) fallback piece (ADR-0032 D). */
+  evergreen?: boolean;
 }
 
 export interface OpinionsResult {
@@ -374,6 +376,19 @@ export function buildOpinionPrompt(
     ].join("\n\n");
   }
 
+  // Evergreen fallback (ADR-0032 Layer D): a news persona with no eligible source story
+  // still publishes — a timeless, no-source column in its voice. The `_evergreen.md` block
+  // overrides the shared "react only to the articles" rule.
+  if (articles.length === 0) {
+    return [
+      assets.shared.trim(),
+      assets.evergreen.trim(),
+      persona.body,
+      `Write one ${min}-${max} word evergreen column per the instructions above — no source ` +
+        `story today. ${titleRule}`,
+    ].join("\n\n");
+  }
+
   const blocks = articles.map((r, i) => {
     const lines = [r.headline ?? r.title];
     if (r.description) lines.push(r.description);
@@ -456,9 +471,11 @@ export function buildImageBriefPrompt(
   const subject =
     persona.source === "letters"
       ? "the everyday situation described in the reader letter the piece answers"
-      : "the news story the piece reacts to (see the source articles below)";
+      : articles.length === 0
+        ? "the ordinary, everyday subject the piece is about"
+        : "the news story the piece reacts to (see the source articles below)";
   const articleBlocks =
-    persona.source === "letters"
+    articles.length === 0
       ? ""
       : "\n\nSOURCE ARTICLES the piece reacts to:\n" +
         articles
@@ -640,6 +657,10 @@ export async function runOpinions(
     const key = opinionKey(persona.name, date);
     try {
       let picks: ManifestRecord[] = [];
+      // A news persona with no eligible pick does NOT skip — it publishes an evergreen
+      // (no-source) column so every scheduled columnist still runs (ADR-0032 Layer D). An
+      // evergreen piece needs no gate: with no source story it cannot satirize a tragedy.
+      let evergreen = false;
       if (persona.source === "news") {
         picks = weightedSample(
           eligible,
@@ -649,26 +670,30 @@ export async function runOpinions(
           persona.sectionsExclusive ?? false,
         );
         if (picks.length === 0) {
-          const detail = gateFailed
+          evergreen = true;
+          const reason = gateFailed
             ? "topic gate failed closed"
             : "no eligible candidates after the topic gate";
-          outcomes.push({ author: persona.name, key, status: "skipped-no-candidates", detail });
-          log(`opinions: ${persona.name} skipped — ${detail}`);
-          continue;
+          log(`opinions: ${persona.name} → evergreen fallback (${reason})`);
+        } else {
+          log(`opinions: ${persona.name} selected ${picks.map((r) => r.id).join(", ")}`);
         }
-        log(`opinions: ${persona.name} selected ${picks.map((r) => r.id).join(", ")}`);
       }
+      // News personas pass their picks; letters and evergreen pass no articles (picks === []).
+      const hasSource = persona.source === "news" && picks.length > 0;
 
       if (dryRun) {
         outcomes.push({
           author: persona.name,
           key,
           status: "would-publish",
-          ...(persona.source === "news"
-            ? { sourceArticleIds: picks.map((r) => r.id) }
-            : undefined),
+          ...(hasSource ? { sourceArticleIds: picks.map((r) => r.id) } : undefined),
+          ...(evergreen ? { evergreen: true } : undefined),
         });
-        log(`opinions (dry-run): ${persona.name} would publish ${key}`);
+        log(
+          `opinions (dry-run): ${persona.name} would publish ${key}` +
+            (evergreen ? " (evergreen)" : ""),
+        );
         continue;
       }
 
@@ -769,20 +794,20 @@ export async function runOpinions(
           category: "OPINION",
           author: persona.name,
           ...(persona.source === "letters" ? { columnTitle: persona.columnTitle } : undefined),
-          ...(persona.source === "news"
-            ? { sourceArticleIds: picks.map((r) => r.id) }
-            : undefined),
+          ...(hasSource ? { sourceArticleIds: picks.map((r) => r.id) } : undefined),
         };
         manifest.stories[key] = record;
         outcomes.push({
           author: persona.name,
           key,
           status: "published",
-          ...(persona.source === "news"
-            ? { sourceArticleIds: picks.map((r) => r.id) }
-            : undefined),
+          ...(hasSource ? { sourceArticleIds: picks.map((r) => r.id) } : undefined),
+          ...(evergreen ? { evergreen: true } : undefined),
         });
-        log(`opinions: ${persona.name} published ${key} (${words} words)`);
+        log(
+          `opinions: ${persona.name} published ${key} (${words} words)` +
+            (evergreen ? " (evergreen)" : ""),
+        );
         published = true;
       }
       if (!published) {
@@ -804,7 +829,9 @@ export async function runOpinions(
 export function summarizeOpinions(result: OpinionsResult): string {
   const count = (s: AuthorStatus) => result.authors.filter((o) => o.status === s).length;
   const skipped = count("skipped-idempotent") + count("skipped-no-candidates");
-  return `${count("published")} published, ${skipped} skipped, ${count("failed")} failed; ${result.gateSummary}`;
+  const evergreen = result.authors.filter((o) => o.status === "published" && o.evergreen).length;
+  const evergreenNote = evergreen > 0 ? ` (${evergreen} evergreen)` : "";
+  return `${count("published")} published${evergreenNote}, ${skipped} skipped, ${count("failed")} failed; ${result.gateSummary}`;
 }
 
 /**

@@ -80,7 +80,7 @@ function fullRoster(): Persona[] {
 }
 
 function assetsOf(...personas: Persona[]): OpinionAssets {
-  return { personas, shared: "SHARED RULES", letters: "LETTER RULES", comments: "COMMENT RULES" };
+  return { personas, shared: "SHARED RULES", letters: "LETTER RULES", comments: "COMMENT RULES", evergreen: "EVERGREEN RULES" };
 }
 
 /** The four Sunday authors: rotation pair alice+bob + both letters personas. */
@@ -337,6 +337,28 @@ describe("prompt assembly + output contract", () => {
     expect(prompt).not.toContain("ARTICLE");
   });
 
+  it("news prompt with NO articles = shared + evergreen block + voice (ADR-0032 D)", () => {
+    const assets = sundayAssets();
+    const alice = assets.personas[0];
+    const prompt = buildOpinionPrompt(assets, alice, []);
+
+    expect(prompt).toContain("SHARED RULES");
+    expect(prompt).toContain("EVERGREEN RULES");
+    expect(prompt).toContain(alice.body);
+    expect(prompt).toContain("evergreen column per the instructions above");
+    expect(prompt).toContain("no source story today");
+    expect(prompt).not.toContain("ARTICLE");
+    expect(prompt).not.toContain("LETTER RULES");
+  });
+
+  it("evergreen image brief carries no article block and an ordinary-subject line", () => {
+    const assets = sundayAssets();
+    const alice = assets.personas[0];
+    const brief = buildImageBriefPrompt(alice, "A Title", "A body about a stapler.", []);
+    expect(brief).toContain("the ordinary, everyday subject the piece is about");
+    expect(brief).not.toContain("SOURCE ARTICLES");
+  });
+
   it("the gate prompt batches every candidate id with our rewritten text", () => {
     const prompt = buildGatePrompt([story("s1"), story("s2")]);
     expect(prompt).toContain('"id": "s1"');
@@ -558,6 +580,37 @@ describe("runOpinions — publish path", () => {
     ).rejects.toThrow('unknown persona "nobody"');
   });
 
+  it("gate passes, but a sports-only persona with no sports story goes evergreen (E+D)", async () => {
+    // The pool holds only WORLD stories. alice (WORLD reactor) publishes news-anchored;
+    // hodge (SPORTS-only, exclusive) has no eligible pick → evergreen, in the same run.
+    const alice = newsPersona("alice", { WORLD: 2 });
+    const hodge: Persona = {
+      ...newsPersona("hodge", { SPORTS: 1 }),
+      sectionsExclusive: true,
+    };
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isGateCall(prompt)) return verdictsJson(["s1"]); // s1 (WORLD) eligible
+        if (isBriefCall(prompt)) return briefJson();
+        return pieceFor(prompt, 1600);
+      },
+    });
+    const result = await runOpinions(CONFIG, manifestOf(story("s1")), assetsOf(alice, hodge), {
+      generate,
+      now: fixedNow(NOW),
+    }, { authors: ["alice", "hodge"] });
+
+    const a = result.authors.find((x) => x.author === "alice");
+    const h = result.authors.find((x) => x.author === "hodge");
+    expect(a?.status).toBe("published");
+    expect(a?.evergreen).toBeUndefined();
+    expect(a?.sourceArticleIds).toEqual(["s1"]);
+    expect(h?.status).toBe("published");
+    expect(h?.evergreen).toBe(true);
+    expect(h?.sourceArticleIds).toBeUndefined();
+    expect(generate.calls.filter(isGateCall)).toHaveLength(1); // gate still ran for alice
+  });
+
   it("recovers a leaked preamble title end-to-end (record carries the real title)", async () => {
     const leaked =
       `Here is your column:\n\n**The Real Title**\n\nDear Tom,\n\nWhy is my wifi slow at night?\n\n` +
@@ -638,8 +691,8 @@ describe("runOpinions — idempotency", () => {
   });
 });
 
-describe("runOpinions — topic gate failure modes (fail-closed)", () => {
-  it("a malformed gate response excludes everything: news skip, letters unaffected", async () => {
+describe("runOpinions — gate fails closed → news personas fall back to evergreen (ADR-0032 D)", () => {
+  it("a malformed gate response yields no news-anchored pieces, but news publish evergreen", async () => {
     const logs: string[] = [];
     const generate = fakeTextGenerator({
       impl: (prompt) => {
@@ -654,20 +707,24 @@ describe("runOpinions — topic gate failure modes (fail-closed)", () => {
       { generate, now: fixedNow(NOW), log: (m) => logs.push(m) },
     );
 
+    // Every scheduled author publishes; the two news reactors as evergreen (no source story).
     expect(result.authors.map((a) => [a.author, a.status])).toEqual([
-      ["alice", "skipped-no-candidates"],
-      ["bob", "skipped-no-candidates"],
+      ["alice", "published"],
+      ["bob", "published"],
       ["priscilla", "published"],
       ["tom", "published"],
     ]);
-    expect(result.authors[0].detail).toBe("topic gate failed closed");
-    expect(result.ok).toBe(true); // skips are not failures
+    expect(result.authors.find((a) => a.author === "alice")?.evergreen).toBe(true);
+    expect(result.authors.find((a) => a.author === "alice")?.sourceArticleIds).toBeUndefined();
+    expect(result.authors.find((a) => a.author === "priscilla")?.evergreen).toBeUndefined();
+    expect(result.ok).toBe(true);
     expect(result.gate).toBeUndefined();
     expect(generate.calls.filter(isGateCall)).toHaveLength(1);
     expect(logs.some((l) => l.includes("TOPIC GATE FAILED CLOSED"))).toBe(true);
+    expect(logs.some((l) => l.includes("alice → evergreen fallback"))).toBe(true);
   });
 
-  it("a null gate response fails closed the same way", async () => {
+  it("a null gate response drives the same evergreen fallback", async () => {
     const generate = fakeTextGenerator({
       impl: (prompt) => {
         if (isGateCall(prompt)) return null;
@@ -679,12 +736,12 @@ describe("runOpinions — topic gate failure modes (fail-closed)", () => {
       generate,
       now: fixedNow(NOW),
     });
-    expect(result.authors.find((a) => a.author === "alice")?.status).toBe(
-      "skipped-no-candidates",
-    );
+    const alice = result.authors.find((a) => a.author === "alice");
+    expect(alice?.status).toBe("published");
+    expect(alice?.evergreen).toBe(true);
   });
 
-  it("zero candidates in the window: news skip WITHOUT any gate call", async () => {
+  it("zero candidates in the window: news publish evergreen WITHOUT any gate call", async () => {
     const generate = fakeTextGenerator({
       impl: (prompt) => (isBriefCall(prompt) ? briefJson() : pieceFor(prompt, 1600)),
     });
@@ -695,7 +752,9 @@ describe("runOpinions — topic gate failure modes (fail-closed)", () => {
     );
 
     expect(generate.calls.filter(isGateCall)).toHaveLength(0);
-    expect(result.authors.find((a) => a.author === "bob")?.status).toBe("skipped-no-candidates");
+    const bob = result.authors.find((a) => a.author === "bob");
+    expect(bob?.status).toBe("published");
+    expect(bob?.evergreen).toBe(true);
     expect(result.authors.find((a) => a.author === "tom")?.status).toBe("published");
   });
 });
