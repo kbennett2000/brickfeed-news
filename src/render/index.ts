@@ -605,7 +605,11 @@ export function renderSite(
       (v, i) =>
         v.kicker === category &&
         listed.has(records[i].id) &&
-        (category !== "OPINION" || recentOpinions.has(records[i].id)),
+        // OPINION lists ONLY authored columns. A real news story the generator mis-tagged
+        // `category: OPINION` (authorless → "BY THE OPINION DESK") must NEVER surface on the
+        // opinion page: it bypasses the taste gate and can carry real names/tragedies. The cover
+        // already guards this (`v.kicker !== "OPINION"` above); the section page must too.
+        (category !== "OPINION" || (!!records[i].author && recentOpinions.has(records[i].id))),
     );
     const sectionArticles = articleViews
       .filter(({ article }) => article.category === category)

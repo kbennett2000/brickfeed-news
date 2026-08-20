@@ -1041,7 +1041,8 @@ describe("renderSite — SEO artifacts (ADR-0012)", () => {
 describe("renderSite — conditional sections (ADR-0013)", () => {
   it("Opinion appears everywhere once it has a published story", () => {
     const opinion = rec({
-      id: "o1",
+      id: "opinion-alice-o1",
+      author: "alice", // a real opinion record is always authored (authorless OPINION never lists)
       headline: "An Opinion, Firmly Held",
       category: "OPINION",
       firstSeen: "2026-07-10T09:00:00.000Z",
@@ -1199,6 +1200,23 @@ describe("renderSite — opinion section (ADR-0016)", () => {
   const files = renderSite([...records, news, letters], OOPTS);
   const newsPage = files["s/opinion-alice-2026-07-10.html"];
   const lettersPage = files["s/opinion-tom-2026-07-10.html"];
+
+  it("SAFETY: an authorless OPINION record (mis-tagged news) never lists on the opinion page", () => {
+    // A real news story the generator wrongly tagged category:OPINION, with NO author, renders as
+    // "BY THE OPINION DESK" and bypasses the taste gate — it must not surface on opinion.html.
+    const leak = rec({
+      id: "leaked-news-tragedy",
+      category: "OPINION",
+      headline: "Experts urge progress on postpartum psychosis following high-profile trial",
+      firstSeen: "2026-07-10T09:45:00.000Z",
+    });
+    const out = renderSite([...records, news, letters, leak], OOPTS);
+    const opinion = out["opinion.html"];
+    expect(opinion).not.toContain("postpartum psychosis");
+    expect(opinion).not.toContain("leaked-news-tragedy");
+    // the authored columns still list normally
+    expect(opinion).toContain("Opinion Headline opinion-alice-2026-07-10");
+  });
 
   it("DISCLOSURE GATE: opinion.html carries the banner verbatim; other pages do not", () => {
     expect(files["opinion.html"]).toContain(OPINION_BANNER);

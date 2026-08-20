@@ -66,9 +66,9 @@ describe("section-branched retention — ageout through render", () => {
   it("OPINION@72h survives cleanup AND renders; non-opinion@72h is pruned/hidden; OPINION@200h is pruned", async () => {
     const config = makeConfig({ maxAgeHours: 48, opinionMaxAgeHours: 168 });
     const manifest = manifestOf(
-      rec({ id: "op-72h", category: "OPINION", lastSeen: hoursAgo(72) }),
+      rec({ id: "op-72h", category: "OPINION", author: "alice", lastSeen: hoursAgo(72) }),
       rec({ id: "wd-72h", category: "WORLD", lastSeen: hoursAgo(72) }),
-      rec({ id: "op-200h", category: "OPINION", lastSeen: hoursAgo(200) }),
+      rec({ id: "op-200h", category: "OPINION", author: "bob", lastSeen: hoursAgo(200) }),
       rec({ id: "wd-10h", category: "WORLD", lastSeen: hoursAgo(10) }), // fresh masker
     );
 
