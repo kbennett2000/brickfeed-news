@@ -524,6 +524,13 @@ export function renderSite(
   const tz = opts.timeZone ?? "UTC";
   const dateStr = formatMastheadDate(opts.now, tz);
   const edition = editionLabel(opts.now, tz);
+  // CONTENT SAFETY (ADR-0033): an authorless OPINION record is mis-tagged news — it must render on
+  // NO surface (section listing, per-story page, cover, sitemap, share). Drop it up front, before
+  // any surface is built, so nothing downstream can leak it. Part 1 prevents new ones at generation;
+  // this is the single-point render defense. (records/views stay index-aligned after the filter.)
+  records = records.filter(
+    (r) => !(normalizeCategory(r.category) === "OPINION" && !r.author),
+  );
   const views = records.map((r) => toStoryView(r, tz, opts.authors, opts.log));
   // Attach each story's absolute landing URL so the per-story share buttons (ADR-0012) can be
   // drawn wherever the view is rendered (cover, section, landing). Same value the share sheet uses.

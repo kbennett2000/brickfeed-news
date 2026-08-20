@@ -1077,8 +1077,11 @@ describe("renderSite — conditional sections (ADR-0013)", () => {
   it("staleSectionPages names the omitted section pages so writers can delete them", () => {
     const files = renderSite(records, OPTS);
     expect(staleSectionPages(files).sort()).toEqual(["opinion.html", "politics.html", "sports.html"]);
-    // With every section populated, nothing is stale.
-    const all = CATEGORIES.map((c, i) => rec({ id: `all${i}`, category: c }));
+    // With every section populated, nothing is stale. OPINION must be AUTHORED to render
+    // (an authorless OPINION record is dropped as mis-tagged news, ADR-0033).
+    const all = CATEGORIES.map((c, i) =>
+      rec({ id: `all${i}`, category: c, ...(c === "OPINION" ? { author: "alice" } : {}) }),
+    );
     expect(staleSectionPages(renderSite(all, OPTS))).toEqual([]);
   });
 
