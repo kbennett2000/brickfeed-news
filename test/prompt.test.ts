@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORIES } from "../src/category.js";
+import { NEWS_CATEGORIES } from "../src/category.js";
 import { GENERATION_INSTRUCTIONS, buildGenerationPrompt } from "../src/prompt.js";
 
 describe("GENERATION_INSTRUCTIONS (legal guardrail regression anchor)", () => {
@@ -46,10 +46,13 @@ describe("GENERATION_INSTRUCTIONS (legal guardrail regression anchor)", () => {
     expect(GENERATION_INSTRUCTIONS).toContain("caption");
   });
 
-  it("lists every valid category value for the model to choose from", () => {
-    for (const c of CATEGORIES) {
+  it("lists every NEWS category for the model to choose from, but NEVER offers OPINION", () => {
+    for (const c of NEWS_CATEGORIES) {
       expect(GENERATION_INSTRUCTIONS).toContain(c);
     }
+    // OPINION is reserved for authored columns (ADR-0033) — the news model must not pick it.
+    expect(NEWS_CATEGORIES).not.toContain("OPINION");
+    expect(GENERATION_INSTRUCTIONS).not.toContain("OPINION");
   });
 
   it("requires the caption to be neutral and free of brands/written words", () => {

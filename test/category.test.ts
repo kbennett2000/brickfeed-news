@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORIES, DEFAULT_CATEGORY, normalizeCategory } from "../src/category.js";
+import {
+  CATEGORIES,
+  DEFAULT_CATEGORY,
+  NEWS_CATEGORIES,
+  normalizeCategory,
+  normalizeNewsCategory,
+} from "../src/category.js";
 
 describe("category taxonomy (Slice 6)", () => {
   it("is the fixed 8-section nav in order", () => {
@@ -46,5 +52,28 @@ describe("normalizeCategory", () => {
     expect(normalizeCategory(42)).toBe("WORLD");
     expect(normalizeCategory(["POLITICS"])).toBe("WORLD");
     expect(normalizeCategory({ category: "SPORTS" })).toBe("WORLD");
+  });
+});
+
+describe("normalizeNewsCategory (ADR-0033: OPINION reserved for authored columns)", () => {
+  it("excludes OPINION from the news taxonomy", () => {
+    expect([...NEWS_CATEGORIES]).toEqual(CATEGORIES.filter((c) => c !== "OPINION"));
+    expect(NEWS_CATEGORIES).not.toContain("OPINION");
+  });
+
+  it("coerces a news story tagged OPINION back to the default (WORLD)", () => {
+    expect(normalizeNewsCategory("OPINION")).toBe("WORLD");
+    expect(normalizeNewsCategory("opinion")).toBe("WORLD");
+    expect(normalizeNewsCategory("  Opinion ")).toBe("WORLD");
+  });
+
+  it("passes valid non-OPINION categories through unchanged", () => {
+    expect(normalizeNewsCategory("SPORTS")).toBe("SPORTS");
+    expect(normalizeNewsCategory("politics")).toBe("POLITICS");
+  });
+
+  it("still falls back to WORLD for unknown/missing values", () => {
+    expect(normalizeNewsCategory("GOSSIP")).toBe("WORLD");
+    expect(normalizeNewsCategory(undefined)).toBe("WORLD");
   });
 });

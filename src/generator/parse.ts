@@ -1,4 +1,4 @@
-import { normalizeCategory } from "../category.js";
+import { normalizeNewsCategory } from "../category.js";
 import { looksLikeRefusal } from "../sanitize.js";
 import type { GeneratorOutput } from "../types.js";
 
@@ -46,7 +46,7 @@ export function parseGeneratorOutput(text: string): GeneratorOutput | null {
   if (!headline || !description || !imagePrompt || !caption) return null;
   // A "headline" the length of a paragraph is leaked prose, not a headline.
   if (headline.length > MAX_HEADLINE_CHARS) return null;
-  const category = normalizeCategory(obj.category);
+  const category = normalizeNewsCategory(obj.category);
 
   return { headline, description, imagePrompt, category, caption };
 }

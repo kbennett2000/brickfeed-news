@@ -22,6 +22,15 @@ export const CATEGORIES = [
 export type Category = (typeof CATEGORIES)[number];
 
 /**
+ * The categories a NEWS story may be assigned — every section EXCEPT `OPINION`. `OPINION` is
+ * reserved for authored columnist pieces produced by the opinions stage (ADR-0033); a news
+ * story must never carry it, or it leaks onto the opinion page as an authorless "Opinion Desk"
+ * item that bypasses the taste gate. The news prompt offers only these; the news parse coerces
+ * a stray `OPINION` back to the default.
+ */
+export const NEWS_CATEGORIES = CATEGORIES.filter((c) => c !== "OPINION") as readonly Category[];
+
+/**
  * The never-throw fallback. The model MUST pick one enum value, but a story is never
  * blocked by a bad category: an invalid/missing/miscased value normalizes to WORLD so
  * generation still succeeds. (caption, by contrast, is required — see parse.ts.)
@@ -41,4 +50,14 @@ export function normalizeCategory(value: unknown): Category {
     }
   }
   return DEFAULT_CATEGORY;
+}
+
+/**
+ * Normalize a NEWS story's category (ADR-0033): as `normalizeCategory`, but a valid `OPINION`
+ * value is coerced to `DEFAULT_CATEGORY`. `OPINION` is reserved for authored columns — a news
+ * story tagged OPINION (model error) would otherwise leak onto the opinion page. Never throws.
+ */
+export function normalizeNewsCategory(value: unknown): Category {
+  const category = normalizeCategory(value);
+  return category === "OPINION" ? DEFAULT_CATEGORY : category;
 }

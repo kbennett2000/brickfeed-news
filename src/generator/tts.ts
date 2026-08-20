@@ -11,7 +11,7 @@
  * incumbent's own neutral output. Failover posture: any non-200 or unreachable TTS logs one
  * structured warning and the caller falls back to the incumbent Claude path. Never throws.
  */
-import { normalizeCategory } from "../category.js";
+import { normalizeNewsCategory } from "../category.js";
 import { getTtsUrl } from "../secrets.js";
 import type { GenerationInput, Generator, GeneratorOutput } from "../types.js";
 
@@ -240,7 +240,7 @@ export function mapStoryCoverOutput(output: Record<string, unknown>): GeneratorO
   const imagePrompt = str(output.imagePrompt); // NEUTRAL — wrapped downstream, never here
   const caption = str(output.caption);
   if (!headline || !description || !imagePrompt || !caption) return null;
-  return { headline, description, imagePrompt, category: normalizeCategory(output.category), caption };
+  return { headline, description, imagePrompt, category: normalizeNewsCategory(output.category), caption };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { CATEGORIES } from "./category.js";
+import { NEWS_CATEGORIES } from "./category.js";
 import type { GenerationInput } from "./types.js";
 
 /**
@@ -42,7 +42,7 @@ Given the story below, produce FIVE things:
 
 4. "category": the single best-fitting section for this story. Pick EXACTLY ONE of
    these values, copied verbatim (uppercase), and nothing else:
-   ${CATEGORIES.join(", ")}.
+   ${NEWS_CATEGORIES.join(", ")}.
 
 5. "caption": ONE short line — roughly 8 to 15 words — that describes the imagePrompt
    scene, as an italic-style photo caption for the generated image. Same hard rules
