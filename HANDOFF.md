@@ -1,5 +1,47 @@
 # Handoff
 
+## Columnist reliability + Opinion-section content safety — ADR-0033 (2026-08-20)
+
+Interactive owner session. Two problems on 2026-08-20: only 2 of 4 columns published, AND real
+news (naming real people in tragedies) had leaked into the Opinion section.
+
+**SHIPPED to master (878 tests green, tsc clean):**
+- **Part 0 — render guard (LIVE, redeployed).** `src/render/index.ts` OPINION section lists only
+  `author`-bearing records. Pulled **19 authorless "Opinion Desk" leaks** (mis-tagged real news —
+  Lindsay Clancy/postpartum, deadly fires, Kohberger, a fatal police shooting) off brickfeed.news;
+  verified live (0 matches, authored columns intact).
+- **Part 1 — news never tags OPINION.** `NEWS_CATEGORIES` + `normalizeNewsCategory` (coerce stray
+  OPINION→WORLD); prompt offers only news categories; both news parse seams use it. Source fix
+  behind Part 0's render guard.
+- **Part 2a/2b — the REAL never-empty.** `personas/fallbacks/<name>.md` (9 hand-written in-voice
+  canned columns) published verbatim with the persona's headshot avatar as hero — **no model/
+  image-gen call** — when every live attempt fails (news OR letters). This is what actually holds
+  when the backend is degraded (the 2026-08-20 cause). `MAX_PIECE_ATTEMPTS` 2→4; evergreen length
+  band warn-only. Summary shows `(K canned-fallback)`.
+- **Part 2d — batched gate.** `GATE_BATCH_SIZE=25`; a failed batch excludes only its own candidates;
+  the gate fails closed only if EVERY batch fails. Kills the "one oversized/flaky 143-item call
+  empties Opinion" SPOF (that call hung 303s on 2026-08-20).
+- **2g — honesty.** Corrected the ADR-0032 "never-empty" overclaim (evergreen is an attempt, not a
+  guarantee). ADR-0033 documents it all.
+
+**Root cause of the 2026-08-20 shortfall:** the taste gate failed closed (TTS `413 over_budget` +
+the Claude fallback gate hung 303s then errored), routing alice/bob/hodge to evergreen — which then
+*also* failed for bob/hodge because the same degraded backend returned malformed output. Only alice
+(lucky evergreen) + priscilla (letters, ungated) survived. 2a now covers exactly this.
+
+**Investigation corrections (don't redo these):**
+- **2c is a NO-OP.** `deps.textGenerator` is built with `config.generator.opinionModel` (Sonnet) and
+  `createTextGenerator` applies that model to every call — so the Claude gate + brief ALREADY run on
+  Sonnet, not Haiku. The morning gate failure was a CLI hang/error, not model quality.
+- **2e DROPPED.** Letting non-Hodge personas draw SPORTS to avoid evergreen conflicts with the owner
+  directive ("only Hodge does sports"); 2a already guarantees they publish.
+
+**REMAINING — 2f (needs owner/infra):** the `text-transform-service` at `http://G434:8712` chronically
+returns `413 over_budget` / unreachable (its own repo — the recurring root code can only partly
+mitigate). Code-side TODO: bound the Claude fallback-gate call time (`defaultClaudeRunner` has no
+timeout → it hung 303s) so it fails fast to the 2a fallback. Owner-side: raise/reset the TTS service
+budget cap.
+
 ## Opinion supply diversity + grim-day fallbacks — ADR-0032 (ALL FIVE LAYERS SHIPPED 2026-08-17)
 
 > **UPDATE (same session):** A + B + C landed too — the full slice is on `master`. See "SHIPPED —
