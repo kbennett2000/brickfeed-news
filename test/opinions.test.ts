@@ -862,6 +862,39 @@ describe("runOpinions — gate fails closed → news personas fall back to everg
     expect(generate.calls.filter(isGateCall)).toHaveLength(1);
     expect(result.gate?.map((v) => v.id)).toEqual(["fresh"]);
   });
+
+  it("ADR-0033 2d: the gate is batched — one failed batch excludes only its own candidates", async () => {
+    // 30 candidates → two batches (25 + 5). The 2nd gate call returns null (that batch fails
+    // closed); the 1st batch still gates normally, so the section is NOT emptied.
+    // Exclude the `"<story id>"` placeholder in the prompt's example shape (it contains "<").
+    const idsOf = (prompt: string) => [...prompt.matchAll(/"id":\s*"([^"<]+)"/g)].map((m) => m[1]);
+    let gateCall = 0;
+    const generate = fakeTextGenerator({
+      impl: (prompt) => {
+        if (isGateCall(prompt)) {
+          gateCall++;
+          if (gateCall === 2) return null; // the second batch fails closed
+          return JSON.stringify({
+            verdicts: idsOf(prompt).map((id) => ({ id, verdict: "eligible", reason: "ok" })),
+          });
+        }
+        if (isBriefCall(prompt)) return briefJson();
+        return pieceFor(prompt, 1600);
+      },
+    });
+    const many = Array.from({ length: 30 }, (_, i) => story(`s${i}`));
+    const result = await runOpinions(CONFIG, manifestOf(...many), sundayAssets(), {
+      generate,
+      now: fixedNow(NOW),
+    });
+
+    expect(generate.calls.filter(isGateCall)).toHaveLength(2); // two batches
+    // 25 eligible from batch 1; batch 2's 5 excluded (failed) — NOT a whole-section fail-closed.
+    expect(result.gateSummary).toContain("gate passed 25/30");
+    const bob = result.authors.find((a) => a.author === "bob");
+    expect(bob?.status).toBe("published");
+    expect(bob?.evergreen).toBeUndefined(); // news-anchored, because the gate did not fully fail
+  });
 });
 
 describe("runOpinions — failure isolation + length sanity", () => {

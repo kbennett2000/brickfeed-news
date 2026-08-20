@@ -114,11 +114,18 @@ column rather than a news-anchored one.
 
 If, after C, a news persona still has **no eligible pick**, it does not skip. It generates an
 **evergreen voice column** — an untethered piece in the persona's voice with no source story
-(`personas/_evergreen.md`, a hand-maintained asset like `_letters.md`). This guarantees every
-scheduled news persona publishes. Evergreen pieces reuse the whole existing publish path (title/body
-validation, image brief, imaging, comments); they simply pass no `SOURCE ARTICLES` block and an
-evergreen instruction instead. A distinct outcome status records that the piece was an evergreen
-fallback so the stage summary and logs stay honest about which pieces were news-anchored.
+(`personas/_evergreen.md`, a hand-maintained asset like `_letters.md`). Evergreen pieces reuse the
+whole existing publish path (title/body validation, image brief, imaging, comments); they simply pass
+no `SOURCE ARTICLES` block and an evergreen instruction instead. A distinct outcome status records
+that the piece was an evergreen fallback so the stage summary and logs stay honest about which pieces
+were news-anchored.
+
+**Correction (ADR-0033):** the original text here called Layer D "never-empty" and said it
+"guarantees every scheduled news persona publishes." That was **overstated** — evergreen pieces still
+run the same failable generation + guardrail + image-brief gauntlet, so a degraded text backend can
+fail them too (as happened 2026-08-20). Layer D routes an author to an evergreen *attempt*; it does
+not guarantee a published record. The real never-empty guarantee is the **model-independent canned
+fallback in ADR-0033 Layer 2a**, which publishes committed text with no model or image-gen call.
 
 ## Consequences
 

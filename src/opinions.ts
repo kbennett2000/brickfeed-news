@@ -103,6 +103,14 @@ export const MAX_PIECE_ATTEMPTS = 4;
 /** Caption on a canned fallback column's hero (the persona headshot); brick credit appended downstream. */
 export const FALLBACK_CAPTION = "From the columnist's desk.";
 
+/**
+ * Gate batch size (ADR-0033 2d). The taste gate classifies candidates in batches of this many
+ * rather than one all-or-nothing call — a 100+-candidate single request is what hung/failed as a
+ * unit on 2026-08-20. Each batch is independent: a failed batch excludes only its own candidates
+ * (fail-closed for that batch); the whole gate fails closed only if EVERY batch fails.
+ */
+export const GATE_BATCH_SIZE = 25;
+
 /** One classified candidate verdict from the topic gate. */
 export interface GateVerdict {
   id: string;
@@ -655,22 +663,47 @@ export async function runOpinions(
     const gatedIds = new Set<string>();
     const verdictList: GateVerdict[] = [];
     const gateAndFold = async (cands: ManifestRecord[]): Promise<boolean> => {
-      const verdicts = await gatePool(cands);
-      if (verdicts == null) {
+      // Batched (ADR-0033 2d): each GATE_BATCH_SIZE-chunk is gated independently. A failed batch
+      // excludes only its own candidates (fail-closed for that batch); the rest still gate. The
+      // whole gate fails closed only when EVERY batch fails — so a single flaky/oversized call no
+      // longer empties the section.
+      let anySuccess = false;
+      let excludedByFailure = 0;
+      for (let i = 0; i < cands.length; i += GATE_BATCH_SIZE) {
+        const batch = cands.slice(i, i + GATE_BATCH_SIZE);
+        const verdicts = await gatePool(batch);
+        if (verdicts == null) {
+          excludedByFailure += batch.length;
+          for (const r of batch) {
+            gatedIds.add(r.id);
+            verdictList.push({ id: r.id, verdict: "excluded", reason: "gate batch failed closed" });
+            log(`opinions: gate excluded ${r.id} — gate batch failed closed`);
+          }
+          continue;
+        }
+        anySuccess = true;
+        for (const r of batch) {
+          const v = verdicts.get(r.id) as GateVerdict;
+          gatedIds.add(r.id);
+          verdictList.push(v);
+          log(`opinions: gate ${v.verdict} ${r.id}${v.reason ? ` — ${v.reason}` : ""}`);
+          if (v.verdict === "eligible") eligible.push(r);
+        }
+      }
+      if (!anySuccess) {
         gateFailed = true;
         gateSummary = `gate failed closed (${cands.length} candidate(s) excluded)`;
         log(
-          `opinions: TOPIC GATE FAILED CLOSED — all ${cands.length} candidate(s) ` +
-            "excluded this run (both TTS and Claude gate unavailable, or malformed verdict JSON)",
+          `opinions: TOPIC GATE FAILED CLOSED — all ${cands.length} candidate(s) excluded this ` +
+            "run (every gate batch failed: TTS + Claude unavailable, or malformed verdict JSON)",
         );
         return false;
       }
-      for (const r of cands) {
-        const v = verdicts.get(r.id) as GateVerdict;
-        gatedIds.add(r.id);
-        verdictList.push(v);
-        log(`opinions: gate ${v.verdict} ${r.id}${v.reason ? ` — ${v.reason}` : ""}`);
-        if (v.verdict === "eligible") eligible.push(r);
+      if (excludedByFailure > 0) {
+        log(
+          `opinions: ${excludedByFailure} candidate(s) excluded by a failed gate batch; ` +
+            "the rest were gated normally",
+        );
       }
       return true;
     };

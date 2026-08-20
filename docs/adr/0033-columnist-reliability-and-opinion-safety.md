@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted — 2026-08-20. Part 0 + Part 1 shipped; Part 2 in progress.
+Accepted — 2026-08-20. Part 0, Part 1, and Part 2 (2a/2b/2d/2g) shipped; 2c/2e dropped as no-ops on
+investigation (see below); 2f (TTS infra) remaining.
 
 ## Context
 
@@ -53,15 +54,22 @@ need no migration — they are hidden by Part 0 and age out.
   visible, not silent.
 - **2b. Soften + widen retry.** Raise `MAX_PIECE_ATTEMPTS` (2 → 4); make the strict length band
   warn-only for no-source evergreen pieces so they don't fail on a guardrail that barely applies.
-- **2c. Gate + image-brief on the stronger model.** Run them on `opinionModel` (Sonnet) instead of
-  the Haiku story model — the source of the malformed-JSON gate/brief failures.
-- **2d. Chunk the gate.** Gate candidates in batches (~25) instead of one all-or-nothing JSON blob;
-  a failed batch loses only that batch, removing the "one gate hiccup empties Opinion" SPOF.
-- **2e. Fix the Hodge/`OWNED_SECTIONS` interaction.** Don't zero normal personas into the failable
-  evergreen path when the whole eligible pool is an owned (SPORTS) section; sports-dry Hodge lands on
-  the 2a canned fallback.
-- **2f. TTS health.** Shorten the Claude fallback-gate timeout so it fails fast instead of hanging;
-  flag the `text-transform-service` `413 over_budget` cap to the owner (separate service).
+- **2c. Gate + image-brief on the stronger model. — DROPPED (already the case).** Investigation
+  during implementation showed `deps.textGenerator` is built with `config.generator.opinionModel`
+  (Sonnet) at `cycle-cli.ts`, and `createTextGenerator` applies that model to *every* call through
+  it — so the Claude gate and brief already run on Sonnet, not Haiku. The 2026-08-20 Claude-gate
+  failure was a CLI hang/error (303s, exit 1), not model quality. No change needed.
+- **2d. Chunk the gate. — SHIPPED.** `GATE_BATCH_SIZE = 25`; the gate classifies candidates in
+  independent batches. A failed batch excludes only its own candidates (fail-closed per batch); the
+  whole gate fails closed only when every batch fails. Removes the "one oversized/flaky call empties
+  Opinion" SPOF and shrinks the per-call size that caused the hang.
+- **2e. Fix the Hodge/`OWNED_SECTIONS` interaction. — DROPPED (conflicts with the owner directive).**
+  Letting normal personas draw a SPORTS pick when the pool is all-sports would violate "only Hodge
+  covers sports." The correct behavior on such a day is that a normal persona has no news in its lane
+  and goes to evergreen → and 2a now guarantees it still publishes. No change needed.
+- **2f. TTS health. — REMAINING.** Shorten the Claude fallback-gate timeout so it fails fast instead
+  of hanging 303s; flag the `text-transform-service` `413 over_budget` cap to the owner (a separate
+  service/repo — the chronic root that code can only partly mitigate).
 - **2g. Observability + honesty.** Correct the "never-empty" overclaim; per-cycle health line
   "columns: N/target (K canned-fallback)" so degraded days are visible, not hidden behind the count.
 
