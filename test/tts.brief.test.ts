@@ -65,6 +65,7 @@ function sundayAssets(): OpinionAssets {
     letters: "LETTER RULES",
     comments: "COMMENT RULES",
     evergreen: "EVERGREEN RULES",
+    fallbacks: {},
   };
 }
 

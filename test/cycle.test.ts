@@ -329,6 +329,7 @@ describe("runCycle — opinions stage (ADR-0015/0016): tolerant, ordered before 
     letters: "LETTER RULES",
     comments: "COMMENT RULES",
     evergreen: "EVERGREEN RULES",
+    fallbacks: {},
   };
 
   it("a throwing persona-assets boundary keeps ok:true and the cycle deploys", async () => {
@@ -418,6 +419,7 @@ describe("runCycle — opinion publish-hour gate + OPINION-STALE (ADR-0018)", ()
     letters: "LETTER RULES",
     comments: "COMMENT RULES",
     evergreen: "EVERGREEN RULES",
+    fallbacks: {},
   };
 
   /** An OPINION record whose lastSeen is `hoursOld` before NOW. */

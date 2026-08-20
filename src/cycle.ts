@@ -246,10 +246,18 @@ export async function runCycle(
         }
         try {
           const assets = await deps.io.loadPersonaAssets(PERSONAS_DIR);
+          // Canned-fallback hero images (ADR-0033 2a): each persona's already-stored headshot
+          // avatar, so a last-resort column needs no image-gen call. Built from the headshot
+          // manifest resolved earlier this cycle.
+          const fallbackImages: Record<string, string> = {};
+          for (const [name, h] of Object.entries(headshotManifest.headshots)) {
+            if (h.avatarUrl) fallbackImages[name] = h.avatarUrl;
+          }
           const r = await runOpinions(config, manifest, assets, {
             generate: deps.textGenerator,
             now,
             log,
+            fallbackImages,
             ...(deps.opinionTts ?? {}),
           });
           manifest = r.manifest;

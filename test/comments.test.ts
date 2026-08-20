@@ -73,7 +73,7 @@ const CONFIG = makeConfig({
   },
 });
 
-const ASSETS = { personas: [], shared: "", letters: "", comments: "COMMENT RULES", evergreen: "" };
+const ASSETS = { personas: [], shared: "", letters: "", comments: "COMMENT RULES", evergreen: "", fallbacks: {} };
 
 describe("parseComments", () => {
   it("parses a valid batch into raw comments", () => {

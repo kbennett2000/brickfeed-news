@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CATEGORIES } from "../src/category.js";
-import { loadPersonas, parsePersona, type PersonasDeps } from "../src/personas.js";
+import { loadPersonas, parseFallback, parsePersona, type PersonasDeps } from "../src/personas.js";
 
 /** A minimal valid news persona document; tests below mutate pieces of it. */
 const VALID = `---
@@ -301,6 +301,15 @@ describe("committed persona files", () => {
     expect(shared).toContain("REGISTER");
     expect(shared).toContain("GUARDRAILS");
     expect(shared).toContain("1200");
+  });
+
+  it("every roster persona has a committed canned fallback that parses (ADR-0033 2a)", () => {
+    for (const name of ROSTER) {
+      const parsed = parseFallback(readFileSync(`${personasDir}fallbacks/${name}.md`, "utf8"));
+      expect(parsed, `${name} fallback`).not.toBeNull();
+      expect(parsed!.title.length).toBeGreaterThan(0);
+      expect(parsed!.body.length).toBeGreaterThan(50);
+    }
   });
 
   it("_letters.md carries the letter-invention guardrails (ADR-0014)", () => {

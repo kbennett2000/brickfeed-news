@@ -50,6 +50,32 @@ export const COMMENTS_PERSONA_FILE = "_comments.md";
  */
 export const EVERGREEN_PERSONA_FILE = "_evergreen.md";
 
+/**
+ * Directory (under the personas dir) of committed, hand-written CANNED fallback columns, one
+ * `<name>.md` per persona (ADR-0033 Layer 2a). Published verbatim as the terminal last resort when
+ * live generation fails every attempt — model- and network-independent, so a fully degraded backend
+ * can never leave a scheduled columnist unpublished. First non-blank line = title, rest = body.
+ */
+export const FALLBACKS_DIR = "fallbacks";
+
+/** A parsed canned fallback column: a title line + body, published as-is. */
+export interface FallbackPiece {
+  title: string;
+  body: string;
+}
+
+/** Parse a canned fallback file: first non-blank line = title, remainder = body. Null if empty. */
+export function parseFallback(text: string): FallbackPiece | null {
+  const lines = text.split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length && lines[i].trim().length === 0) i++;
+  if (i >= lines.length) return null;
+  const title = lines[i].trim();
+  const body = lines.slice(i + 1).join("\n").trim();
+  if (title.length === 0 || body.length === 0) return null;
+  return { title, body };
+}
+
 /** Where a persona's pieces come from (ADR-0014 decision 1). */
 export type PersonaSource = "news" | "letters";
 
@@ -282,6 +308,12 @@ export interface OpinionAssets {
   comments: string;
   /** Contents of `_evergreen.md` — the no-source fallback block for news personas (ADR-0032). */
   evergreen: string;
+  /**
+   * Canned last-resort columns keyed by persona name (ADR-0033 Layer 2a). Published verbatim when
+   * every live generation attempt fails. Tolerant: a persona with no file is simply absent (that
+   * author falls back to `failed` as before) — a missing/unreadable dir yields `{}`.
+   */
+  fallbacks: Record<string, FallbackPiece>;
 }
 
 /**
@@ -300,7 +332,36 @@ export async function loadPersonaAssets(
   const letters = await io.readText(`${dir}/${LETTERS_PERSONA_FILE}`);
   const comments = await io.readText(`${dir}/${COMMENTS_PERSONA_FILE}`);
   const evergreen = await io.readText(`${dir}/${EVERGREEN_PERSONA_FILE}`);
-  return { personas, shared, letters, comments, evergreen };
+  const fallbacks = await loadFallbacks(`${dir}/${FALLBACKS_DIR}`, io);
+  return { personas, shared, letters, comments, evergreen, fallbacks };
+}
+
+/**
+ * Load the committed canned fallback columns (ADR-0033). Tolerant by design — unlike the shared
+ * blocks, a missing/unreadable fallbacks dir or file must NEVER break a cycle: it yields `{}` / skips
+ * the file, and that persona simply has no last resort. Keyed by the file's basename (= persona name).
+ */
+async function loadFallbacks(
+  dir: string,
+  io: PersonasDeps,
+): Promise<Record<string, FallbackPiece>> {
+  let entries: string[];
+  try {
+    entries = await io.readdir(dir);
+  } catch {
+    return {};
+  }
+  const out: Record<string, FallbackPiece> = {};
+  for (const file of entries) {
+    if (!file.endsWith(".md")) continue;
+    try {
+      const parsed = parseFallback(await io.readText(`${dir}/${file}`));
+      if (parsed) out[file.slice(0, -".md".length)] = parsed;
+    } catch {
+      // A single unreadable/malformed fallback file is skipped, never fatal.
+    }
+  }
+  return out;
 }
 
 /**

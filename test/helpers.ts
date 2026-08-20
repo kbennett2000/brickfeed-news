@@ -664,7 +664,7 @@ export function fakeCycleIo(
     },
     async loadPersonaAssets() {
       if (opts.throwOnPersonaAssets) throw new Error("simulated persona assets failure");
-      return opts.personaAssets ?? { personas: [], shared: "", letters: "", comments: "", evergreen: "" };
+      return opts.personaAssets ?? { personas: [], shared: "", letters: "", comments: "", evergreen: "", fallbacks: {} };
     },
   };
   const out = Object.assign(io, state);

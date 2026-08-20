@@ -98,7 +98,10 @@ export const LENGTH_RANGES: Record<string, readonly [number, number]> = {
  * SAME cycle instead of waiting for the next 4-hour publish-hour tick to self-heal (ADR-0023).
  * Bounded at 2 (one retry) — each attempt is one Haiku call (~9s), far cheaper than a 4h delay.
  */
-export const MAX_PIECE_ATTEMPTS = 2;
+export const MAX_PIECE_ATTEMPTS = 4;
+
+/** Caption on a canned fallback column's hero (the persona headshot); brick credit appended downstream. */
+export const FALLBACK_CAPTION = "From the columnist's desk.";
 
 /** One classified candidate verdict from the topic gate. */
 export interface GateVerdict {
@@ -128,6 +131,14 @@ export interface OpinionsDeps {
     body: string,
     articles: ManifestRecord[],
   ) => Promise<ImageBrief | null>;
+  /**
+   * Persona name → a durable, already-stored image URL (the persona's headshot avatar) used as the
+   * hero for a CANNED fallback column (ADR-0033 Layer 2a). A canned fallback publishes only when
+   * both its committed text (`assets.fallbacks[name]`) AND this image exist, so it needs no
+   * image-gen call. Absent → no canned fallback (the author fails as before). Injected by cycle.ts
+   * from the headshot manifest.
+   */
+  fallbackImages?: Record<string, string>;
 }
 
 export interface OpinionsOptions {
@@ -155,6 +166,8 @@ export interface AuthorOutcome {
   sourceArticleIds?: string[];
   /** True when a news persona published an evergreen (no-source) fallback piece (ADR-0032 D). */
   evergreen?: boolean;
+  /** True when the committed CANNED fallback column was published after live generation failed (ADR-0033 2a). */
+  fallbackUsed?: boolean;
 }
 
 export interface OpinionsResult {
@@ -784,10 +797,12 @@ export async function runOpinions(
         }
 
         // Length sanity per the persona's spec: wildly out of band (>2x) fails the author;
-        // merely out of range is a warning — voice beats word count.
+        // merely out of range is a warning — voice beats word count. For a no-source EVERGREEN
+        // fallback (ADR-0033 2b) the band is warn-only: on a degraded day we prefer a slightly
+        // short/long evergreen column to failing the author into the canned last resort.
         const [min, max] = lengthRangeFor(persona);
         const words = wordCount(split.body);
-        if (words < min / 2 || words > max * 2) {
+        if (!evergreen && (words < min / 2 || words > max * 2)) {
           note(`body is ${words} words — out of band for ${min}-${max}`);
           continue;
         }
@@ -856,8 +871,42 @@ export async function runOpinions(
         published = true;
       }
       if (!published) {
-        outcomes.push({ author: persona.name, key, status: "failed", detail: lastDetail });
-        log(`opinions: ${persona.name} FAILED — ${lastDetail} (${MAX_PIECE_ATTEMPTS} attempts)`);
+        // Model-independent LAST RESORT (ADR-0033 2a): every live attempt failed (a degraded
+        // backend), so publish this persona's committed canned column with its headshot avatar as
+        // the hero — no model or image-gen call. This is the real never-empty guarantee; only when
+        // no canned text OR no fallback image exists does the author actually fail.
+        const canned = assets.fallbacks[persona.name];
+        const fallbackImage = deps.fallbackImages?.[persona.name];
+        if (canned && fallbackImage) {
+          const nowIso = deps.now().toISOString();
+          manifest.stories[key] = {
+            id: key,
+            url: "",
+            title: canned.title,
+            sourceName: "",
+            firstSeen: nowIso,
+            lastSeen: nowIso,
+            headline: canned.title,
+            description: canned.body,
+            caption: FALLBACK_CAPTION,
+            category: "OPINION",
+            author: persona.name,
+            imageUrl: fallbackImage,
+            imageStoredAt: nowIso,
+            ...(persona.source === "letters" ? { columnTitle: persona.columnTitle } : undefined),
+          };
+          outcomes.push({ author: persona.name, key, status: "published", fallbackUsed: true });
+          log(
+            `opinions: ${persona.name} published ${key} via CANNED FALLBACK — live generation ` +
+              `failed all ${MAX_PIECE_ATTEMPTS} attempts (${lastDetail})`,
+          );
+        } else {
+          outcomes.push({ author: persona.name, key, status: "failed", detail: lastDetail });
+          log(
+            `opinions: ${persona.name} FAILED — ${lastDetail} (${MAX_PIECE_ATTEMPTS} attempts; ` +
+              `no canned fallback ${canned ? "image" : "text"})`,
+          );
+        }
       }
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
@@ -875,8 +924,13 @@ export function summarizeOpinions(result: OpinionsResult): string {
   const count = (s: AuthorStatus) => result.authors.filter((o) => o.status === s).length;
   const skipped = count("skipped-idempotent") + count("skipped-no-candidates");
   const evergreen = result.authors.filter((o) => o.status === "published" && o.evergreen).length;
-  const evergreenNote = evergreen > 0 ? ` (${evergreen} evergreen)` : "";
-  return `${count("published")} published${evergreenNote}, ${skipped} skipped, ${count("failed")} failed; ${result.gateSummary}`;
+  const canned = result.authors.filter((o) => o.status === "published" && o.fallbackUsed).length;
+  const notes = [
+    evergreen > 0 ? `${evergreen} evergreen` : "",
+    canned > 0 ? `${canned} canned-fallback` : "",
+  ].filter(Boolean);
+  const note = notes.length ? ` (${notes.join(", ")})` : "";
+  return `${count("published")} published${note}, ${skipped} skipped, ${count("failed")} failed; ${result.gateSummary}`;
 }
 
 /**

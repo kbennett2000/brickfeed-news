@@ -80,7 +80,7 @@ function fullRoster(): Persona[] {
 }
 
 function assetsOf(...personas: Persona[]): OpinionAssets {
-  return { personas, shared: "SHARED RULES", letters: "LETTER RULES", comments: "COMMENT RULES", evergreen: "EVERGREEN RULES" };
+  return { personas, shared: "SHARED RULES", letters: "LETTER RULES", comments: "COMMENT RULES", evergreen: "EVERGREEN RULES", fallbacks: {} };
 }
 
 /** The four Sunday authors: rotation pair alice+bob + both letters personas. */
@@ -609,6 +609,63 @@ describe("runOpinions — publish path", () => {
     expect(h?.evergreen).toBe(true);
     expect(h?.sourceArticleIds).toBeUndefined();
     expect(generate.calls.filter(isGateCall)).toHaveLength(1); // gate still ran for alice
+  });
+
+  it("ADR-0033 2a: a fully degraded backend still publishes every author via canned fallback", async () => {
+    // generate returns null for EVERYTHING — gate, pieces, evergreen, briefs all fail. This is the
+    // 2026-08-20 morning: without the canned last resort, bob/hodge failed. Now every author ships.
+    const generate = fakeTextGenerator({ impl: () => null });
+    const assets = {
+      ...assetsOf(
+        newsPersona("alice"),
+        newsPersona("bob"),
+        lettersPersona("priscilla", ["tue", "thu", "sat", "sun"]),
+      ),
+      fallbacks: {
+        alice: { title: "Alice's Canned Column", body: "A committed alice fallback body." },
+        bob: { title: "Bob's Canned Column", body: "A committed bob fallback body." },
+        priscilla: { title: "Priscilla's Canned Column", body: "A committed priscilla fallback body." },
+      },
+    };
+    const result = await runOpinions(CONFIG, manifestOf(story("s1")), assets, {
+      generate,
+      now: fixedNow(NOW),
+      fallbackImages: {
+        alice: "https://cdn.test/headshots/alice.webp",
+        bob: "https://cdn.test/headshots/bob.webp",
+        priscilla: "https://cdn.test/headshots/priscilla.webp",
+      },
+    }, { authors: ["alice", "bob", "priscilla"] });
+
+    expect(result.authors.map((a) => [a.author, a.status])).toEqual([
+      ["alice", "published"],
+      ["bob", "published"],
+      ["priscilla", "published"],
+    ]);
+    expect(result.authors.every((a) => a.fallbackUsed === true)).toBe(true);
+    expect(result.ok).toBe(true);
+    const rec = result.manifest.stories["opinion-alice-2026-07-12"];
+    expect(rec.headline).toBe("Alice's Canned Column");
+    expect(rec.description).toBe("A committed alice fallback body.");
+    expect(rec.imageUrl).toBe("https://cdn.test/headshots/alice.webp");
+    expect(rec.category).toBe("OPINION");
+    expect(rec.author).toBe("alice");
+    expect(summarizeOpinions(result)).toContain("3 canned-fallback");
+  });
+
+  it("ADR-0033 2a: an author with no canned fallback (or no image) still fails gracefully", async () => {
+    const generate = fakeTextGenerator({ impl: () => null });
+    const assets = {
+      ...assetsOf(newsPersona("alice")),
+      fallbacks: { alice: { title: "T", body: "B" } }, // has text…
+    };
+    const result = await runOpinions(CONFIG, manifestOf(story("s1")), assets, {
+      generate,
+      now: fixedNow(NOW),
+      fallbackImages: {}, // …but no image → cannot publish the canned record
+    }, { authors: ["alice"] });
+    expect(result.authors[0].status).toBe("failed");
+    expect(result.authors[0].fallbackUsed).toBeUndefined();
   });
 
   it("recovers a leaked preamble title end-to-end (record carries the real title)", async () => {
