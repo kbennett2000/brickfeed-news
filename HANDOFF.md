@@ -36,11 +36,24 @@ the Claude fallback gate hung 303s then errored), routing alice/bob/hodge to eve
 - **2e DROPPED.** Letting non-Hodge personas draw SPORTS to avoid evergreen conflicts with the owner
   directive ("only Hodge does sports"); 2a already guarantees they publish.
 
-**REMAINING — 2f (needs owner/infra):** the `text-transform-service` at `http://G434:8712` chronically
-returns `413 over_budget` / unreachable (its own repo — the recurring root code can only partly
-mitigate). Code-side TODO: bound the Claude fallback-gate call time (`defaultClaudeRunner` has no
-timeout → it hung 303s) so it fails fast to the 2a fallback. Owner-side: raise/reset the TTS service
-budget cap.
+**2f — SHIPPED (both halves, 2026-08-20 follow-up; 880 green, tsc clean).** ADR-0033 is now fully
+closed.
+- **Code side (this repo):** `defaultClaudeRunner` (`src/generator/subscription.ts`) was the only text
+  runner with no timeout → the Claude fallback taste-gate hung ~303s and stalled the cycle. Factored
+  the spawn into `spawnClaude(...)`, bounded by `DEFAULT_CLAUDE_TIMEOUT_MS = 120_000` (matches the grok
+  text runner + TTS gate budget): a hung child is SIGKILLed → `code:1` → `null`, so the gate fails fast
+  to the 2a canned fallback instead of hanging. `ClaudeRunner` gained an optional `timeoutMs` (additive;
+  callers unchanged). New hermetic timeout tests in `test/generator.subscription.test.ts` (drive a node
+  stand-in, never the real `claude`). Optional future follow-on (NOT done): a `generator.claudeTimeoutMs`
+  config knob and/or a shorter gate-specific budget threaded through `opinions.ts`.
+- **Infra side (separate repos — done by the owner):** the chronic `413 over_budget` / `503 busy` /
+  unreachable root was GPU contention between `text-transform-service` (:8712) and `imagegen-service`
+  (:8189) sharing one GPU. Fixed **inside those two services** via a shared `flock` GPU-tenancy lock
+  (acquire → load model → drain the burst → free own VRAM → release; kernel auto-releases on crash).
+  **Brickfeed needed NO change** — recon confirmed it does zero caller-side GPU coordination (no
+  `/free`, no unload, no cross-service sequencing); it's a plain HTTP consumer that retries and fails
+  over, so the service-side lock made no brickfeed code obsolete. (Spec + per-service kickoff prompts
+  were authored this session; live in the two service repos.)
 
 ## Opinion supply diversity + grim-day fallbacks — ADR-0032 (ALL FIVE LAYERS SHIPPED 2026-08-17)
 

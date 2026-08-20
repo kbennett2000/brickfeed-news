@@ -84,13 +84,67 @@ export function extractResultText(stdout: string): string | null {
 }
 
 /**
- * Default runner: spawn the Claude CLI, write the prompt on stdin, collect stdout.
- * No `env` option is passed, so the child inherits our environment — including
- * CLAUDE_CODE_OAUTH_TOKEN when set — without this module ever touching the
- * environment directly (secrets.ts is the only env reader). A spawn error resolves
- * as a non-zero exit code so generate() degrades to null rather than rejecting.
- * Exported so the free-form text seam (text.ts) reuses this exact spawn — one
- * stdin/exit-code truth — mirroring grokTerminal's exported defaultTextRunner.
+ * Default budget for a single headless `claude` turn before the child is SIGKILLed. Matches the
+ * grok text runner (DEFAULT_TEXT_TIMEOUT_MS) and the TTS gate budget (DEFAULT_TTS_GATE_TIMEOUT_MS).
+ * Without this bound the runner resolved only on the child's own close/error — on 2026-08-20 the
+ * fallback taste-gate call hung ~303s then errored, stalling the whole cycle instead of failing fast
+ * to the canned fallback (ADR-0033 item 2f).
+ */
+export const DEFAULT_CLAUDE_TIMEOUT_MS = 120_000;
+
+/**
+ * Spawn a CLI, write the prompt on stdin, collect stdout, and SIGKILL it past `timeoutMs` so a hung
+ * child can never stall the caller (it resolves `code:1` → generate() degrades to null). All
+ * resolutions route through `finish()` so the timer is always cleared and the promise settles once.
+ * Exported (over `command`) purely as a test seam — production always passes `"claude"` via
+ * defaultRunner; a test points it at a never-exiting stand-in to exercise the timeout deterministically.
+ */
+export function spawnClaude(
+  command: string,
+  args: string[],
+  prompt: string,
+  timeoutMs: number,
+): Promise<{ stdout: string; code: number; stderr?: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (result: { stdout: string; code: number; stderr?: string }): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish({ stdout, code: 1, stderr });
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
+    // Accumulate stderr (still drained so the pipe never blocks) — the story path ignores
+    // it, but the free-form text seam surfaces it in its null-cause diagnostic (text.ts).
+    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+
+    child.on("error", (err) => finish({ stdout: "", code: 1, stderr: err.message }));
+    child.on("close", (code) => finish({ stdout, code: code ?? 1, stderr }));
+
+    child.stdin.on("error", () => {}); // ignore EPIPE if the child exits early
+    child.stdin.write(prompt);
+    child.stdin.end();
+  });
+}
+
+/**
+ * Default runner: spawn the Claude CLI, write the prompt on stdin, collect stdout, bounded by
+ * `timeoutMs` (or DEFAULT_CLAUDE_TIMEOUT_MS). No `env` option is passed, so the child inherits our
+ * environment — including CLAUDE_CODE_OAUTH_TOKEN when set — without this module ever touching the
+ * environment directly (secrets.ts is the only env reader). A spawn error OR a timeout resolves as a
+ * non-zero exit code so generate() degrades to null rather than rejecting or hanging. Exported so the
+ * free-form text seam (text.ts) reuses this exact spawn — one stdin/exit-code truth — mirroring
+ * grokTerminal's exported defaultTextRunner.
  *
  * Do NOT add `--bare` here. Minimal mode skips loading the stored subscription
  * login, so `claude -p --bare` returns is_error:true "Not logged in · Please run
@@ -98,23 +152,5 @@ export function extractResultText(stdout: string): string | null {
  * working headless invocation (mirroring photo-wrangler's launcher_core.build_claude_argv)
  * is plain `-p --output-format json --model <m>`.
  */
-export const defaultRunner: ClaudeRunner = ({ model, prompt }) =>
-  new Promise((resolve) => {
-    const child = spawn("claude", buildClaudeArgs(model), {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
-    // Accumulate stderr (still drained so the pipe never blocks) — the story path ignores
-    // it, but the free-form text seam surfaces it in its null-cause diagnostic (text.ts).
-    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-
-    child.on("error", (err) => resolve({ stdout: "", code: 1, stderr: err.message }));
-    child.on("close", (code) => resolve({ stdout, code: code ?? 1, stderr }));
-
-    child.stdin.on("error", () => {}); // ignore EPIPE if the child exits early
-    child.stdin.write(prompt);
-    child.stdin.end();
-  });
+export const defaultRunner: ClaudeRunner = ({ model, prompt, timeoutMs }) =>
+  spawnClaude("claude", buildClaudeArgs(model), prompt, timeoutMs ?? DEFAULT_CLAUDE_TIMEOUT_MS);

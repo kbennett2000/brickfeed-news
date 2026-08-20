@@ -67,9 +67,19 @@ need no migration — they are hidden by Part 0 and age out.
   Letting normal personas draw a SPORTS pick when the pool is all-sports would violate "only Hodge
   covers sports." The correct behavior on such a day is that a normal persona has no news in its lane
   and goes to evergreen → and 2a now guarantees it still publishes. No change needed.
-- **2f. TTS health. — REMAINING.** Shorten the Claude fallback-gate timeout so it fails fast instead
-  of hanging 303s; flag the `text-transform-service` `413 over_budget` cap to the owner (a separate
-  service/repo — the chronic root that code can only partly mitigate).
+- **2f. TTS health. — SHIPPED.** Two halves, both now closed:
+  - *Code side (this repo).* `defaultClaudeRunner` (`src/generator/subscription.ts`) was the lone
+    text runner with no timeout, so the Claude fallback taste-gate could hang (~303s on 2026-08-20)
+    and stall the cycle. It now spawns via `spawnClaude(...)` bounded by `DEFAULT_CLAUDE_TIMEOUT_MS =
+    120_000` (matching the grok text runner and the TTS gate budget): a hung child is SIGKILLed and
+    resolves `code:1` → `null`, so the gate fails fast to the 2a canned fallback. `ClaudeRunner` gained
+    an optional `timeoutMs` (additive) for tuning/testing.
+  - *Infra side (separate repos).* The chronic `413 over_budget` / `503 busy` / unreachable root was
+    GPU contention between `text-transform-service` (:8712) and `imagegen-service` (:8189) on one GPU.
+    Fixed **inside those two services** via a shared `flock` GPU-tenancy lock (each tenant loads its
+    model, drains its burst, frees its own VRAM, then hands off). **Brickfeed needed no change** — it
+    does no caller-side GPU coordination; it is a plain HTTP consumer that retries and fails over, so
+    the service-side lock made no brickfeed code obsolete.
 - **2g. Observability + honesty.** Correct the "never-empty" overclaim; per-cycle health line
   "columns: N/target (K canned-fallback)" so degraded days are visible, not hidden behind the count.
 

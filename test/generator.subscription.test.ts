@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_CLAUDE_TIMEOUT_MS,
   SubscriptionGenerator,
   buildClaudeArgs,
   extractJsonObject,
   extractResultText,
   parseGeneratorOutput,
+  spawnClaude,
 } from "../src/generator/subscription.js";
 import type { GenerationInput } from "../src/types.js";
 import { fakeRunner } from "./helpers.js";
@@ -135,6 +137,36 @@ describe("SubscriptionGenerator.generate — never-throw failure modes", () => {
       runner: fakeRunner({ stdout: "" }),
     });
     expect(await gen.generate(INPUT)).toBeNull();
+  });
+});
+
+describe("spawnClaude — SIGKILL timeout (ADR-0033 2f)", () => {
+  // Hermetic: drive a real node child (never `claude`, which may be absent in CI) so the timer
+  // path is exercised deterministically regardless of the box.
+  const node = process.execPath;
+
+  it("kills a hung child past timeoutMs and resolves code 1 instead of hanging", async () => {
+    // A child that ignores stdin and never exits — only the timeout can end it.
+    const started = Date.now();
+    const result = await spawnClaude(node, ["-e", "setInterval(() => {}, 1000)"], "prompt", 60);
+    expect(result.code).toBe(1);
+    // Resolved via the timer, not by hanging out to the 120s default.
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("resolves normally when the child exits before the timeout (timer cleared)", async () => {
+    const result = await spawnClaude(
+      node,
+      ["-e", "process.stdout.write('done'); process.exit(0)"],
+      "prompt",
+      5_000,
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("done");
+  });
+
+  it("exposes a 120s default budget matching the other text runners", () => {
+    expect(DEFAULT_CLAUDE_TIMEOUT_MS).toBe(120_000);
   });
 });
 

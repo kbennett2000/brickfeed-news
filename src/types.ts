@@ -159,6 +159,12 @@ export interface Generator {
 export type ClaudeRunner = (args: {
   model: string;
   prompt: string;
+  /**
+   * Optional budget (ms) before the child is SIGKILLed. Omitted → the runner's own default
+   * (DEFAULT_CLAUDE_TIMEOUT_MS). Additive/backward-compatible: callers passing `{ model, prompt }`
+   * keep the default; tests can pass a tiny budget to exercise the timeout path.
+   */
+  timeoutMs?: number;
 }) => Promise<{ stdout: string; code: number; stderr?: string }>;
 
 /**
