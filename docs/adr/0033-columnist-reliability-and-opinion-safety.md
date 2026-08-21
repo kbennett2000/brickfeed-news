@@ -3,7 +3,9 @@
 ## Status
 
 Accepted — 2026-08-20. Part 0, Part 1, and Part 2 (2a/2b/2d/2g) shipped; 2c/2e dropped as no-ops on
-investigation (see below); 2f (TTS infra) remaining.
+investigation (see below); 2f (TTS infra) shipped. **Part 3 added 2026-08-21** — the REAL root cause
+of the chronic "zero columns" mornings turned out to be a publish-hour/suspend collision, not the
+TTS/GPU backend everyone had been hardening (see Part 3).
 
 ## Context
 
@@ -82,6 +84,38 @@ need no migration — they are hidden by Part 0 and age out.
     the service-side lock made no brickfeed code obsolete.
 - **2g. Observability + honesty.** Correct the "never-empty" overclaim; per-cycle health line
   "columns: N/target (K canned-fallback)" so degraded days are visible, not hidden behind the count.
+
+### Part 3 — The real root cause: publish hour collided with the dev PC's overnight suspend (SHIPPED 2026-08-21)
+
+After Part 2 shipped, mornings were *still* landing zero fresh columns, and it kept getting blamed on
+the TTS/GPU backend. On 2026-08-21 the evidence finally pinned the actual cause — and it was not the
+generator at all:
+
+- `opinionPublishHourUTC` was **10** (UTC). The opinion stage runs only on a cron tick whose UTC hour
+  is `>= 10` (`beforeOpinionPublishHour`). 10:00 UTC = **04:00 America/Denver**. With cron at `0 */4`
+  (local ticks 00/04/08/12/16/20 = UTC 06/10/14/18/22/02), the **first/primary publish tick each day
+  is 04:00 local** — precisely when the personal dev PC that hosts the orchestrator is asleep.
+- `journalctl --list-boots` showed the boot preceding the incident **ended at 2026-08-21 04:04:55**;
+  `cycle.log` froze at 04:05:01 mid-way through Edgar's column with no epilogue line. An idle **suspend
+  hard-killed the running cycle** before render/deploy — so no in-process guardrail (not even the 2a
+  canned fallback) could fire. This had been recurring most nights.
+- Proof it was scheduling, not the pipeline: that same morning the topic gate *passed 114/143*
+  candidates, render+deploy succeeded on the 00:00/16:00/20:00 ticks, and the manifest held columns
+  generated as recently as the day before (including a working 08:00 makeup tick). The machinery was
+  healthy; it was simply aimed at the one hour the machine is reliably off.
+
+**Fix:**
+- **Move the publish hour off the sleep window.** `opinionPublishHourUTC: 10 → 14` (config.json and
+  config.example.json) → primary publish at **08:00 America/Denver**, when the box is reliably awake.
+  Overnight ticks now fall *before* the hour and make zero provider calls; midday/afternoon makeup
+  ticks (12:00/16:00/20:00 local) still catch up the same day if 08:00 is ever missed.
+- **Stop an idle suspend from killing a live run.** `scripts/cycle.sh` now wraps the cycle in
+  `systemd-inhibit --what=idle --mode=block`, so an idle auto-suspend is held off for the duration of
+  a run (a deliberate owner shutdown/suspend is unaffected). Degrades to a bare run where
+  `systemd-inhibit` is unavailable.
+
+The Part 2 / 2f TTS+GPU work stands (it removed real failure modes), but it was treating a symptom.
+Part 3 is the fix for the actual chronic outage.
 
 ## Consequences
 

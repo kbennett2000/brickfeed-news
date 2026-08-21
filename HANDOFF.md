@@ -1,5 +1,38 @@
 # Handoff
 
+## Part 3 — the REAL "zero columns" cause: publish hour vs. overnight suspend (2026-08-21)
+
+Owner escalated: "another day, ZERO columns." Weeks of TTS/GPU hardening (ADR-0023/26/31/32/33 Part
+2/2f) had NOT fixed the mornings, because the real cause was never the backend — it was **scheduling**.
+
+**Diagnosis (evidenced):**
+- `config.json → opinionPublishHourUTC` was **10** (UTC). Opinions run only on a cron tick with UTC
+  hour `>= 10` (`beforeOpinionPublishHour`, `src/opinions.ts:219`). 10:00 UTC = **04:00
+  America/Denver**. Cron is `0 */4` → the **primary daily publish tick is 04:00 local**.
+- The orchestrator's dev PC idle-suspends overnight. `journalctl --list-boots`: the boot before the
+  incident **ended 2026-08-21 04:04:55**; `cycle.log` froze 04:05:01 mid-Edgar with no epilogue — the
+  suspend **hard-killed the run** before render/deploy, so not even the 2a canned fallback could fire.
+- NOT the pipeline: that morning the gate *passed 114/143*, render+deploy succeeded on the
+  00:00/16:00/20:00 ticks, and the manifest had columns from the prior day (incl. a working 08:00
+  makeup tick). Healthy machinery, pointed at the one hour the box is reliably off.
+
+**Fix (SHIPPED to master 2026-08-21):**
+- `opinionPublishHourUTC: 10 → 14` in **config.json** (live; git-ignored, so NOT in the commit — takes
+  effect on the box) and **config.example.json** (committed default). New primary publish = **08:00
+  America/Denver**, box reliably awake; overnight ticks now make zero provider calls; midday/afternoon
+  makeup ticks still self-heal the same day.
+- **scripts/cycle.sh** wraps the run in `systemd-inhibit --what=idle --mode=block` so an idle
+  auto-suspend can't kill a live cycle (a deliberate owner shutdown/suspend is unaffected; degrades to
+  a bare `npm run cycle` if `systemd-inhibit` is absent).
+- Ran one cycle manually at ~12:2X UTC (past the old hour, box up) to publish **today's** columns
+  immediately, then deployed. See ADR-0033 Part 3.
+
+**If mornings still miss after this:** check `journalctl --list-boots` for a suspend spanning 08:00
+local; if the box is also asleep then, either push the hour later (e.g. `16` = 10:00 local) or add a
+persistent/anacron-style catch-up — the makeup ticks only help while the box is on.
+
+---
+
 ## Columnist reliability + Opinion-section content safety — ADR-0033 (2026-08-20)
 
 Interactive owner session. Two problems on 2026-08-20: only 2 of 4 columns published, AND real

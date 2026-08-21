@@ -99,7 +99,19 @@ heartbeat_pid=$!
 trap 'kill "$heartbeat_pid" 2>/dev/null' EXIT
 
 # Run the cycle; its own per-stage / per-story logging streams through here as it goes.
-npm run cycle
+#
+# WHY systemd-inhibit: the box is a personal dev PC that idle-suspends. On 2026-08-21 an idle
+# suspend fired mid-cycle (04:04:55) and HARD-KILLED the run partway through opinion generation —
+# no render, no deploy, no in-process fallback could save it, so the day published zero columns.
+# An `idle` inhibitor holds off the *idle* auto-suspend for the duration of a run (it does NOT
+# block a deliberate `systemctl suspend`/shutdown by the owner). If systemd-inhibit is missing,
+# fall back to a bare run.
+if command -v systemd-inhibit >/dev/null 2>&1; then
+  systemd-inhibit --what=idle --who="brickfeed" --why="cycle in progress" --mode=block npm run cycle
+else
+  say "systemd-inhibit not found — running without idle-suspend guard"
+  npm run cycle
+fi
 code=$?
 
 kill "$heartbeat_pid" 2>/dev/null
