@@ -403,12 +403,11 @@ function opinionBylineRow(view: StoryView, extraClass = "", pathPrefix = ""): st
   return `<div class="${cls}">${linked}${column}${bylineTail(view.timestamp)}</div>`;
 }
 
-/** The utility strip: dateline + time-of-day edition (no Search / Subscribe / Today's Paper). */
-export function utilityStrip(dateStr: string, edition: string): string {
+/** The utility strip: dateline only (no time-of-day edition, Search, Subscribe, or Today's Paper). */
+export function utilityStrip(dateStr: string): string {
   return `<div class="utility">
     <div class="container utility__inner">
       <div class="utility__date">${escapeHtml(dateStr)}</div>
-      <div class="utility__edition">${escapeHtml(edition)}</div>
       <div class="utility__spacer"></div>
     </div>
   </div>`;
@@ -585,12 +584,11 @@ function aboutLink(href: string, label: string): string {
  */
 export function renderAbout(
   dateStr: string,
-  edition: string,
   banner: string,
   sections: readonly Category[],
   analytics: AnalyticsProvider = "none",
 ): string {
-  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(sections) + banner;
+  const chrome = utilityStrip(dateStr) + masthead() + sectionNav(sections) + banner;
   const body =
     chrome +
     `<main>

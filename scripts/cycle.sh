@@ -16,12 +16,17 @@
 #   • Watch a run live from another terminal any time:   tail -f cycle.log
 #
 # ---------------------------------------------------------------------------------------
-# CRONTAB (configure the schedule placeholder; use an ABSOLUTE path to this script):
+# SCHEDULE — a systemd USER timer (scripts/systemd/brickfeed.{service,timer}):
 #
-#   <SCHEDULE>  /abs/path/to/brickfeed-news/scripts/cycle.sh
+#   ONE publication per day at 04:00 local, with a boot catch-up. The box is powered off
+#   overnight, so `Persistent=true` runs the missed 04:00 cycle as soon as the user manager
+#   comes up at boot (`loginctl enable-linger kb` must be on — it is). Install/enable:
+#     install -m0644 scripts/systemd/brickfeed.{service,timer} ~/.config/systemd/user/
+#     systemctl --user daemon-reload && systemctl --user enable --now brickfeed.timer
 #
-#   e.g. every 4 hours on the hour:
-#   0 */4 * * *  /home/kris/brickfeed-news/scripts/cycle.sh
+#   To go back to multiple publications per day, add OnCalendar= lines (drop Persistent) or
+#   restore the old crontab line, and reset config.json opinionPublishHourUTC to 14:
+#     0 */4 * * *  /abs/path/to/brickfeed-news/scripts/cycle.sh
 #
 # ---------------------------------------------------------------------------------------
 # ONE-TIME HUMAN PREREQUISITES (run interactively on the box — do NOT automate headless):

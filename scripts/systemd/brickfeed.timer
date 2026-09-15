@@ -1,0 +1,22 @@
+[Unit]
+Description=brickfeed-news daily publication cycle (04:00 local, with boot catch-up)
+
+[Timer]
+# ONE publication per day, targeting 04:00 local time.
+#
+# Persistent=true is the whole point: this box is powered OFF overnight and only boots in the
+# morning (~05:1x), so a plain 04:00 trigger would almost never fire. Persistent records the last
+# run and, if the 04:00 trigger was missed while the machine was off, runs the cycle immediately
+# once the user manager comes up at boot. Combined with `loginctl enable-linger kb` (already on),
+# that guarantees exactly one publication a day even though 04:00 lands while the box is asleep.
+#
+# TO GO BACK TO MULTIPLE PUBLICATIONS PER DAY: either list several OnCalendar= lines here (e.g.
+# `OnCalendar=*-*-* 00,04,08,12,16,20:00:00`) and drop Persistent, or re-enable the old crontab
+# line `0 */4 * * * .../scripts/cycle.sh`. Also restore config.json `opinionPublishHourUTC` to 14
+# (08:00 local) so opinions publish on a single mid-morning tick rather than every run.
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

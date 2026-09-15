@@ -73,7 +73,6 @@ img { max-width: 100%; display: block; }
   letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted);
 }
 .utility__date { flex: 1; }
-.utility__edition { flex: 1; text-align: center; color: var(--fainter); }
 .utility__spacer { flex: 1; }
 
 /* ---- masthead ---- */

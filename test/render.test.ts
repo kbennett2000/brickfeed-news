@@ -12,8 +12,6 @@ import {
   buildLinkedInIntentUrl,
   buildXIntentUrl,
   bylineFor,
-  editionForHour,
-  editionLabel,
   excerpt,
   formatMastheadDate,
   optimizedSrcset,
@@ -154,24 +152,12 @@ describe("renderSite — cover page", () => {
     expect(placeholderOnly["index.html"]).not.toContain("figure__zoom");
   });
 
-  it("shows the masthead date, tagline, and time-of-day edition from the injected clock", () => {
+  it("shows the masthead date and tagline from the injected clock, with no time-of-day edition label", () => {
     expect(index).toContain("FRIDAY, JULY 10, 2026");
     expect(index).toContain("All the stories, brick by brick");
-    // NOW is 12:00Z, default tz UTC → the noon window.
-    expect(index).toContain("Afternoon Edition");
-    expect(index).not.toContain("Late Brick Edition");
-  });
-
-  it("computes the edition in the configured timeZone", () => {
-    // 02:00Z is the previous evening (20:00) in America/Denver → the Night window.
-    const files = renderSite(records, {
-      now: new Date("2026-07-11T02:00:00.000Z"),
-      secondaryStoryCount: 3,
-      timeZone: "America/Denver",
-      siteBaseUrl: SITE_BASE_URL,
-    });
-    expect(files["index.html"]).toContain("Night Edition");
-    expect(files["index.html"]).not.toContain("Afternoon Edition");
+    // The time-of-day edition label was retired (single daily publication) — no "… Edition" chrome.
+    expect(index).not.toContain("Edition");
+    expect(index).not.toContain("utility__edition");
   });
 
   it("omits removed chrome: search, subscribe, today's paper, English tagline", () => {
@@ -491,28 +477,6 @@ describe("format helpers", () => {
     expect(bylineFor("TECHNOLOGY")).toBe("By the Technology Desk");
   });
 
-  it("maps each hour to its 4-hour edition window (inclusive of boundaries)", () => {
-    // start-of-window and end-of-window hours land in the same edition.
-    expect(editionForHour(0)).toBe("Midnight Edition");
-    expect(editionForHour(3)).toBe("Midnight Edition");
-    expect(editionForHour(4)).toBe("Sunrise Edition");
-    expect(editionForHour(7)).toBe("Sunrise Edition");
-    expect(editionForHour(8)).toBe("Morning Edition");
-    expect(editionForHour(11)).toBe("Morning Edition");
-    expect(editionForHour(12)).toBe("Afternoon Edition");
-    expect(editionForHour(15)).toBe("Afternoon Edition");
-    expect(editionForHour(16)).toBe("Evening Edition");
-    expect(editionForHour(19)).toBe("Evening Edition");
-    expect(editionForHour(20)).toBe("Night Edition");
-    expect(editionForHour(23)).toBe("Night Edition");
-  });
-
-  it("computes the edition label from a clock in a given time zone", () => {
-    const t = new Date("2026-07-11T02:00:00.000Z");
-    expect(editionLabel(t, "UTC")).toBe("Midnight Edition"); // 02:00 UTC
-    expect(editionLabel(t, "America/Denver")).toBe("Night Edition"); // 20:00 local
-    expect(editionLabel(new Date("2026-07-10T12:00:00.000Z"))).toBe("Afternoon Edition"); // default UTC
-  });
 });
 
 const AD_A = {

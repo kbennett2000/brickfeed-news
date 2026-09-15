@@ -29,7 +29,6 @@ import {
   excerpt,
   formatTimestamp,
   formatMastheadDate,
-  editionLabel,
   hashString,
   paragraphize,
   sectionSlug,
@@ -371,14 +370,13 @@ function insertRanked(base: StoryView[], articles: RankedArticle[], seed: string
 function renderCover(
   views: StoryView[],
   dateStr: string,
-  edition: string,
   secondaryStoryCount: number,
   sections: readonly Category[],
   banner: string,
   analytics: AnalyticsProvider,
   storyOpts: StoryRenderOpts,
 ): string {
-  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(sections) + banner;
+  const chrome = utilityStrip(dateStr) + masthead() + sectionNav(sections) + banner;
 
   if (views.length === 0) {
     const body =
@@ -425,14 +423,13 @@ function renderSection(
   category: Category,
   secViews: StoryView[],
   dateStr: string,
-  edition: string,
   sections: readonly Category[],
   banner: string,
   analytics: AnalyticsProvider,
   storyOpts: StoryRenderOpts,
   cast = "",
 ): string {
-  const chrome = utilityStrip(dateStr, edition) + masthead() + sectionNav(sections, category) + banner;
+  const chrome = utilityStrip(dateStr) + masthead() + sectionNav(sections, category) + banner;
 
   // The Opinion page carries its verbatim disclosure banner (ADR-0016 d.6) right under the
   // section masthead, and — uniquely among section pages — a static meta description naming
@@ -523,7 +520,6 @@ export function renderSite(
 ): Record<string, string> {
   const tz = opts.timeZone ?? "UTC";
   const dateStr = formatMastheadDate(opts.now, tz);
-  const edition = editionLabel(opts.now, tz);
   // CONTENT SAFETY (ADR-0033): an authorless OPINION record is mis-tagged news — it must render on
   // NO surface (section listing, per-story page, cover, sitemap, share). Drop it up front, before
   // any surface is built, so nothing downstream can leak it. Part 1 prevents new ones at generation;
@@ -554,14 +550,14 @@ export function renderSite(
 
   // Locally hosted articles (ADR-0010): drop expired ones, then build a StoryView per live
   // article once (shared across the cover, its section page, and its own landing page). The
-  // rank-0 placement seed shifts each edition so unranked articles wander across cycles.
+  // rank-0 placement seed shifts each day so unranked articles wander across days.
   const liveArticles = (opts.articles ?? []).filter((a) => !isExpired(a, opts.now));
   const articleViews = liveArticles.map((article) => {
     const view = articleToStoryView(article);
     view.shareUrl = storyPageUrl(opts.siteBaseUrl, article.id);
     return { article, view };
   });
-  const seed = `${dateStr}|${edition}`;
+  const seed = dateStr;
 
   // Sections with at least one published item this build — feed records plus live (non-expired)
   // local articles — in canonical CATEGORIES order. Only these render, get linked from the
@@ -599,8 +595,8 @@ export function renderSite(
   );
 
   const files: Record<string, string> = {
-    "index.html": renderCover(coverViews, dateStr, edition, opts.secondaryStoryCount, presentSections, banner, analytics, storyOpts),
-    "about.html": renderAbout(dateStr, edition, banner, presentSections, analytics),
+    "index.html": renderCover(coverViews, dateStr, opts.secondaryStoryCount, presentSections, banner, analytics, storyOpts),
+    "about.html": renderAbout(dateStr, banner, presentSections, analytics),
     "styles.css": STYLES,
   };
   const cast = castStrip(opts.authors ?? {});
@@ -626,7 +622,6 @@ export function renderSite(
       category,
       secViews,
       dateStr,
-      edition,
       presentSections,
       banner,
       analytics,

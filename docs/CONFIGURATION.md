@@ -29,7 +29,7 @@ minimal config is valid. Only **`feedUrls`** and **`manifestPath`** are strictly
 | `publishedPath` | string | `data/published.json` | Path to the newest-first publishable slice the renderer reads. |
 | `maxAgeHours` | number | `72` | Records whose `lastSeen` is older than this are aged out and their images deleted. |
 | `opinionMaxAgeHours` | number | `168` | Retention window for OPINION stories only; all other categories use `maxAgeHours`. Never falls back to `maxAgeHours` (ADR-0013). |
-| `opinionPublishHourUTC` | number | `13` | UTC hour (integer 0–23) the cycle's opinions stage first runs each day; the gate is `>=` so a missed tick self-heals next cycle. `npm run opinions` bypasses it (ADR-0018). |
+| `opinionPublishHourUTC` | number | `10` | UTC hour (integer 0–23) the cycle's opinions stage first runs each day; the gate is `>=` so a missed tick self-heals next cycle. `npm run opinions` bypasses it (ADR-0018). With the current **once-a-day 04:00-local schedule** this is `10` (04:00 America/Denver = 10:00 UTC in MDT), so opinions publish on the single daily run — including the boot catch-up, which is always later. If you go back to multiple runs per day, reset this to `14` (08:00 local) so opinions land on one mid-morning tick instead of every run. |
 | `concurrency` | number | `4` | Parallel stories processed in the generate and image stages. |
 | `maxStoriesPerCycle` | number | `40` | Cap on new stories **generated** per cycle, so a backlog spreads over several cron ticks. Per-feed `reserve` shares are carved out of this budget first, then the rest fills newest-first (ADR-0032). |
 | `brickStyle.styleLanguage` | string | — (**required**) | The toy-brick style text wrapped around every image prompt. Kept in config, never hardcoded; generic bricks only (no trademark). |
@@ -116,7 +116,7 @@ outage; the restart is a bonus, not load-bearing.
 | --- | --- | --- | --- |
 | `render.outputDir` | string | `site` | Directory the rendered site is written to (the deploy artifact). |
 | `render.secondaryStoryCount` | number | `4` | Number of secondary "rail" stories after the lead on the cover page. |
-| `render.timeZone` | string | `UTC` | IANA time zone the masthead dateline + time-of-day edition label are computed in (ADR-0008). Production uses `America/Denver`. |
+| `render.timeZone` | string | `UTC` | IANA time zone the masthead dateline is computed in (ADR-0008; the time-of-day edition label it also drove was retired with the move to one publication per day). Production uses `America/Denver`. |
 | `render.siteBaseUrl` | string | `https://www.brickfeed.news` | Absolute site origin (no trailing slash) used to build each per-story landing page's absolute `og:url` and the X share URLs (ADR-0009). Must be `http(s)://…`. |
 | `render.analytics` | `"vercel"` \| `"none"` | `none` | Cookieless web-analytics beacon injected before `</body>` on public pages (cover, sections, about, per-story landing pages). `none` keeps the site JS-free. `vercel` injects the Vercel Web Analytics plain-HTML snippet (`/_vercel/insights/script.js`) **and** the Speed Insights beacon (`/_vercel/speed-insights/script.js`, ADR-0012) — both only report once enabled for the project in the Vercel dashboard (Analytics → Enable, Speed Insights → Enable), and 404 harmlessly until then. The `noindex` operator share sheet is never tracked. |
 | `render.share.handle` | string | (unset) | Site X (Twitter) handle **without** a leading `@`; feeds `via=` on the per-story + Share-page links and `twitter:site` on landing cards. Omit to emit neither. |

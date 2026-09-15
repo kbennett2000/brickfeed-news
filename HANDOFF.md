@@ -1,5 +1,48 @@
 # Handoff
 
+## Schedule → ONE publication per day at 04:00 (systemd timer + boot catch-up); edition label removed (2026-09-15)
+
+Interactive owner session. Owner directive: switch from six publications a day to **one per day at
+04:00 local**, generate the opinion pieces on that run, **remove the time-of-day edition label**, and
+keep it easy to return to multiple runs a day. Then publish today by hand (it was ~05:30, past 04:00).
+
+**The 04:00 trap (why this isn't just a cron edit).** `journalctl --list-boots` confirmed the box is
+**powered off overnight** and boots ~05:1x (e.g. 2026-09-15 booted 05:13; the night before it was off
+23:21→05:13). A plain `0 4 * * *` cron would almost never fire — the exact "zero columns" failure class
+from Part 3 below, made *worse* because a single daily run has no makeup ticks. Owner chose **4 AM with
+a boot catch-up**.
+
+**SHIPPED (877 tests green, tsc clean; landed on master per [[delivery-no-prs]]):**
+- **Schedule = a systemd USER timer**, not cron. `scripts/systemd/brickfeed.{service,timer}` (committed
+  templates), installed to `~/.config/systemd/user/` and enabled. `OnCalendar=*-*-* 04:00:00` +
+  **`Persistent=true`**: the box's user manager runs at boot (`loginctl enable-linger kb` is already ON),
+  so a 04:00 trigger missed while powered off runs **immediately at boot** (~05:1x). The old
+  `0 */4 * * * .../scripts/cycle.sh` crontab line was **removed** (crontab backed up to the session
+  scratchpad `crontab.backup.txt`); the shared `cycle-dispatcher.sh`/`factory-new.sh` lines are the
+  dev-agent cycle, NOT the news pipeline, and were left untouched. `sudo` needs a password here, so a
+  system-level unit was not an option — the user timer + linger is the working path. Timer verified
+  `active (waiting)`, next trigger Wed 2026-09-16 04:00.
+- **`opinionPublishHourUTC` 14 → 10** in `config.json` (live, gitignored) **and** `config.example.json`
+  (committed). 04:00 America/Denver = 10:00 UTC (MDT) / 11:00 (MST); the gate is `>=`, so opinions now
+  publish on the single daily run *and* on the always-later boot catch-up. (At 14 the 04:00 run would
+  have SKIPPED opinions — that's why it had to move.)
+- **Edition label removed.** `utilityStrip` renders the dateline only; `edition` threading pulled out of
+  `renderCover`/`renderSection`/`renderAbout`/`renderSite` and the `editionForHour`/`editionLabel`/
+  `EDITION_NAMES` helpers + their tests deleted; `.utility__edition` CSS removed (CSS_VERSION auto-bumps);
+  the rank-0 article-placement seed is now just `dateStr` (was `dateStr|edition`). The screenshot the
+  owner shared showed "NIGHT EDITION" — that chrome is gone site-wide.
+- Docs: `scripts/cycle.sh` header (schedule → systemd), `docs/CONFIGURATION.md`
+  (`opinionPublishHourUTC`, `render.timeZone`), `docs/ARCHITECTURE.md` format.ts inventory.
+
+**TO GO BACK TO MULTIPLE RUNS/DAY (owner asked this stay easy):** either add `OnCalendar=` lines to
+`~/.config/systemd/user/brickfeed.timer` (e.g. `*-*-* 00,04,08,12,16,20:00:00`) and drop `Persistent`,
+or restore the crontab line `0 */4 * * * .../scripts/cycle.sh` (and `systemctl --user disable --now
+brickfeed.timer`). **Also reset `config.json` `opinionPublishHourUTC` to 14** so opinions land on one
+mid-morning tick instead of every run. The timer/service files and the revert steps are documented in
+`scripts/cycle.sh` and `scripts/systemd/brickfeed.timer`.
+
+**Manual publish for today (2026-09-15):** see the tail of this entry once the run completes.
+
 ## Part 3 — the REAL "zero columns" cause: publish hour vs. overnight suspend (2026-08-21)
 
 Owner escalated: "another day, ZERO columns." Weeks of TTS/GPU hardening (ADR-0023/26/31/32/33 Part

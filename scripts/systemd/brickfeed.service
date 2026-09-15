@@ -1,0 +1,13 @@
+[Unit]
+# brickfeed-news — the once-a-day publication run (ingest → generate → image → ageout →
+# render → deploy). Invokes the same cron-safe wrapper the schedule has always used
+# (flock, cron.env, nvm, systemd-inhibit, heartbeat logging); see scripts/cycle.sh.
+Description=brickfeed-news daily publication cycle
+Documentation=file:///home/kb/Desktop/projects/brickfeed-news/scripts/cycle.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/kb/Desktop/projects/brickfeed-news
+ExecStart=/home/kb/Desktop/projects/brickfeed-news/scripts/cycle.sh
+# One cycle can spend minutes in image generation; give it generous headroom.
+TimeoutStartSec=1800
